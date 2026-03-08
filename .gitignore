@@ -1,0 +1,11 @@
+text# macOS junk
+.DS_Store
+
+# editor junk
+.vscode/
+.idea/
+
+# local test files
+node_modules/
+dist/
+build/
