@@ -258,12 +258,18 @@
     width: 100%; padding: 12px;
     background: linear-gradient(135deg, var(--accent), #0099cc);
     border: none; border-radius: 8px;
-    color: #000; font-family: var(--sans); font-weight: 700;
-    font-size: 0.85rem; letter-spacing: 0.5px;
+    color: #000; font-family: var(--sans); font-weight: 800;
+    font-size: 0.9rem; letter-spacing: 1px;
     cursor: pointer; transition: all 0.2s;
+    box-shadow: 0 4px 16px rgba(0,212,255,0.25);
   }
-  .create-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,212,255,0.3); }
+  .create-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,212,255,0.4); }
   .create-btn:active { transform: translateY(0); }
+
+  /* Mobile sticky SET ALERT bar — hidden on desktop */
+  .mobile-alert-bar {
+    display: none;
+  }
 
   /* ── ALERTS PANEL ── */
   .alerts-panel { background: var(--surface); }
@@ -698,7 +704,7 @@
     .alert-form {
       padding: 16px;
       border-radius: 10px;
-      margin-bottom: 20px;
+      margin-bottom: 80px; /* leave space for sticky bar */
     }
     .form-title { font-size: 0.6rem; margin-bottom: 14px; }
     .form-row { grid-template-columns: 1fr; gap: 10px; margin-bottom: 10px; }
@@ -713,11 +719,40 @@
       padding: 15px;
       font-size: 1rem;
       border-radius: 10px;
-      letter-spacing: 0;
+      letter-spacing: 0.5px;
       -webkit-tap-highlight-color: transparent;
     }
     .create-btn:active { transform: scale(0.98); }
     .create-btn:hover { transform: none; box-shadow: none; }
+
+    /* Sticky SET ALERT bar — floats above bottom nav on mobile */
+    .mobile-alert-bar {
+      display: block;
+      position: sticky;
+      bottom: 0;
+      left: 0; right: 0;
+      padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+      background: rgba(8,12,18,0.96);
+      backdrop-filter: blur(16px);
+      border-top: 1px solid var(--border);
+      z-index: 20;
+    }
+    .mobile-alert-bar-btn {
+      width: 100%;
+      padding: 16px;
+      background: linear-gradient(135deg, var(--accent), #0070aa);
+      border: none;
+      border-radius: 12px;
+      color: #000;
+      font-family: var(--sans);
+      font-weight: 800;
+      font-size: 1.05rem;
+      letter-spacing: 1px;
+      cursor: pointer;
+      box-shadow: 0 4px 20px rgba(0,212,255,0.35);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .mobile-alert-bar-btn:active { transform: scale(0.97); opacity: 0.9; }
     .sound-selector { flex-wrap: wrap; gap: 8px; margin-top: 10px; }
     .sound-opt {
       padding: 9px 14px;
@@ -998,11 +1033,13 @@
           </div>
         </div>
       </div>
-      <button class="create-btn" onclick="createAlert()">＋ SET ALERT</button>
+      <button class="create-btn" onclick="createAlert()">⚡ SET ALERT</button>
     </div>
-  </div>
-
-  <!-- RIGHT: Alerts -->
+    <!-- Mobile sticky SET ALERT bar (shown only on mobile at bottom of chart panel) -->
+    <div class="mobile-alert-bar" id="mobile-alert-bar">
+      <button class="mobile-alert-bar-btn" onclick="createAlert()">⚡ SET ALERT</button>
+    </div>
+  </div><!-- /panel-main -->
   <div class="panel alerts-panel" id="panel-alerts">
     <div class="panel-title">ALERTS <span id="alert-count">0</span></div>
     <div id="alerts-list">
@@ -1440,6 +1477,12 @@ function selectAsset(asset) {
   // Update panel content via shared function
   refreshSelectedAssetPanel();
 
+  // Sync the alert form's asset dropdown to the selected asset.
+  // Do this here (once on selection) — NOT in refreshSelectedAssetPanel which
+  // runs every 8s and would scroll the form into view on mobile.
+  const sel = document.getElementById('alert-asset');
+  if (sel) sel.value = asset.id;
+
   // Update selection highlight — lightweight on mobile (no full re-render),
   // full re-render on desktop to also refresh prices on all cards
   if (window.innerWidth <= 768) {
@@ -1841,26 +1884,52 @@ function previewSound() {
 // ═══════════════════════════════════════════════
 // BROWSER NOTIFICATIONS
 // ═══════════════════════════════════════════════
+// ═══════════════════════════════════════════════
+// SERVICE WORKER + PUSH NOTIFICATIONS
+// ═══════════════════════════════════════════════
 let notifEnabled = false;
+let swRegistration = null;
+
+// Register the service worker as soon as the page loads.
+// Requires the app to be served over HTTPS or localhost — not file://.
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    swRegistration = await navigator.serviceWorker.register('./sw.js');
+  } catch (e) {
+    // SW registration fails silently on file:// — fallback to Notification API
+    swRegistration = null;
+  }
+}
+registerServiceWorker();
 
 async function requestNotifPermission() {
   if (!('Notification' in window)) {
     showToast('Not Supported', 'Browser notifications are not supported here.', 'error');
     return;
   }
-  if (Notification.permission === 'granted') {
-    notifEnabled = !notifEnabled;
+  // Toggle off if already enabled
+  if (Notification.permission === 'granted' && notifEnabled) {
+    notifEnabled = false;
     updateNotifBtn();
-    showToast(notifEnabled ? '🔔 Notifications ON' : '🔕 Notifications OFF',
-      notifEnabled ? 'You will receive browser alerts when prices trigger.' : 'Browser notifications disabled.', 'success');
+    showToast('🔕 Notifications OFF', 'Price alerts will no longer send notifications.', 'success');
     return;
   }
+  // Re-enable if already granted
+  if (Notification.permission === 'granted') {
+    notifEnabled = true;
+    updateNotifBtn();
+    showToast('🔔 Notifications ON', 'You will receive alerts when price targets are hit.', 'success');
+    sendBrowserNotification('TradeWatch Active ⚡', 'Price alert notifications are enabled.');
+    return;
+  }
+  // Request permission
   const perm = await Notification.requestPermission();
   if (perm === 'granted') {
     notifEnabled = true;
     updateNotifBtn();
     showToast('🔔 Notifications Enabled', 'Browser alerts will fire when your price targets are hit.', 'success');
-    new Notification('TradeWatch Active ⚡', { body: 'You will now receive price alert notifications.', icon: '' });
+    sendBrowserNotification('TradeWatch Active ⚡', 'You will now receive price alert notifications.');
   } else {
     showToast('Permission Denied', 'Enable notifications in your browser settings to use this feature.', 'error');
   }
@@ -1870,21 +1939,41 @@ function updateNotifBtn() {
   const btn = document.getElementById('notif-btn');
   if (notifEnabled) {
     btn.classList.add('active');
-    btn.title = 'Notifications ON — click to toggle';
+    btn.title = 'Notifications ON — click to toggle off';
   } else {
     btn.classList.remove('active');
     btn.title = 'Enable browser notifications';
   }
 }
 
-function sendBrowserNotification(title, body) {
+// Route through service worker's showNotification when available —
+// this fires even when the tab is in the background or on mobile lock screens.
+// Falls back to new Notification() if SW isn't registered (e.g. file:// context).
+async function sendBrowserNotification(title, body) {
   if (!notifEnabled || Notification.permission !== 'granted') return;
   try {
-    new Notification(title, { body, icon: '', tag: 'tradewatch-alert', requireInteraction: false });
-  } catch(e) {}
+    // Prefer SW-backed notification (works in background, mobile lock screen)
+    const reg = swRegistration || (await navigator.serviceWorker?.ready?.catch(() => null));
+    if (reg?.showNotification) {
+      await reg.showNotification(title, {
+        body,
+        icon: './icon-192.png',
+        badge: './icon-96.png',
+        vibrate: [200, 100, 200],
+        tag: 'tradewatch-alert-' + Date.now(),
+        renotify: true
+      });
+    } else {
+      // Fallback: direct Notification API (foreground-only)
+      new Notification(title, { body, tag: 'tradewatch-alert-' + Date.now() });
+    }
+  } catch(e) {
+    // Last-resort fallback
+    try { new Notification(title, { body }); } catch(_) {}
+  }
 }
 
-// Check on load if already granted
+// Restore notif state if permission was already granted in a previous session
 if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
   notifEnabled = true;
   setTimeout(updateNotifBtn, 100);
