@@ -253,6 +253,21 @@
   }
   .form-group input:focus, .form-group select:focus { border-color: var(--accent); }
   .form-group select option { background: var(--surface); }
+  .alert-asset-display {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 10px 12px;
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+  }
+  .alert-asset-display.placeholder { color: var(--muted); font-weight: 400; font-size: 0.75rem; }
   .form-note { font-size: 0.65rem; color: var(--muted); margin-bottom: 14px; font-family: var(--mono); }
   .create-btn {
     width: 100%; padding: 12px;
@@ -998,9 +1013,7 @@
       <div class="form-row">
         <div class="form-group">
           <label>ASSET</label>
-          <select id="alert-asset">
-            <option value="">Select asset...</option>
-          </select>
+          <div class="alert-asset-display" id="alert-asset-display">— Select an asset from watchlist —</div>
         </div>
         <div class="form-group">
           <label>CONDITION</label>
@@ -1051,6 +1064,9 @@
   </div>
   </div><!-- /panels-wrap -->
 </div>
+
+<!-- Toast notifications -->
+<div class="toast-container" id="toasts"></div>
 
 <!-- Mobile Bottom Nav -->
 <nav class="mobile-nav" id="mobile-nav">
@@ -1477,11 +1493,12 @@ function selectAsset(asset) {
   // Update panel content via shared function
   refreshSelectedAssetPanel();
 
-  // Sync the alert form's asset dropdown to the selected asset.
-  // Do this here (once on selection) — NOT in refreshSelectedAssetPanel which
-  // runs every 8s and would scroll the form into view on mobile.
-  const sel = document.getElementById('alert-asset');
-  if (sel) sel.value = asset.id;
+  // Update the alert form's asset display to show the selected asset name.
+  const display = document.getElementById('alert-asset-display');
+  if (display) {
+    display.textContent = `${asset.symbol} — ${asset.name}`;
+    display.classList.remove('placeholder');
+  }
 
   // Update selection highlight — lightweight on mobile (no full re-render),
   // full re-render on desktop to also refresh prices on all cards
@@ -1651,22 +1668,16 @@ function setTF(tf, btn) {
 // ALERTS
 // ═══════════════════════════════════════════════
 function createAlert() {
-  const assetId = document.getElementById('alert-asset').value;
+  if (!selectedAsset) return showToast('No Asset', 'Select an asset from the watchlist first.', 'error');
+
+  const assetId = selectedAsset.id;
   const condition = document.getElementById('alert-condition').value;
   const targetPrice = parseFloat(document.getElementById('alert-price').value);
   const note = document.getElementById('alert-note').value.trim();
 
-  if (!assetId) return showToast('No Asset', 'Please select an asset first.', 'error');
   if (isNaN(targetPrice) || targetPrice <= 0) return showToast('Invalid Price', 'Enter a valid target price.', 'error');
 
-  // Find asset info
-  let assetInfo = null;
-  Object.values(ASSETS).forEach(list => {
-    const found = list.find(a => a.id === assetId);
-    if (found) assetInfo = found;
-  });
-  if (!assetInfo) return;
-
+  const assetInfo = selectedAsset;
   const currentPrice = priceData[assetId]?.price || BASE_PRICES[assetId];
 
   alerts.push({
@@ -1687,9 +1698,19 @@ function createAlert() {
   document.getElementById('alert-note').value = '';
 
   showToast('Alert Created ⚡', `${assetInfo.symbol} ${condition} ${formatPrice(targetPrice, assetId)} is now active.`, 'success');
+
+  // Send a browser/SW notification confirming the alert was created
+  sendBrowserNotification(
+    `⚡ Alert Set — ${assetInfo.symbol}`,
+    `Watching for price ${condition} ${formatPrice(targetPrice, assetId)}`
+  );
+
   renderAlerts();
   renderWatchlist();
   if (selectedAsset?.id === assetId) drawChart();
+
+  // On mobile, switch to the Alerts tab so the user sees their new alert
+  if (window.innerWidth <= 768) mobileTab('alerts');
 }
 
 function deleteAlert(id) {
@@ -2446,26 +2467,8 @@ function addAssetToWatchlist(asset) {
 
 
 
-// Rebuild alert dropdown dynamically across all watchlist categories
-function populateDropdown() {
-  const sel = document.getElementById('alert-asset');
-  const currentVal = sel.value;
-  sel.innerHTML = '<option value="">Select asset...</option>';
-  const catLabels = { crypto:'Crypto', stocks:'Stocks', forex:'Forex', commodities:'Commodities', indices:'Indices', etf:'ETFs' };
-  Object.entries(ASSETS).forEach(([cat, assets]) => {
-    if (!assets || assets.length === 0) return;
-    const og = document.createElement('optgroup');
-    og.label = catLabels[cat] || cat;
-    assets.forEach(a => {
-      const opt = document.createElement('option');
-      opt.value = a.id;
-      opt.textContent = `${a.symbol} — ${a.name}`;
-      og.appendChild(opt);
-    });
-    sel.appendChild(og);
-  });
-  if (currentVal) sel.value = currentVal;
-}
+// populateDropdown — kept as no-op; asset is now shown as plain text via selectAsset()
+function populateDropdown() {}
 
 // ═══════════════════════════════════════════════
 // TOAST
