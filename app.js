@@ -40,15 +40,6 @@ const ASSETS = {
   ]
 };
 
-// Base prices for simulation fallback — updated March 2026
-const BASE_PRICES = {
-  bitcoin: 85000, ethereum: 2200, solana: 135, ripple: 2.30, binancecoin: 590,
-  AAPL: 225.0, TSLA: 280.0, NVDA: 115.0, MSFT: 410.0,
-  'EUR/USD': 1.0820, 'GBP/USD': 1.2900, 'USD/JPY': 148.50, 'AUD/USD': 0.6280,
-  'XAU/USD': 2910.0, 'XAG/USD': 32.50, 'WTI/USD': 69.50, 'XNG/USD': 4.10,
-  SPX: 5620.0, IXIC: 17600.0, DJI: 41800.0, FTSE: 8600.0
-};
-
 // ═══════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════
@@ -89,13 +80,13 @@ const HOT_LIST_SEED = {
 let HOT_LIST = { ...HOT_LIST_SEED };
 
 // ═══════════════════════════════════════════════
-// FETCH HELPERS — CORS proxy chain + simulation fallback
-// Tries direct → allorigins proxy → corsproxy.io → simulation
+// FETCH HELPERS — CORS proxy chain
+// Tries direct → allorigins proxy → corsproxy.io
 // ═══════════════════════════════════════════════
 
 // CORS proxy wrappers
 const CORS_PROXIES = [
-  url => url, // try direct first (works when hosted)
+  url => url,
   url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
   url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
 ];
@@ -136,8 +127,7 @@ async function fetchTwelveDataBatch(assets) {
         price, change: change.toFixed(2), high, low,
         vol: vol ? formatLarge(vol) : '—', mcap: '—', live: true
       };
-      prices[asset.id]      = price;
-      BASE_PRICES[asset.id] = price;
+      prices[asset.id] = price;
     });
     return true;
   } catch(e) {
@@ -164,21 +154,24 @@ async function fetchAllTwelveData() {
     }
   }
 
+  renderHotList();
   renderWatchlist();
   refreshSelectedAssetPanel();
+  renderAlertOverlay();
   checkAlerts();
   document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
 }
 
 // ── COINGECKO ────────────────────────────────────
 async function fetchCryptoFromCoinGecko() {
-  const ids = (ASSETS.crypto || []).map(a => a.id).join(',');
+  const cryptoAssets = Object.values(ASSETS).flat().filter(a => a.source === 'CoinGecko');
+  const ids = cryptoAssets.map(a => a.id).join(',');
   if (!ids) return false;
   try {
     const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true&include_high_24h=true&include_low_24h=true`;
     const data = await fetchWithCORSFallback(url);
 
-    (ASSETS.crypto || []).forEach(asset => {
+    cryptoAssets.forEach(asset => {
       const d = data[asset.id];
       if (!d) return;
       priceData[asset.id] = {
@@ -190,58 +183,13 @@ async function fetchCryptoFromCoinGecko() {
         mcap: d.usd_market_cap || 0,
         live: true
       };
-      prices[asset.id]      = d.usd;
-      BASE_PRICES[asset.id] = d.usd;
+      prices[asset.id] = d.usd;
     });
     return true;
   } catch(e) {
-    console.log('CoinGecko fallback:', e.message);
+    console.warn('CoinGecko failed:', e.message);
     return false;
   }
-}
-
-
-
-function simulatePrice(id) {
-  const base = BASE_PRICES[id] || 100;
-  const prev = prices[id] || base;
-  const drift = (Math.random() - 0.499) * 0.003;
-  return parseFloat((prev * (1 + drift)).toFixed(base < 0.001 ? 8 : base < 1 ? 6 : base < 10 ? 4 : 2));
-}
-
-function updateSimulatedPrices() {
-  // Simulate ALL non-crypto assets that don't have a live price yet
-  const nonCryptoCategories = ['stocks','forex','commodities','indices','etf'];
-  nonCryptoCategories.forEach(cat => {
-    (ASSETS[cat] || []).forEach(asset => {
-      if (priceData[asset.id]?.live) return; // skip if we have real data
-      const newPrice = simulatePrice(asset.id);
-      const change = ((newPrice - (BASE_PRICES[asset.id] || newPrice)) / (BASE_PRICES[asset.id] || newPrice) * 100);
-      prices[asset.id] = newPrice;
-      priceData[asset.id] = {
-        price: newPrice, change: change.toFixed(2),
-        high: (newPrice * 1.015).toFixed(asset.id.includes('/') ? 4 : 2),
-        low:  (newPrice * 0.985).toFixed(asset.id.includes('/') ? 4 : 2),
-        vol: formatLarge((BASE_PRICES[asset.id] || 100) * 1e6 * (0.5 + Math.random())),
-        mcap: '—', live: false
-      };
-    });
-  });
-
-  // Simulate crypto only if CoinGecko hasn't responded yet
-  (ASSETS.crypto || []).forEach(asset => {
-    if (priceData[asset.id]?.live) return;
-    const newPrice = simulatePrice(asset.id);
-    const change = ((newPrice - (BASE_PRICES[asset.id] || newPrice)) / (BASE_PRICES[asset.id] || newPrice) * 100);
-    prices[asset.id] = newPrice;
-    priceData[asset.id] = {
-      price: newPrice, change: change.toFixed(2),
-      high: (newPrice * 1.025).toFixed(2), low: (newPrice * 0.975).toFixed(2),
-      vol: formatLarge((BASE_PRICES[asset.id] || 100) * 1e6),
-      mcap: formatLarge((BASE_PRICES[asset.id] || 100) * 19e6),
-      live: false
-    };
-  });
 }
 
 function formatLarge(n) {
@@ -269,16 +217,13 @@ function refreshSelectedAssetPanel() {
   if (!selectedAsset) return;
   const asset = selectedAsset;
   const d = priceData[asset.id];
-  const price = d ? d.price : (BASE_PRICES[asset.id] || 0);
+  const price = d ? d.price : null;
   const change = d ? parseFloat(d.change) : 0;
   const isUp = change >= 0;
 
   // Header
   document.getElementById('sel-symbol').textContent = asset.symbol;
   document.getElementById('sel-name').textContent = asset.name;
-  document.getElementById('sel-source').textContent = d?.live
-    ? asset.source + ' (Live ✓)'
-    : (asset.source || '—') + ' (Simulated)';
   const priceEl = document.getElementById('sel-price');
   priceEl.textContent = price ? formatPrice(price, asset.id) : '—';
   priceEl.style.color = isUp ? 'var(--green)' : 'var(--red)';
@@ -331,6 +276,59 @@ function refreshSelectedAssetPanel() {
 }
 
 // ═══════════════════════════════════════════════
+// ALERT TARGET LINE OVERLAY ON CHART
+// ═══════════════════════════════════════════════
+function renderAlertOverlay() {
+  const overlay = document.getElementById('tv-alert-overlay');
+  const container = document.getElementById('tv-container');
+  if (!overlay || !container || !selectedAsset) { if (overlay) overlay.innerHTML = ''; return; }
+
+  const assetAlerts = alerts.filter(a =>
+    a.assetId === selectedAsset.id && a.status === 'active'
+  );
+  if (assetAlerts.length === 0) { overlay.innerHTML = ''; return; }
+
+  const d = priceData[selectedAsset.id];
+  const currentPrice = d?.price;
+  if (!currentPrice) { overlay.innerHTML = ''; return; }
+
+  // TradingView toolbar is ~38px on desktop, 0 on mobile (hidden)
+  const isMobile = window.innerWidth <= 768;
+  const tvTopOffset = isMobile ? 0 : 38;
+  const tvBottomOffset = 28; // bottom scale bar
+
+  const totalH = container.offsetHeight;
+  const chartH = totalH - tvTopOffset - tvBottomOffset; // drawable area
+
+  // Build price range: use 24h high/low but expand symmetrically around
+  // current price so the target line position is always relative to current price.
+  // TradingView typically shows ~10-15% padding above/below on a daily chart.
+  const rawHigh = d.high ? parseFloat(d.high) : currentPrice * 1.05;
+  const rawLow  = d.low  ? parseFloat(d.low)  : currentPrice * 0.95;
+  const rawRange = rawHigh - rawLow;
+
+  // Expand the range by 40% total (TradingView adds padding around candles)
+  const padding = rawRange * 0.7;
+  const visHigh = rawHigh + padding;
+  const visLow  = rawLow  - padding;
+  const visRange = visHigh - visLow;
+
+  overlay.innerHTML = assetAlerts.map(alert => {
+    const pct = (visHigh - alert.targetPrice) / visRange; // 0 = top, 1 = bottom
+    if (pct < -0.05 || pct > 1.05) return ''; // out of range
+    const clampedPct = Math.max(0.01, Math.min(0.99, pct));
+    const top = Math.round(tvTopOffset + clampedPct * chartH);
+    const isAbove = alert.condition === 'above';
+    const color = isAbove ? 'var(--green)' : 'var(--red)';
+    const label = `${isAbove ? '▲' : '▼'} ${formatPrice(alert.targetPrice, selectedAsset.id)}${alert.note ? '  ·  ' + alert.note : ''}`;
+    return `
+      <div class="tv-alert-line" style="top:${top}px;color:${color};">
+        <div class="tv-alert-line-label">${label}</div>
+      </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════
 // UPDATE WATCHLIST SELECTION HIGHLIGHT ONLY
 // Lightweight — just flips CSS classes, no full re-render.
 // ═══════════════════════════════════════════════
@@ -363,9 +361,9 @@ function renderWatchlist() {
     container.innerHTML = '';
     assets.forEach(asset => {
       const d = priceData[asset.id];
-      const price = d ? d.price : (BASE_PRICES[asset.id] || 0);
-      const change = d ? d.change : '0.00';
-      const isUp = parseFloat(change) >= 0;
+      const price = d ? d.price : null;
+      const change = d ? d.change : null;
+      const isUp = change !== null && parseFloat(change) >= 0;
       const hasAlert = alerts.some(a => a.assetId === asset.id && a.status === 'active');
       const isSelected = selectedAsset && selectedAsset.id === asset.id;
 
@@ -380,7 +378,7 @@ function renderWatchlist() {
         </div>
         <div class="asset-right">
           <div class="asset-price">${formatPrice(price, asset.id)}</div>
-          <div class="asset-change ${isUp ? 'up' : 'down'}">${isUp ? '▲' : '▼'} ${Math.abs(change)}%</div>
+          <div class="asset-change ${isUp ? 'up' : 'down'}">${change !== null ? (isUp ? '▲' : '▼') + ' ' + Math.abs(change) + '%' : '—'}</div>
         </div>`;
       card.onclick = (e) => {
         // Don't trigger selectAsset if the remove button was clicked
@@ -413,9 +411,9 @@ function renderHotList() {
       const asset = Object.values(ASSETS).flat().find(a => a.id === assetId);
       if (!asset) return;
       const d = priceData[asset.id];
-      const price = d ? d.price : (BASE_PRICES[asset.id] || 0);
-      const change = d ? d.change : '0.00';
-      const isUp = parseFloat(change) >= 0;
+      const price = d ? d.price : null;
+      const change = d ? d.change : null;
+      const isUp = change !== null && parseFloat(change) >= 0;
       const hasAlert = alerts.some(a => a.assetId === asset.id && a.status === 'active');
       const isSelected = selectedAsset && selectedAsset.id === asset.id;
       const inWatchlist = ASSETS[cat]?.some(a => a.id === assetId);
@@ -436,7 +434,7 @@ function renderHotList() {
         </div>
         <div class="asset-right">
           <div class="asset-price">${formatPrice(price, asset.id)}</div>
-          <div class="asset-change ${isUp ? 'up' : 'down'}">${isUp ? '▲' : '▼'} ${Math.abs(change)}%</div>
+          <div class="asset-change ${isUp ? 'up' : 'down'}">${change !== null ? (isUp ? '▲' : '▼') + ' ' + Math.abs(change) + '%' : '—'}</div>
         </div>`;
       card.onclick = (e) => {
         if (e.target.closest('.asset-add-btn')) return;
@@ -498,6 +496,7 @@ function selectAsset(asset) {
 
   // Update panel content via shared function
   refreshSelectedAssetPanel();
+  renderAlertOverlay();
 
   // Update the alert form's asset display to show the selected asset name.
   const display = document.getElementById('alert-asset-display');
@@ -627,6 +626,10 @@ function loadTVChart(asset) {
   if (!container) return;
   container.innerHTML = '';
 
+  // Clear stale alert lines while new chart loads
+  const overlay = document.getElementById('tv-alert-overlay');
+  if (overlay) overlay.innerHTML = '';
+
   const symbol = getTVSymbol(asset);
   const isMobile = window.innerWidth <= 768;
 
@@ -681,6 +684,9 @@ function createTVWidget(symbol, isMobile) {
     studies: [],
     autosize: true,
   });
+
+  // Draw alert lines after chart has had time to render
+  setTimeout(renderAlertOverlay, 800);
 }
 
 // Keep stubs so nothing else breaks
@@ -702,7 +708,7 @@ async function createAlert() {
   if (isNaN(targetPrice) || targetPrice <= 0) return showToast('Invalid Price', 'Enter a valid target price.', 'error');
 
   const assetInfo = selectedAsset;
-  const currentPrice = priceData[assetId]?.price || BASE_PRICES[assetId];
+  const currentPrice = priceData[assetId]?.price || 0;
 
   const newAlert = {
     id: 'temp_' + alertIdCounter++,  // temp id until DB returns UUID
@@ -741,14 +747,12 @@ async function createAlert() {
   );
 
   if (telegramEnabled) {
-    const dir = condition === 'above' ? 'above' : 'below';
-    sendTelegram(`<b>Alert Created — ${assetInfo.symbol}</b>\n\nWatching for price ${dir} <b>${formatPrice(targetPrice, assetId)}</b>${note ? `\nNote: ${note}` : ''}\n\n${new Date().toLocaleTimeString()}`);
+    sendTelegram(tgCreatedMessage(assetInfo.symbol, condition, targetPrice, assetId, note));
   }
 
   renderAlerts();
   renderWatchlist();
-
-  // On mobile, switch to the Alerts tab so the user sees their new alert
+  renderAlertOverlay();
   if (window.innerWidth <= 768) {
     switchAlertTab('active');
     mobileTab('alerts');
@@ -760,6 +764,7 @@ function deleteAlert(id) {
   alerts = alerts.filter(a => a.id !== id);
   renderAlerts();
   renderWatchlist();
+  renderAlertOverlay();
 }
 
 function toggleAlert(id) {
@@ -769,6 +774,7 @@ function toggleAlert(id) {
   else if (a.status === 'paused') a.status = 'active';
   updateAlert(id, { status: a.status });
   renderAlerts();
+  renderAlertOverlay();
 }
 
 function dismissAlert(id) {
@@ -793,6 +799,7 @@ function dismissAlert(id) {
   alerts = alerts.filter(a => a.id !== id);
   renderAlerts();
   renderWatchlist();
+  renderAlertOverlay();
 }
 
 function renderAlerts() {
@@ -1293,6 +1300,20 @@ const TELEGRAM_WORKER_URL = 'https://telegram-worker.meet-tyla.workers.dev';
 let telegramEnabled = false;
 let telegramChatId  = localStorage.getItem('tg_chat_id') || '';
 
+// Auto-detect chat ID from Telegram WebApp SDK
+(function detectTelegramChatId() {
+  try {
+    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+    if (tgUser?.id) {
+      telegramChatId = String(tgUser.id);
+      localStorage.setItem('tg_chat_id', telegramChatId);
+      // Auto-enable Telegram alerts when running inside Telegram
+      telegramEnabled = true;
+      localStorage.setItem('tg_enabled', 'true');
+    }
+  } catch(e) {}
+})();
+
 // Restored after DB loads in init()
 
 function openTelegramModal() {
@@ -1345,7 +1366,7 @@ function toggleTelegram() {
   updateTgModalState();
   updateTgBtn();
   if (telegramEnabled) {
-    sendTelegram('<b>TradeWatch Connected ✓</b>\nTelegram alerts are now active.');
+    sendTelegram('🔔 <b>TradeWatch Connected!</b>\n\nYour alerts are live. You\'ll get notified here the moment a price target is hit.\n\n<i>Stay sharp. 📊</i>');
   }
 }
 
@@ -1369,7 +1390,7 @@ async function testTelegram() {
   telegramChatId = document.getElementById('tg-chat-id').value.trim();
   if (!telegramChatId) { setTgStatus('Enter your Chat ID first.', 'err'); return; }
   setTgStatus('Sending…', '');
-  const ok = await sendTelegram('<b>TradeWatch Test ✓</b>\nYour Telegram alerts are working correctly!');
+  const ok = await sendTelegram('✅ <b>Test Successful!</b>\n\nTradeWatch is connected and ready to fire alerts.\n\n<i>You\'re all set. 🎯</i>');
   if (ok) {
     setTgStatus('✓ Message sent! Check your Telegram.', 'ok');
     localStorage.setItem('tg_chat_id', telegramChatId);
@@ -1402,16 +1423,41 @@ async function sendTelegram(message) {
 
 // Format a rich alert message for Telegram
 function tgAlertMessage(type, symbol, condition, targetPrice, currentPrice, assetId, note) {
-  const dir = condition === 'above' ? 'Rose above' : 'Fell below';
-  const lines = [
-    `<b>TradeWatch Alert</b>`,
+  const isAbove = condition === 'above';
+  const emoji   = isAbove ? '🚀' : '📉';
+  const dirWord = isAbove ? 'broke above' : 'dropped below';
+  const arrow   = isAbove ? '⬆️' : '⬇️';
+  const time    = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  return [
+    `${emoji} <b>ALERT TRIGGERED</b>`,
     ``,
-    `<b>${symbol}</b> ${dir} ${formatPrice(targetPrice, assetId)}`,
-    `Now: <b>${formatPrice(currentPrice, assetId)}</b>`,
-  ];
-  if (note) lines.push(`Note: ${note}`);
-  lines.push(``, `Time: ${new Date().toLocaleTimeString()}`);
-  return lines.join('\n');
+    `<b>${symbol}</b> ${dirWord} your target`,
+    ``,
+    `🎯 Target:  <b>${formatPrice(targetPrice, assetId)}</b>`,
+    `${arrow} Now:     <b>${formatPrice(currentPrice, assetId)}</b>`,
+    note ? `📝 Note: <i>${note}</i>` : null,
+    ``,
+    `⏰ ${time}`,
+    ``,
+    `<i>Tap to open TradeWatch</i>`,
+  ].filter(l => l !== null).join('\n');
+}
+
+function tgCreatedMessage(symbol, condition, targetPrice, assetId, note) {
+  const isAbove = condition === 'above';
+  const emoji   = isAbove ? '🟢' : '🔴';
+  const dirWord = isAbove ? 'rises above' : 'falls below';
+
+  return [
+    `${emoji} <b>Alert Set — ${symbol}</b>`,
+    ``,
+    `You'll be notified when <b>${symbol}</b> ${dirWord}`,
+    `🎯 <b>${formatPrice(targetPrice, assetId)}</b>`,
+    note ? `📝 Note: <i>${note}</i>` : null,
+    ``,
+    `<i>Watching the markets for you 👀</i>`,
+  ].filter(l => l !== null).join('\n');
 }
 
 // ═══════════════════════════════════════════════
@@ -1757,7 +1803,7 @@ function renderLibrary() {
   // This ensures removed default assets always reappear here
   const libIds = new Set(ASSET_LIBRARY.map(a => a.id));
   const extraAssets = Object.entries(ASSETS).flatMap(([cat, assets]) =>
-    assets.filter(a => !libIds.has(a.id)).map(a => ({ ...a, cat, base: BASE_PRICES[a.id] || 100 }))
+    assets.filter(a => !libIds.has(a.id)).map(a => ({ ...a, cat }))
   );
   const fullLibrary = [...ASSET_LIBRARY, ...extraAssets];
 
@@ -1861,10 +1907,9 @@ function addAssetToWatchlist(asset) {
   if (ASSETS[asset.cat].find(a => a.id === asset.id)) return;
 
   ASSETS[asset.cat].push({ id: asset.id, symbol: asset.symbol, name: asset.name, tdSymbol: asset.tdSymbol, source: asset.source });
-  BASE_PRICES[asset.id] = asset.base || 100;
-  const p = BASE_PRICES[asset.id];
-  priceData[asset.id] = { price: p, change: '0.00', high:(p*1.015).toFixed(4), low:(p*0.985).toFixed(4), vol:'—', mcap:'—', live:false };
-  prices[asset.id] = p;
+  // Start with no price — will be populated by next fetch cycle
+  priceData[asset.id] = priceData[asset.id] || null;
+  prices[asset.id]    = prices[asset.id]    || null;
 
   renderWatchlist();
   populateDropdown();
@@ -1910,7 +1955,6 @@ async function refreshAll() {
   document.getElementById('status-pill').textContent = '◌ CONNECTING';
   document.getElementById('status-pill').style.borderColor = 'var(--muted)';
   document.getElementById('status-pill').style.color = 'var(--muted)';
-  updateSimulatedPrices();
   renderHotList();
   renderWatchlist();
   const cgOk = await fetchCryptoFromCoinGecko();
@@ -1927,7 +1971,6 @@ async function refreshAll() {
 
 // Auto-tick every 8 seconds
 setInterval(() => {
-  updateSimulatedPrices();
   renderHotList();
   renderWatchlist();
   refreshSelectedAssetPanel();
@@ -1952,12 +1995,21 @@ setInterval(() => {
 // INIT
 // ═══════════════════════════════════════════════
 async function init() {
-  // ── Bootstrap DB user (temp guest ID until Telegram Mini App) ──
+  // ── Bootstrap DB user — uses Telegram ID if in Mini App, guest ID otherwise ──
   await getOrCreateUser(currentTelegramId);
 
   // ── Load preferences from DB ──
   const prefs = await loadPreferencesFromDB();
-  if (prefs) {
+  const isTelegramApp = !!window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+
+  if (isTelegramApp) {
+    // Running inside Telegram — chat ID and enabled state already set by SDK detector
+    soundEnabled = prefs?.sound_enabled ?? true;
+    // Save auto-detected prefs to DB if not already there
+    if (!prefs?.telegram_chat_id) {
+      savePreferencesDB({ telegram_chat_id: telegramChatId, telegram_enabled: true, sound_enabled: soundEnabled });
+    }
+  } else if (prefs) {
     telegramChatId  = prefs.telegram_chat_id || localStorage.getItem('tg_chat_id') || '';
     telegramEnabled = prefs.telegram_enabled ?? (localStorage.getItem('tg_enabled') === 'true');
     soundEnabled    = prefs.sound_enabled ?? true;
@@ -1988,7 +2040,6 @@ async function init() {
   }
 
   populateDropdown();
-  updateSimulatedPrices();
   renderHotList();
   renderWatchlist();
   renderAlerts();
@@ -2023,10 +2074,10 @@ function setStatusPill(isLive) {
     pill.style.borderColor = 'var(--green)';
     pill.style.color = 'var(--green)';
   } else {
-    pill.textContent = '◈ SIMULATED';
-    pill.style.borderColor = 'var(--gold)';
-    pill.style.color = 'var(--gold)';
-    pill.title = 'Live APIs unreachable. Open this file via a local server or Claude.ai to enable live data.';
+    pill.textContent = '◈ OFFLINE';
+    pill.style.borderColor = 'var(--red)';
+    pill.style.color = 'var(--red)';
+    pill.title = 'Live price APIs unreachable. Check your connection.';
   }
 }
 
