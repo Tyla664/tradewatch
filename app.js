@@ -94,6 +94,13 @@ const CORS_PROXIES = [
   url => `https://corsproxy.io/?${encodeURIComponent(url)}`,
 ];
 
+// ── CORS-safe fetch helper ────────────────────────
+async function fetchWithCORSFallback(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 // ── POLYGON REST — single ticker snapshot ────────
 async function fetchPolygonSnapshot(asset) {
   if (!asset.polySymbol) return false;
@@ -2353,3 +2360,4 @@ document.addEventListener('visibilitychange', () => {
 })();
 
 init();
+
