@@ -122,21 +122,31 @@ function getIndexSim(id) {
   return indexSim[id];
 }
 
-// CoinGecko — batch fetch all crypto
+function formatVol(n) {
+  if (n >= 1e12) return (n/1e12).toFixed(2) + 'T';
+  if (n >= 1e9)  return (n/1e9).toFixed(1)  + 'B';
+  if (n >= 1e6)  return (n/1e6).toFixed(1)  + 'M';
+  return n.toLocaleString();
+}
+
+// ── CoinGecko — one batch call for all crypto ────
 async function fetchCryptoPrices(assets) {
   const ids = assets.map(a => a.id).join(',');
   try {
-    const res  = await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}&order=market_cap_desc&sparkline=false&price_change_percentage=24h`);
+    const res  = await fetch(
+      `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${ids}` +
+      `&order=market_cap_desc&sparkline=false&price_change_percentage=24h`
+    );
     const data = await res.json();
+    if (!Array.isArray(data)) throw new Error('Bad CoinGecko response');
     data.forEach(coin => {
-      const prev = priceData[coin.id]?.price || coin.current_price;
       priceData[coin.id] = {
         price:  coin.current_price,
         change: coin.price_change_percentage_24h?.toFixed(2) || '0.00',
         high:   coin.high_24h,
         low:    coin.low_24h,
-        vol:    coin.total_volume  ? formatVol(coin.total_volume)  : '—',
-        mcap:   coin.market_cap    ? formatVol(coin.market_cap)    : '—',
+        vol:    coin.total_volume ? formatVol(coin.total_volume) : '—',
+        mcap:   coin.market_cap   ? formatVol(coin.market_cap)   : '—',
         live:   true,
       };
       prices[coin.id] = coin.current_price;
@@ -145,31 +155,90 @@ async function fetchCryptoPrices(assets) {
   } catch(e) { console.warn('CoinGecko fetch failed', e); return false; }
 }
 
-// Twelve Data — single symbol quote
-async function fetchTDQuote(symbol) {
+// ── Twelve Data — ONE batch call for all non-crypto ──
+// Free tier allows 8 req/min — batching all symbols into a single
+// /price?symbol=A,B,C call uses just 1 request.
+async function fetchTDBatch(assets) {
+  if (!assets.length) return;
+  const symbols = assets.map(a => a.tdSymbol || a.id);
+  const symStr  = symbols.join(',');
+
+  // Build a lookup: tdSymbol → assetId
+  const symToId = {};
+  assets.forEach(a => { symToId[a.tdSymbol || a.id] = a.id; });
+
   try {
-    const res  = await fetch(`https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${TD_KEY}`);
-    const d    = await res.json();
-    if (d.status === 'error' || !d.close) return null;
-    const price  = parseFloat(d.close);
-    const open   = parseFloat(d.open  || d.close);
-    const high   = parseFloat(d.high  || d.close);
-    const low    = parseFloat(d.low   || d.close);
-    const change = (((price - open) / open) * 100).toFixed(2);
-    return { price, change, high, low, vol: d.volume || '—', mcap: '—', live: true };
-  } catch(e) { return null; }
+    // Use /price for a lightweight batch (returns just latest close price)
+    const res  = await fetch(
+      `https://api.twelvedata.com/price?symbol=${encodeURIComponent(symStr)}&apikey=${TD_KEY}`
+    );
+    const data = await res.json();
+
+    // Response shape differs: single symbol → { price } ; multiple → { SYM: { price }, ... }
+    const isSingle = symbols.length === 1;
+    const map      = isSingle ? { [symbols[0]]: data } : data;
+
+    symbols.forEach(sym => {
+      const entry  = map[sym];
+      if (!entry || entry.code || !entry.price) return; // rate-limited or error
+      const assetId = symToId[sym];
+      const newPrice = parseFloat(entry.price);
+      const prev     = priceData[assetId];
+
+      // Keep existing OHLC if we already have it; just update close price
+      priceData[assetId] = {
+        price:  newPrice,
+        change: prev ? (((newPrice - (prev.open || newPrice)) / (prev.open || newPrice)) * 100).toFixed(2) : '0.00',
+        high:   prev?.high  || newPrice,
+        low:    prev?.low   || newPrice,
+        open:   prev?.open  || newPrice,
+        vol:    prev?.vol   || '—',
+        mcap:   '—',
+        live:   true,
+      };
+      prices[assetId] = newPrice;
+    });
+
+    // Also fire a single /quote batch on first load to get OHLC data
+    // (only if we don't have it yet — avoids burning extra req/min quota)
+    const needOHLC = assets.filter(a => !priceData[a.id]?.open);
+    if (needOHLC.length) {
+      fetchTDOHLC(needOHLC, symToId).catch(() => {});
+    }
+  } catch(e) { console.warn('TD batch fetch failed', e); }
 }
 
-function formatVol(n) {
-  if (n >= 1e12) return (n/1e12).toFixed(2) + 'T';
-  if (n >= 1e9)  return (n/1e9).toFixed(1)  + 'B';
-  if (n >= 1e6)  return (n/1e6).toFixed(1)  + 'M';
-  return n.toLocaleString();
+// Fetch OHLC data once — used to populate high/low/change on first load
+async function fetchTDOHLC(assets, symToId) {
+  const symStr = assets.map(a => a.tdSymbol || a.id).join(',');
+  const res    = await fetch(
+    `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symStr)}&apikey=${TD_KEY}`
+  );
+  const data   = await res.json();
+  const isSingle = assets.length === 1;
+  const map      = isSingle ? { [assets[0].tdSymbol || assets[0].id]: data } : data;
+
+  assets.forEach(a => {
+    const sym   = a.tdSymbol || a.id;
+    const entry = map[sym];
+    if (!entry || entry.status === 'error' || !entry.close) return;
+    const price  = parseFloat(entry.close);
+    const open   = parseFloat(entry.open  || entry.close);
+    const high   = parseFloat(entry.high  || entry.close);
+    const low    = parseFloat(entry.low   || entry.close);
+    const change = (((price - open) / open) * 100).toFixed(2);
+    priceData[a.id] = {
+      price, change, high, low, open,
+      vol:  entry.volume || priceData[a.id]?.vol || '—',
+      mcap: '—', live: true,
+    };
+    prices[a.id] = price;
+  });
 }
 
 // ── Main fetch — all asset categories ────────────
 async function fetchAllPrices() {
-  const cryptoAssets = (ASSETS.crypto || []).filter(a => a.source === 'CoinGecko');
+  const cryptoAssets = (ASSETS.crypto      || []).filter(a => a.source === 'CoinGecko');
   const tdAssets     = [
     ...(ASSETS.stocks      || []),
     ...(ASSETS.forex       || []),
@@ -177,19 +246,13 @@ async function fetchAllPrices() {
   ];
   const indexAssets  = (ASSETS.indices || []);
 
-  // Crypto — one batch call
-  if (cryptoAssets.length) await fetchCryptoPrices(cryptoAssets);
+  // Fire crypto + TD batch in parallel — just 2 HTTP requests total
+  await Promise.all([
+    cryptoAssets.length ? fetchCryptoPrices(cryptoAssets) : Promise.resolve(),
+    tdAssets.length     ? fetchTDBatch(tdAssets)          : Promise.resolve(),
+  ]);
 
-  // Stocks / Forex / Commodities — parallel TD calls
-  await Promise.all(tdAssets.map(async asset => {
-    const sym = asset.tdSymbol || asset.id;
-    const d   = await fetchTDQuote(sym);
-    if (!d) return;
-    priceData[asset.id] = d;
-    prices[asset.id]    = d.price;
-  }));
-
-  // Indices — simulated drift (TD free tier blocks these)
+  // Indices — simulated drift only
   indexAssets.forEach(asset => {
     const sim    = getIndexSim(asset.id);
     const change = (((sim.price - sim.open) / sim.open) * 100).toFixed(2);
@@ -204,7 +267,7 @@ async function fetchAllPrices() {
   document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
 }
 
-// Keep alias for any legacy call sites
+// Keep alias for legacy call sites
 const fetchAllTwelveData = fetchAllPrices;
 
 // ── Single asset refresh ──────────────────────────
@@ -222,12 +285,9 @@ async function fetchSingleAsset(asset) {
     prices[asset.id] = sim.price;
     return true;
   }
-  const sym = asset.tdSymbol || asset.id;
-  const d   = await fetchTDQuote(sym);
-  if (!d) return false;
-  priceData[asset.id] = d;
-  prices[asset.id]    = d.price;
-  return true;
+  // Single TD asset — still just 1 request
+  await fetchTDBatch([asset]);
+  return !!priceData[asset.id];
 }
 
 // ═══════════════════════════════════════════════
