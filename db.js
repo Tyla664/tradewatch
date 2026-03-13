@@ -251,16 +251,19 @@ async function saveAlert(alert) {
   if (!currentUserId) return alert;
   try {
     const rows = await db.insert('alerts', {
-      user_id: currentUserId,
-      asset_id: alert.assetId,
-      symbol: alert.symbol,
-      condition: alert.condition,
-      target_price: alert.targetPrice,
-      status: alert.status || 'active',
-      sound: alert.sound || 'chime',
-      note: alert.note || '',
+      user_id:         currentUserId,
+      asset_id:        alert.assetId,
+      symbol:          alert.symbol,
+      condition:       alert.condition,
+      target_price:    alert.targetPrice,
+      status:          alert.status || 'active',
+      sound:           alert.sound || 'chime',
+      note:            alert.note || '',
+      zone_low:        alert.zoneLow  || null,
+      zone_high:       alert.zoneHigh || null,
+      timeframe:       alert.timeframe || null,
+      repeat_interval: alert.repeatInterval || 0,
     });
-    // Return alert with DB-generated UUID as id
     return { ...alert, id: rows[0].id };
   } catch (e) {
     console.warn('DB: saveAlert failed', e);
