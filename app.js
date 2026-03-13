@@ -605,6 +605,7 @@ function hotListAdd(assetId, cat, e) {
 // ═══════════════════════════════════════════════
 function switchWLTab(tab) {
   currentWLTab = tab;
+  localStorage.setItem('tw_last_wl_tab', tab);
   document.getElementById('panel-hot').style.display          = tab === 'hot'       ? '' : 'none';
   document.getElementById('panel-my-watchlist').style.display = tab === 'watchlist' ? '' : 'none';
 
@@ -659,8 +660,21 @@ function selectAsset(asset) {
 // ═══════════════════════════════════════════════
 // MOBILE TAB NAVIGATION
 // ═══════════════════════════════════════════════
-function mobileTab(tab) {
+// ── NAVIGATION HISTORY STACK ──────────────────────
+// Tracks panel history so back button/swipe works correctly
+const navStack = ['watchlist']; // start on watchlist
+
+function mobileTab(tab, pushState = true) {
   if (window.innerWidth > 768) return;
+
+  const current = navStack[navStack.length - 1];
+
+  // Push to stack only if navigating to a different tab
+  if (pushState && tab !== current) {
+    navStack.push(tab);
+    // Push a browser history state so Android back button fires popstate
+    window.history.pushState({ twTab: tab }, '', '');
+  }
 
   // Hide all panels
   document.getElementById('panel-watchlist').classList.remove('mobile-active');
@@ -691,6 +705,41 @@ function mobileTab(tab) {
     document.getElementById('mnav-alerts').classList.add('active');
   }
 }
+
+// ── BACK NAVIGATION (Android back button + swipe back) ──
+function goBack() {
+  if (navStack.length > 1) {
+    navStack.pop();
+    const prev = navStack[navStack.length - 1];
+    mobileTab(prev, false); // false = don't push another state
+    // Also update WL subtab if going back to watchlist
+    if (prev === 'watchlist') {
+      const lastWLTab = localStorage.getItem('tw_last_wl_tab') || 'hot';
+      switchWLTab(lastWLTab);
+    }
+    return true;
+  }
+  return false;
+}
+
+// Android physical/gesture back button
+window.addEventListener('popstate', (e) => {
+  if (window.innerWidth > 768) return;
+  if (navStack.length > 1) {
+    navStack.pop();
+    const prev = navStack[navStack.length - 1];
+    mobileTab(prev, false);
+    if (prev === 'watchlist') {
+      const lastWLTab = localStorage.getItem('tw_last_wl_tab') || 'hot';
+      switchWLTab(lastWLTab);
+    }
+    // Push a replacement so back button doesn't exit the app
+    window.history.pushState({ twTab: prev }, '', '');
+  } else {
+    // At root — push state back so app stays open
+    window.history.pushState({ twTab: 'watchlist' }, '', '');
+  }
+});
 
 // ═══════════════════════════════════════════════
 // TRADINGVIEW CHART
@@ -2120,6 +2169,9 @@ setInterval(() => {
 // INIT
 // ═══════════════════════════════════════════════
 async function init() {
+  // Push initial history state so Android back button is interceptable from the start
+  window.history.replaceState({ twTab: 'watchlist' }, '', '');
+
   await getOrCreateUser(currentTelegramId);
 
   const prefs = await loadPreferencesFromDB();
@@ -2130,6 +2182,11 @@ async function init() {
     if (!prefs?.telegram_chat_id) {
       savePreferencesDB({ telegram_chat_id: telegramChatId, telegram_enabled: true, sound_enabled: soundEnabled });
     }
+    // Show connection toast
+    setTimeout(() => {
+      const name = telegramUserName ? ` ${telegramUserName}` : '';
+      showTgToast(`🔔 Hey${name}, you're connected!<br><small style="opacity:0.75">Send a test message to confirm alerts are working.</small>`);
+    }, 1200);
   } else if (prefs) {
     telegramChatId  = prefs.telegram_chat_id || localStorage.getItem('tg_chat_id') || '';
     telegramEnabled = prefs.telegram_enabled ?? (localStorage.getItem('tg_enabled') === 'true');
@@ -2200,112 +2257,51 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+// ── TELEGRAM CONNECTION TOAST ─────────────────────
+function showTgToast(msg) {
+  const el = document.getElementById('tg-toast');
+  if (!el) return;
+  el.innerHTML = msg;
+  el.style.display = 'block';
+  el.style.opacity = '1';
+  setTimeout(() => {
+    el.style.transition = 'opacity 0.6s';
+    el.style.opacity = '0';
+    setTimeout(() => { el.style.display = 'none'; el.style.transition = ''; }, 600);
+  }, 4000);
+}
+
 // ── SWIPE GESTURES (mobile) ──────────────────────
 (function() {
   let touchStartX = 0, touchStartY = 0;
-  let ptrActive = false;
-  let ptrTriggered = false;
-  const PTR_THRESHOLD = 72; // px to pull before triggering
-
-  function getActivePanel() {
-    if (document.getElementById('panel-watchlist').classList.contains('mobile-active')) return document.getElementById('panel-watchlist');
-    if (document.getElementById('panel-main').classList.contains('mobile-active')) return document.getElementById('panel-main');
-    if (document.getElementById('panel-alerts').classList.contains('mobile-active')) return document.getElementById('panel-alerts');
-    return null;
-  }
-
-  function setPTRHeight(h) {
-    const el = document.getElementById('ptr-indicator');
-    if (el) el.style.height = h + 'px';
-  }
-
-  function setPTRLabel(text) {
-    const el = document.getElementById('ptr-label');
-    if (el) el.textContent = text;
-  }
-
-  function setPTRSpinnerRotation(deg) {
-    const el = document.getElementById('ptr-spinner');
-    if (el && !el.classList.contains('spinning')) el.style.transform = `rotate(${deg}deg)`;
-  }
 
   document.addEventListener('touchstart', e => {
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
-    ptrActive = false;
-    ptrTriggered = false;
-  }, { passive: true });
-
-  document.addEventListener('touchmove', e => {
-    if (window.innerWidth > 768) return;
-    if (document.getElementById('add-modal').style.display !== 'none') return;
-    if (document.getElementById('tg-modal').style.display !== 'none') return;
-
-    const dy = e.touches[0].clientY - touchStartY;
-    const dx = e.touches[0].clientX - touchStartX;
-
-    // Only activate PTR on downward pull, not horizontal swipes
-    if (dy <= 0 || Math.abs(dx) > Math.abs(dy)) return;
-
-    const panel = getActivePanel();
-    if (!panel || panel.scrollTop > 0) return;
-
-    ptrActive = true;
-    const pull = Math.min(dy * 0.45, PTR_THRESHOLD + 16); // rubber band damping
-    setPTRHeight(pull);
-
-    const progress = Math.min(pull / PTR_THRESHOLD, 1);
-    setPTRSpinnerRotation(progress * 280);
-
-    if (pull >= PTR_THRESHOLD) {
-      setPTRLabel('Release to refresh');
-      ptrTriggered = true;
-    } else {
-      setPTRLabel('Pull down to refresh');
-      ptrTriggered = false;
-    }
   }, { passive: true });
 
   document.addEventListener('touchend', e => {
     if (window.innerWidth > 768) return;
-
-    // ── Pull to refresh release ──
-    if (ptrActive) {
-      ptrActive = false;
-      if (ptrTriggered) {
-        // Show spinner while refreshing
-        setPTRHeight(52);
-        setPTRLabel('Refreshing...');
-        const spinner = document.getElementById('ptr-spinner');
-        if (spinner) { spinner.classList.add('spinning'); spinner.style.transform = ''; }
-
-        refreshAll().then(() => {
-          setPTRLabel('Updated');
-          setTimeout(() => {
-            setPTRHeight(0);
-            if (spinner) spinner.classList.remove('spinning');
-          }, 600);
-        });
-      } else {
-        setPTRHeight(0);
-      }
-      return;
-    }
-
-    // ── Horizontal swipe navigation ──
-    const dx = e.changedTouches[0].clientX - touchStartX;
-    const dy = e.changedTouches[0].clientY - touchStartY;
-    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
     if (document.getElementById('add-modal').style.display !== 'none') return;
     if (document.getElementById('tg-modal').style.display !== 'none') return;
 
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+
+    // Must be mostly horizontal and at least 60px
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+
     if (dx > 0) {
-      const mainActive = document.getElementById('panel-main').classList.contains('mobile-active');
-      const alertsActive = document.getElementById('panel-alerts').classList.contains('mobile-active');
-      if (mainActive || alertsActive) mobileTab('watchlist');
+      // Swipe RIGHT → go back
+      goBack();
     } else {
-      const watchActive = document.getElementById('panel-watchlist').classList.contains('mobile-active');
-      if (watchActive && selectedAsset) mobileTab('chart');
+      // Swipe LEFT → go forward contextually
+      const current = navStack[navStack.length - 1];
+      if (current === 'watchlist' && selectedAsset) {
+        mobileTab('chart');
+      } else if (current === 'chart') {
+        mobileTab('alerts');
+      }
     }
   }, { passive: true });
 })();
