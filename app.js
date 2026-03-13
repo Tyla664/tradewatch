@@ -1426,28 +1426,26 @@ if (typeof Notification !== 'undefined' && Notification.permission === 'granted'
 const TELEGRAM_WORKER_URL = 'https://telegram-worker.meet-tyla.workers.dev';
 let telegramEnabled = false;
 let telegramChatId  = localStorage.getItem('tg_chat_id') || '';
+let telegramUserName = '';
 
-// Auto-detect chat ID from Telegram WebApp SDK
-(function detectTelegramChatId() {
+// ── Auto-detect user from Telegram WebApp SDK ─────
+(function detectTelegramUser() {
   try {
     const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
     if (tgUser?.id) {
-      telegramChatId = String(tgUser.id);
+      telegramChatId   = String(tgUser.id);
+      telegramUserName = tgUser.first_name || tgUser.username || 'there';
       localStorage.setItem('tg_chat_id', telegramChatId);
-      // Auto-enable Telegram alerts when running inside Telegram
       telegramEnabled = true;
       localStorage.setItem('tg_enabled', 'true');
     }
   } catch(e) {}
 })();
 
-// Restored after DB loads in init()
-
 function openTelegramModal() {
   const modal = document.getElementById('tg-modal');
   modal.style.display = 'flex';
   modal.classList.add('tg-open');
-  document.getElementById('tg-chat-id').value = telegramChatId;
   updateTgModalState();
 }
 
@@ -1455,8 +1453,6 @@ function closeTelegramModal() {
   const modal = document.getElementById('tg-modal');
   modal.style.display = 'none';
   modal.classList.remove('tg-open');
-  telegramChatId = document.getElementById('tg-chat-id').value.trim();
-  if (telegramChatId) localStorage.setItem('tg_chat_id', telegramChatId);
 }
 
 function closeTgModalIfBg(e) {
@@ -1464,31 +1460,45 @@ function closeTgModalIfBg(e) {
 }
 
 function updateTgModalState() {
-  const chatId = document.getElementById('tg-chat-id').value.trim() || telegramChatId;
   const sub = document.getElementById('tg-toggle-sub');
   const btn = document.getElementById('tg-toggle-btn');
-  if (!chatId) {
-    sub.textContent = 'Enter your Chat ID above to enable';
-    btn.textContent = 'OFF';
-    btn.classList.remove('on');
-  } else if (telegramEnabled) {
-    sub.textContent = 'Alerts will be sent to your Telegram';
-    btn.textContent = 'ON';
-    btn.classList.add('on');
+  const detectedBox   = document.getElementById('tg-detected-box');
+  const notDetectedBox = document.getElementById('tg-not-detected-box');
+
+  if (telegramChatId) {
+    // Show detected state
+    if (detectedBox)    detectedBox.style.display = 'block';
+    if (notDetectedBox) notDetectedBox.style.display = 'none';
+    const nameEl = document.getElementById('tg-detected-name');
+    if (nameEl) nameEl.textContent = telegramUserName
+      ? `Logged in as ${telegramUserName} — alerts will be delivered to your Telegram.`
+      : `Your account has been detected. Alerts will be delivered to your Telegram.`;
+    if (telegramEnabled) {
+      sub.textContent = 'Alerts will be sent to your Telegram';
+      btn.textContent = 'ON';
+      btn.classList.add('on');
+    } else {
+      sub.textContent = 'Ready — toggle to enable';
+      btn.textContent = 'OFF';
+      btn.classList.remove('on');
+    }
   } else {
-    sub.textContent = 'Ready — toggle to enable';
+    // Not inside Telegram
+    if (detectedBox)    detectedBox.style.display = 'none';
+    if (notDetectedBox) notDetectedBox.style.display = 'block';
+    sub.textContent = 'Open via @tradewatchalert_bot to enable';
     btn.textContent = 'OFF';
     btn.classList.remove('on');
   }
 }
 
 function toggleTelegram() {
-  telegramChatId = document.getElementById('tg-chat-id').value.trim();
-  if (!telegramChatId) { setTgStatus('Enter your Telegram Chat ID first.', 'err'); return; }
+  if (!telegramChatId) {
+    setTgStatus('Open the app via @tradewatchalert_bot to enable alerts.', 'err');
+    return;
+  }
   telegramEnabled = !telegramEnabled;
   localStorage.setItem('tg_enabled', telegramEnabled);
-  localStorage.setItem('tg_chat_id', telegramChatId);
-  // Save to DB
   savePreferencesDB({ telegram_chat_id: telegramChatId, telegram_enabled: telegramEnabled });
   updateTgModalState();
   updateTgBtn();
@@ -1514,15 +1524,16 @@ function updateTgBtn() {
 }
 
 async function testTelegram() {
-  telegramChatId = document.getElementById('tg-chat-id').value.trim();
-  if (!telegramChatId) { setTgStatus('Enter your Chat ID first.', 'err'); return; }
+  if (!telegramChatId) {
+    setTgStatus('Open the app via @tradewatchalert_bot first.', 'err');
+    return;
+  }
   setTgStatus('Sending…', '');
   const ok = await sendTelegram('✅ <b>Test Successful!</b>\n\nTradeWatch is connected and ready to fire alerts.\n\n<i>You\'re all set. 🎯</i>');
   if (ok) {
     setTgStatus('✓ Message sent! Check your Telegram.', 'ok');
-    localStorage.setItem('tg_chat_id', telegramChatId);
   } else {
-    setTgStatus('✗ Failed. Check your Chat ID and try again.', 'err');
+    setTgStatus('✗ Failed. Please try again.', 'err');
   }
 }
 
@@ -1533,7 +1544,7 @@ function setTgStatus(msg, type) {
   el.className = 'tg-status ' + type;
 }
 
-// Core send function — posts to the hardcoded Cloudflare Worker proxy
+// Core send function — posts to Cloudflare Worker proxy
 async function sendTelegram(message) {
   if (!telegramChatId) return false;
   try {
