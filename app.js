@@ -1299,84 +1299,12 @@ async function registerServiceWorker() {
 }
 registerServiceWorker();
 
-async function requestNotifPermission() {
-  if (!('Notification' in window)) {
-    showToast('Not Supported', 'Browser notifications are not supported here.', 'error');
-    return;
-  }
-  // Toggle off if already enabled
-  if (Notification.permission === 'granted' && notifEnabled) {
-    notifEnabled = false;
-    updateNotifBtn();
-    showToast('Notifications OFF', 'Price alerts will no longer send notifications.', 'success');
-    return;
-  }
-  // Re-enable if already granted
-  if (Notification.permission === 'granted') {
-    notifEnabled = true;
-    updateNotifBtn();
-    showToast('Notifications ON', 'You will receive alerts when price targets are hit.', 'success');
-    sendBrowserNotification('TradeWatch Active', 'Price alert notifications are enabled.');
-    return;
-  }
-  // Request permission
-  const perm = await Notification.requestPermission();
-  if (perm === 'granted') {
-    notifEnabled = true;
-    updateNotifBtn();
-    showToast('Notifications Enabled', 'Browser alerts will fire when your price targets are hit.', 'success');
-    sendBrowserNotification('TradeWatch Active', 'You will now receive price alert notifications.');
-  } else {
-    showToast('Permission Denied', 'Enable notifications in your browser settings to use this feature.', 'error');
-  }
-}
 
-function updateNotifBtn() {
-  const btn  = document.getElementById('notif-btn');
-  const dot  = document.getElementById('notif-dot');
-  if (notifEnabled) {
-    btn.classList.add('active');
-    btn.title = 'Notifications ON — click to toggle off';
-    if (dot) dot.style.display = '';
-  } else {
-    btn.classList.remove('active');
-    btn.title = 'Enable browser notifications';
-    if (dot) dot.style.display = 'none';
-  }
-}
 
-// Route through service worker's showNotification when available —
-// this fires even when the tab is in the background or on mobile lock screens.
-// Falls back to new Notification() if SW isn't registered (e.g. file:// context).
-async function sendBrowserNotification(title, body) {
-  if (!notifEnabled || Notification.permission !== 'granted') return;
-  try {
-    // Prefer SW-backed notification (works in background, mobile lock screen)
-    const reg = swRegistration || (await navigator.serviceWorker?.ready?.catch(() => null));
-    if (reg?.showNotification) {
-      await reg.showNotification(title, {
-        body,
-        icon: './icon-192.png',
-        badge: './icon-96.png',
-        vibrate: [200, 100, 200],
-        tag: 'tradewatch-alert-' + Date.now(),
-        renotify: true
-      });
-    } else {
-      // Fallback: direct Notification API (foreground-only)
-      new Notification(title, { body, tag: 'tradewatch-alert-' + Date.now() });
-    }
-  } catch(e) {
-    // Last-resort fallback
-    try { new Notification(title, { body }); } catch(_) {}
-  }
-}
+// Browser notifications removed — Telegram is the sole alert channel
+function sendBrowserNotification() {}
 
-// Restore notif state if permission was already granted in a previous session
-if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-  notifEnabled = true;
-  setTimeout(updateNotifBtn, 100);
-}
+
 
 // ═══════════════════════════════════════════════
 // TELEGRAM ALERTS
