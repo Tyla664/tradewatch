@@ -111,14 +111,13 @@ let navigateToChartOnSelect = false;
 // ═══════════════════════════════════════════════
 
 // Seed: shown before DB has enough data, and used to fill gaps
+// Hot list seed — major forex pairs shown by default.
+// As user clicks accumulate in the DB, real rankings replace these.
 const HOT_LIST_SEED = {
-  crypto:      ['bitcoin', 'ethereum', 'solana', 'ripple'],
-  forex:       ['EUR/USD', 'GBP/USD'],
-  commodities: ['XAU/USD', 'WTI/USD'],
-  indices:     ['SPX', 'IXIC'],
+  forex: ['EUR/USD', 'GBP/USD', 'USD/JPY', 'AUD/USD', 'USD/CAD', 'USD/CHF'],
 };
 
-// Live hot list — starts as seed, gets replaced by DB rankings on load
+// Live hot list — starts as seed, gets replaced by DB click rankings on load
 let HOT_LIST = { ...HOT_LIST_SEED };
 
 // ═══════════════════════════════════════════════
@@ -2187,34 +2186,49 @@ async function init() {
   await initAlertHistory();
 
   // ── Load user's personal watchlist from DB ──────
-  // Clear all default assets first — only show what the user has saved
+  // Clear all default assets — only show what the user has saved
   Object.keys(ASSETS).forEach(cat => { ASSETS[cat] = []; });
 
   const dbWatchlist = await loadWatchlist();
   if (dbWatchlist && dbWatchlist.length > 0) {
-    // Rebuild ASSETS from DB rows, preserving full asset metadata from ALL_ASSETS
     dbWatchlist.forEach(row => {
-      const meta = ALL_ASSETS.find(a => a.id === row.asset_id);
-      if (!meta) return;
-      const cat = row.category || meta.cat;
+      const cat = row.category;
+      if (!cat) return;
       if (!ASSETS[cat]) ASSETS[cat] = [];
-      if (!ASSETS[cat].some(a => a.id === meta.id)) {
-        ASSETS[cat].push(meta);
-      }
+      if (ASSETS[cat].some(a => a.id === row.asset_id)) return; // no dupes
+      // Prefer ALL_ASSETS master for full metadata, fall back to DB row data
+      const meta = ALL_ASSETS.find(a => a.id === row.asset_id);
+      ASSETS[cat].push(meta || {
+        id:       row.asset_id,
+        symbol:   row.symbol,
+        name:     row.name,
+        tdSymbol: row.td_symbol || row.asset_id,
+        source:   row.source   || 'Twelve Data',
+        cat,
+      });
     });
   }
-  // If DB had no watchlist rows yet, ASSETS stays empty — user starts fresh
 
+  // Build hot list from DB click rankings — all categories
+  // Falls back to HOT_LIST_SEED (forex defaults) if no DB data yet.
+  // Hot list is independent of the user's personal watchlist.
   const rankings = await loadHotListRankings();
-  if (rankings) {
-    Object.keys(HOT_LIST_SEED).forEach(cat => {
-      const dbOrder  = rankings[cat] || [];
-      const seedIds  = HOT_LIST_SEED[cat];
-      const merged   = [...new Set([...dbOrder, ...seedIds])];
-      HOT_LIST[cat]  = merged.filter(id =>
-        Object.values(ASSETS).flat().some(a => a.id === id)
-      );
+  if (rankings && Object.keys(rankings).length > 0) {
+    // Replace HOT_LIST entirely with DB-ranked results per category
+    HOT_LIST = {};
+    Object.entries(rankings).forEach(([cat, ids]) => {
+      // Only include assets that exist in ALL_ASSETS catalogue
+      HOT_LIST[cat] = ids.filter(id => ALL_ASSETS.some(a => a.id === id));
     });
+    // Fill in seed defaults for any category missing from DB rankings
+    Object.entries(HOT_LIST_SEED).forEach(([cat, ids]) => {
+      if (!HOT_LIST[cat] || HOT_LIST[cat].length === 0) {
+        HOT_LIST[cat] = ids;
+      }
+    });
+  } else {
+    // No DB data yet — use seed defaults
+    HOT_LIST = { ...HOT_LIST_SEED };
   }
 
   populateDropdown();
