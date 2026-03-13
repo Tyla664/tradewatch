@@ -98,7 +98,7 @@ const CORS_PROXIES = [
 async function fetchPolygonSnapshot(asset) {
   if (!asset.polySymbol) return false;
   try {
-    const url = `https://api.massive.com/v2/snapshot/locale/global/markets/crypto/tickers/${asset.polySymbol}?apiKey=${POLY_KEY}`;
+    const url = `https://api.polygon.io/v2/snapshot/locale/global/markets/crypto/tickers/${asset.polySymbol}?apiKey=${POLY_KEY}`;
     const data = await fetchWithCORSFallback(url);
     const t = data?.ticker;
     if (!t) return false;
@@ -130,7 +130,7 @@ async function fetchPolygonBatch(assets, market) {
         // Polygon crypto snapshot
         const sym = asset.polySymbol; // e.g. X:BTCUSD
         const data = await fetchWithCORSFallback(
-          `https://api.massive.com/v2/snapshot/locale/global/markets/crypto/tickers/${sym}?apiKey=${POLY_KEY}`
+          `https://api.polygon.io/v2/snapshot/locale/global/markets/crypto/tickers/${sym}?apiKey=${POLY_KEY}`
         );
         const t = data?.ticker;
         if (!t) return;
@@ -144,7 +144,7 @@ async function fetchPolygonBatch(assets, market) {
       } else if (market === 'stocks') {
         // Polygon stocks snapshot
         const data = await fetchWithCORSFallback(
-          `https://api.massive.com/v2/snapshot/locale/us/markets/stocks/tickers/${asset.polySymbol}?apiKey=${POLY_KEY}`
+          `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${asset.polySymbol}?apiKey=${POLY_KEY}`
         );
         const t = data?.ticker;
         if (!t) return;
@@ -157,7 +157,7 @@ async function fetchPolygonBatch(assets, market) {
       } else if (market === 'forex' || market === 'commodities') {
         // Polygon forex/metals snapshot (previous close)
         const data = await fetchWithCORSFallback(
-          `https://api.massive.com/v2/aggs/ticker/${asset.polySymbol}/prev?adjusted=true&apiKey=${POLY_KEY}`
+          `https://api.polygon.io/v2/aggs/ticker/${asset.polySymbol}/prev?adjusted=true&apiKey=${POLY_KEY}`
         );
         const r = data?.results?.[0];
         if (!r) return;
@@ -170,7 +170,7 @@ async function fetchPolygonBatch(assets, market) {
       } else if (market === 'indices') {
         // Polygon indices snapshot
         const data = await fetchWithCORSFallback(
-          `https://api.massive.com/v3/snapshot?ticker=${asset.polySymbol}&apiKey=${POLY_KEY}`
+          `https://api.polygon.io/v3/snapshot?ticker=${asset.polySymbol}&apiKey=${POLY_KEY}`
         );
         const r = data?.results?.[0];
         if (!r) return;
@@ -265,9 +265,9 @@ const polyWsConnected = { stocks: false, crypto: false, forex: false };
 const polyWsReconnectTimers = { stocks: null, crypto: null, forex: null };
 
 const POLY_WS_URLS = {
-  stocks: 'wss://socket.massive.com/stocks',
-  crypto: 'wss://socket.massive.com/crypto',
-  forex:  'wss://socket.massive.com/forex',
+  stocks: 'wss://socket.polygon.io/stocks',
+  crypto: 'wss://socket.polygon.io/crypto',
+  forex:  'wss://socket.polygon.io/forex',
 };
 
 // Maps Polygon WS ticker → asset id
