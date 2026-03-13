@@ -72,8 +72,6 @@
         <line x1="6.5" y1="9.5" x2="10.5" y2="7.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
       </svg>
     </button>
-
-    <button class="refresh-btn" onclick="refreshAll()">⟳ REFRESH</button>
   </div>
 </header>
 
@@ -146,16 +144,8 @@
 
   <!-- LEFT: Watchlist -->
   <div class="panels-wrap">
-    <!-- Pull to refresh indicator (mobile only) -->
-    <div id="ptr-indicator" class="ptr-indicator">
-      <div class="ptr-inner">
-        <svg class="ptr-spinner" id="ptr-spinner" width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5" opacity="0.2"/>
-          <path d="M10 2a8 8 0 0 1 8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
-        </svg>
-        <span id="ptr-label">Pull down to refresh</span>
-      </div>
-    </div>
+    <!-- Telegram connection toast -->
+    <div id="tg-toast" style="display:none;position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:9999;background:#1a2332;border:1px solid #2AABEE;border-radius:12px;padding:12px 20px;color:#fff;font-size:13px;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.4);min-width:240px;max-width:90vw;"></div>
   <div class="panel watchlist-panel mobile-active" id="panel-watchlist">
 
 
