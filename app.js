@@ -43,8 +43,47 @@ const ASSETS = {
   ]
 };
 
-// ═══════════════════════════════════════════════
-// STATE
+// ── Master asset catalogue — all assets with category tag ──
+// Used to restore full metadata when rebuilding watchlist from DB.
+// ASSETS above is the user's live watchlist (populated from DB on load).
+const ALL_ASSETS = [
+  // Crypto
+  { id: 'bitcoin',     symbol: 'BTC',     name: 'Bitcoin',            tdSymbol: 'BTC/USD',   source: 'CoinGecko',   cat: 'crypto' },
+  { id: 'ethereum',    symbol: 'ETH',     name: 'Ethereum',           tdSymbol: 'ETH/USD',   source: 'CoinGecko',   cat: 'crypto' },
+  { id: 'solana',      symbol: 'SOL',     name: 'Solana',             tdSymbol: 'SOL/USD',   source: 'CoinGecko',   cat: 'crypto' },
+  { id: 'ripple',      symbol: 'XRP',     name: 'XRP',                tdSymbol: 'XRP/USD',   source: 'CoinGecko',   cat: 'crypto' },
+  { id: 'binancecoin', symbol: 'BNB',     name: 'BNB',                tdSymbol: 'BNB/USD',   source: 'CoinGecko',   cat: 'crypto' },
+  { id: 'dogecoin',    symbol: 'DOGE',    name: 'Dogecoin',           tdSymbol: 'DOGE/USD',  source: 'CoinGecko',   cat: 'crypto' },
+  { id: 'cardano',     symbol: 'ADA',     name: 'Cardano',            tdSymbol: 'ADA/USD',   source: 'CoinGecko',   cat: 'crypto' },
+  { id: 'avalanche-2', symbol: 'AVAX',    name: 'Avalanche',          tdSymbol: 'AVAX/USD',  source: 'CoinGecko',   cat: 'crypto' },
+  { id: 'chainlink',   symbol: 'LINK',    name: 'Chainlink',          tdSymbol: 'LINK/USD',  source: 'CoinGecko',   cat: 'crypto' },
+  { id: 'litecoin',    symbol: 'LTC',     name: 'Litecoin',           tdSymbol: 'LTC/USD',   source: 'CoinGecko',   cat: 'crypto' },
+  // Stocks
+  { id: 'AAPL', symbol: 'AAPL', name: 'Apple Inc.',      tdSymbol: 'AAPL', source: 'Twelve Data', cat: 'stocks' },
+  { id: 'TSLA', symbol: 'TSLA', name: 'Tesla Inc.',      tdSymbol: 'TSLA', source: 'Twelve Data', cat: 'stocks' },
+  { id: 'NVDA', symbol: 'NVDA', name: 'NVIDIA Corp.',    tdSymbol: 'NVDA', source: 'Twelve Data', cat: 'stocks' },
+  { id: 'MSFT', symbol: 'MSFT', name: 'Microsoft Corp.', tdSymbol: 'MSFT', source: 'Twelve Data', cat: 'stocks' },
+  { id: 'AMZN', symbol: 'AMZN', name: 'Amazon.com',      tdSymbol: 'AMZN', source: 'Twelve Data', cat: 'stocks' },
+  { id: 'GOOGL',symbol: 'GOOGL',name: 'Alphabet Inc.',   tdSymbol: 'GOOGL',source: 'Twelve Data', cat: 'stocks' },
+  { id: 'META', symbol: 'META', name: 'Meta Platforms',  tdSymbol: 'META', source: 'Twelve Data', cat: 'stocks' },
+  // Forex
+  { id: 'EUR/USD', symbol: 'EUR/USD', name: 'Euro / US Dollar',       tdSymbol: 'EUR/USD', source: 'Twelve Data', cat: 'forex' },
+  { id: 'GBP/USD', symbol: 'GBP/USD', name: 'Pound / US Dollar',      tdSymbol: 'GBP/USD', source: 'Twelve Data', cat: 'forex' },
+  { id: 'USD/JPY', symbol: 'USD/JPY', name: 'Dollar / Japanese Yen',  tdSymbol: 'USD/JPY', source: 'Twelve Data', cat: 'forex' },
+  { id: 'AUD/USD', symbol: 'AUD/USD', name: 'Australian / US Dollar', tdSymbol: 'AUD/USD', source: 'Twelve Data', cat: 'forex' },
+  { id: 'USD/CAD', symbol: 'USD/CAD', name: 'Dollar / Canadian Dollar',tdSymbol: 'USD/CAD', source: 'Twelve Data', cat: 'forex' },
+  { id: 'USD/CHF', symbol: 'USD/CHF', name: 'Dollar / Swiss Franc',   tdSymbol: 'USD/CHF', source: 'Twelve Data', cat: 'forex' },
+  // Commodities
+  { id: 'XAU/USD', symbol: 'XAU/USD', name: 'Gold Spot',     tdSymbol: 'XAU/USD', source: 'Twelve Data', cat: 'commodities' },
+  { id: 'XAG/USD', symbol: 'XAG/USD', name: 'Silver Spot',   tdSymbol: 'XAG/USD', source: 'Twelve Data', cat: 'commodities' },
+  { id: 'WTI/USD', symbol: 'WTI/USD', name: 'WTI Crude Oil', tdSymbol: 'WTI/USD', source: 'Twelve Data', cat: 'commodities' },
+  { id: 'XNG/USD', symbol: 'XNG/USD', name: 'Natural Gas',   tdSymbol: 'XNG/USD', source: 'Twelve Data', cat: 'commodities' },
+  // Indices
+  { id: 'SPX',  symbol: 'S&P 500',  name: 'S&P 500 Index',        tdSymbol: 'SPX',  source: 'Simulated', cat: 'indices' },
+  { id: 'IXIC', symbol: 'NASDAQ',   name: 'NASDAQ Composite',     tdSymbol: 'IXIC', source: 'Simulated', cat: 'indices' },
+  { id: 'DJI',  symbol: 'DOW',      name: 'Dow Jones Industrial', tdSymbol: 'DJI',  source: 'Simulated', cat: 'indices' },
+  { id: 'FTSE', symbol: 'FTSE 100', name: 'FTSE 100 Index',       tdSymbol: 'FTSE', source: 'Simulated', cat: 'indices' },
+];
 // ═══════════════════════════════════════════════
 let prices = {};
 let priceData = {};  // { id: { price, change, high, low, vol, mcap } }
@@ -394,7 +433,7 @@ function renderHotList() {
     if (!container) return;
     container.innerHTML = '';
     assetIds.forEach(assetId => {
-      const asset = Object.values(ASSETS).flat().find(a => a.id === assetId);
+      const asset = Object.values(ASSETS).flat().find(a => a.id === assetId) || ALL_ASSETS.find(a => a.id === assetId);
       if (!asset) return;
       const hasAlert = alerts.some(a => a.assetId === asset.id && a.status === 'active');
       const isSelected = selectedAsset && selectedAsset.id === asset.id;
@@ -427,7 +466,7 @@ function renderHotList() {
 
 function hotListAdd(assetId, cat, e) {
   e.stopPropagation();
-  const asset = Object.values(ASSETS).flat().find(a => a.id === assetId);
+  const asset = Object.values(ASSETS).flat().find(a => a.id === assetId) || ALL_ASSETS.find(a => a.id === assetId);
   if (!asset) return;
   const already = ASSETS[cat]?.some(a => a.id === assetId);
   if (already) {
@@ -2146,6 +2185,25 @@ async function init() {
   if (dbAlerts !== null) alerts = dbAlerts;
 
   await initAlertHistory();
+
+  // ── Load user's personal watchlist from DB ──────
+  // Clear all default assets first — only show what the user has saved
+  Object.keys(ASSETS).forEach(cat => { ASSETS[cat] = []; });
+
+  const dbWatchlist = await loadWatchlist();
+  if (dbWatchlist && dbWatchlist.length > 0) {
+    // Rebuild ASSETS from DB rows, preserving full asset metadata from ALL_ASSETS
+    dbWatchlist.forEach(row => {
+      const meta = ALL_ASSETS.find(a => a.id === row.asset_id);
+      if (!meta) return;
+      const cat = row.category || meta.cat;
+      if (!ASSETS[cat]) ASSETS[cat] = [];
+      if (!ASSETS[cat].some(a => a.id === meta.id)) {
+        ASSETS[cat].push(meta);
+      }
+    });
+  }
+  // If DB had no watchlist rows yet, ASSETS stays empty — user starts fresh
 
   const rankings = await loadHotListRankings();
   if (rankings) {
