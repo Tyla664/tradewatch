@@ -523,10 +523,10 @@ function switchWLTab(tab) {
 
   // Show FAB only on watchlist tab on mobile
   const fab = document.getElementById('wl-fab');
-  if (fab) fab.classList.toggle('visible', tab === 'watchlist' && window.innerWidth <= 768);
+  if (fab) fab.classList.toggle('visible', tab === 'watchlist' && isMobileLayout());
 
   // Sync nav button highlights
-  if (window.innerWidth <= 768) {
+  if (isMobileLayout()) {
     document.querySelectorAll('.mobile-nav-btn').forEach(b => b.classList.remove('active'));
     const btnId = tab === 'watchlist' ? 'mnav-my-watchlist' : 'mnav-watchlist';
     document.getElementById(btnId)?.classList.add('active');
@@ -556,7 +556,7 @@ function selectAsset(asset) {
 
   // Update selection highlight — lightweight on mobile (no full re-render),
   // full re-render on desktop to also refresh prices on all cards
-  if (window.innerWidth <= 768) {
+  if (isMobileLayout()) {
     updateWatchlistSelection();
     if (navigateToChartOnSelect) {
       navigateToChartOnSelect = false;
@@ -576,8 +576,15 @@ function selectAsset(asset) {
 // Tracks panel history so back button/swipe works correctly
 const navStack = ['watchlist']; // start on watchlist
 
+// Returns true when the mobile bottom nav is active (regardless of device width)
+// This handles landscape phones, tablets, and any unusual viewport sizes correctly.
+function isMobileLayout() {
+  const nav = document.getElementById('mobile-nav');
+  return nav ? window.getComputedStyle(nav).display !== 'none' : window.innerWidth <= 768;
+}
+
 function mobileTab(tab, pushState = true) {
-  if (window.innerWidth > 768) return;
+  if (!isMobileLayout()) return;
 
   const current = navStack[navStack.length - 1];
 
@@ -636,7 +643,7 @@ function goBack() {
 
 // Android physical/gesture back button
 window.addEventListener('popstate', (e) => {
-  if (window.innerWidth > 768) return;
+  if (!isMobileLayout()) return;
   if (navStack.length > 1) {
     navStack.pop();
     const prev = navStack[navStack.length - 1];
@@ -724,7 +731,7 @@ function loadTVChart(asset) {
   container.innerHTML = '';
 
   const symbol = getTVSymbol(asset);
-  const isMobile = window.innerWidth <= 768;
+  const isMobile = isMobileLayout();
 
   if (!window.TradingView) {
     container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-family:var(--mono);font-size:0.75rem;letter-spacing:1px">LOADING CHART...</div>';
@@ -916,7 +923,7 @@ async function createAlert() {
 
   renderAlerts();
   renderWatchlist();
-  if (window.innerWidth <= 768) {
+  if (isMobileLayout()) {
     switchAlertTab('active');
     mobileTab('alerts');
   }
@@ -2413,11 +2420,24 @@ function setStatusPill(isLive) {
   }
 }
 
-window.addEventListener('resize', () => { if (selectedAsset && window.innerWidth > 768) loadTVChart(selectedAsset); });
+window.addEventListener('resize', () => {
+  if (selectedAsset && !isMobileLayout()) loadTVChart(selectedAsset);
+  // Re-activate correct panel after orientation change
+  const activePanel = navStack[navStack.length - 1];
+  if (isMobileLayout()) {
+    mobileTab(activePanel, false);
+  } else {
+    // Desktop — ensure all panels visible
+    ['panel-watchlist','panel-main','panel-alerts'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.remove('mobile-active');
+    });
+  }
+});
 
 // Refresh prices when user returns to the tab
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') fetchAllPrices();
+  if (document.visibilityState === 'visible') { fetchAllPrices(); if (isMobileLayout()) mobileTab(navStack[navStack.length-1], false); }
 });
 
 // ── TELEGRAM CONNECT PROMPT (blocks app if not in Telegram) ──
@@ -2482,7 +2502,7 @@ function showTgToast(msg) {
   }, { passive: true });
 
   document.addEventListener('touchend', e => {
-    if (window.innerWidth > 768) return;
+    if (!isMobileLayout()) return;
     if (document.getElementById('add-modal').style.display !== 'none') return;
     if (document.getElementById('tg-modal').style.display !== 'none') return;
 
