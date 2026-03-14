@@ -2314,15 +2314,14 @@ async function init() {
 
   if (isTelegramApp) {
     soundEnabled = prefs?.sound_enabled ?? true;
-    if (!prefs?.telegram_chat_id) {
-      savePreferencesDB({
-        telegram_chat_id: telegramChatId,
-        telegram_enabled: true,
-        sound_enabled: soundEnabled,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        utc_offset_mins: -new Date().getTimezoneOffset(),
-      });
-    }
+    // Always update timezone offset — ensures EF always has the current accurate offset
+    savePreferencesDB({
+      telegram_chat_id: telegramChatId,
+      telegram_enabled: true,
+      sound_enabled:    soundEnabled,
+      timezone:         Intl.DateTimeFormat().resolvedOptions().timeZone,
+      utc_offset_mins:  -new Date().getTimezoneOffset(),
+    });
     // Silent connection — no nag toast
   } else {
     // Not inside Telegram — show blocking connect prompt
