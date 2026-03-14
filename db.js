@@ -110,6 +110,7 @@ let currentTelegramId = detectTelegramId();
 
 async function getOrCreateUser(telegramId) {
   try {
+    console.log('DB: getOrCreateUser telegramId=', telegramId);
     const rows = await db.query('users', {
       select: 'id',
       filter: { 'telegram_id': `eq.${telegramId}` },
@@ -118,15 +119,17 @@ async function getOrCreateUser(telegramId) {
 
     if (rows.length > 0) {
       currentUserId = rows[0].id;
+      console.log('DB: found user', currentUserId);
       return currentUserId;
     }
 
     // Create new user
     const created = await db.insert('users', { telegram_id: telegramId });
     currentUserId = created[0].id;
+    console.log('DB: created user', currentUserId);
     return currentUserId;
   } catch (e) {
-    console.warn('DB: getOrCreateUser failed, using offline mode', e);
+    console.error('DB: getOrCreateUser FAILED', e.message || e);
     return null;
   }
 }
@@ -168,7 +171,7 @@ async function loadWatchlist() {
   if (!currentUserId) return null;
   try {
     const rows = await db.query('watchlist', {
-      select: 'asset_id,symbol,name,category,td_symbol,source',
+      select: 'asset_id,symbol,name,category',
       filter: { 'user_id': `eq.${currentUserId}` },
       order: 'created_at.asc',
     });
@@ -180,19 +183,21 @@ async function loadWatchlist() {
 }
 
 async function addToWatchlist(asset, category) {
-  if (!currentUserId) return;
+  if (!currentUserId) {
+    console.warn('DB: addToWatchlist — no currentUserId, skipping');
+    return;
+  }
   try {
-    await db.upsert('watchlist', {
-      user_id:   currentUserId,
-      asset_id:  asset.id,
-      symbol:    asset.symbol,
-      name:      asset.name,
+    const result = await db.upsert('watchlist', {
+      user_id:  currentUserId,
+      asset_id: asset.id,
+      symbol:   asset.symbol,
+      name:     asset.name,
       category,
-      td_symbol: asset.tdSymbol  || null,
-      source:    asset.source    || null,
     }, 'user_id,asset_id');
+    console.log('DB: addToWatchlist success', asset.id, result);
   } catch (e) {
-    console.warn('DB: addToWatchlist failed', e);
+    console.error('DB: addToWatchlist FAILED', asset.id, e.message || e);
   }
 }
 
