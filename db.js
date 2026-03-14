@@ -252,6 +252,10 @@ async function loadAlertsFromDB() {
       triggeredAt: r.triggered_at,
       triggeredPrice: r.triggered_price ? parseFloat(r.triggered_price) : null,
       triggeredDirection: r.triggered_direction,
+      lastTriggeredAt: r.last_triggered_at ? new Date(r.last_triggered_at).getTime() : 0,
+      // Restore in-memory zone state — if last_triggered_at is set on a repeating zone,
+      // it has already entered the zone at least once
+      zoneTriggeredOnce: r.condition === 'zone' && parseInt(r.repeat_interval) > 0 && !!r.last_triggered_at,
     }));
   } catch (e) {
     console.warn('DB: loadAlerts failed', e);
