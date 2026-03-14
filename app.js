@@ -848,18 +848,20 @@ async function createAlert() {
   const newAlert = {
     id: 'temp_' + alertIdCounter++,
     assetId,
-    symbol:       assetInfo.symbol,
-    name:         assetInfo.name,
+    symbol:          assetInfo.symbol,
+    name:            assetInfo.name,
     condition,
     targetPrice,
-    zoneLow:      isZone ? zoneLow  : null,
-    zoneHigh:     isZone ? zoneHigh : null,
-    timeframe:    timeframe || null,
+    zoneLow:         isZone     ? zoneLow      : null,
+    zoneHigh:        isZone     ? zoneHigh     : null,
+    tapTolerance:    isTap      ? tapTolerance : null,
+    proximityPct:    isProximity? proximityPct : null,
+    timeframe:       timeframe || null,
     repeatInterval,
     note,
-    sound:        selectedAlertSound,
-    status:       'active',
-    createdAt:    new Date().toLocaleTimeString(),
+    sound:           selectedAlertSound,
+    status:          'active',
+    createdAt:       new Date().toLocaleTimeString(),
     currentPriceWhenCreated: currentPrice,
   };
 
@@ -874,13 +876,17 @@ async function createAlert() {
   }
 
   // Reset form
-  document.getElementById('alert-price').value     = '';
-  document.getElementById('alert-zone-low').value  = '';
-  document.getElementById('alert-zone-high').value = '';
-  document.getElementById('alert-note').value      = '';
-  document.getElementById('alert-note-zone').value = '';
-  document.getElementById('alert-timeframe').value = '';
-  document.getElementById('alert-repeat').value    = '0';
+  document.getElementById('alert-price').value            = '';
+  document.getElementById('alert-zone-low').value         = '';
+  document.getElementById('alert-zone-high').value        = '';
+  document.getElementById('alert-note').value             = '';
+  document.getElementById('alert-note-zone').value        = '';
+  document.getElementById('alert-note-proximity').value   = '';
+  document.getElementById('alert-timeframe').value        = '';
+  document.getElementById('alert-repeat').value           = '0';
+  document.getElementById('alert-tap-tolerance').value    = '0.2';
+  document.getElementById('alert-proximity-pct').value    = '2';
+  document.getElementById('alert-proximity-repeat').value = '15';
   delete document.getElementById('alert-price').dataset.userEdited;
   delete document.getElementById('alert-zone-low').dataset.userEdited;
   delete document.getElementById('alert-zone-high').dataset.userEdited;
@@ -888,19 +894,16 @@ async function createAlert() {
   const tfLabel = timeframe ? ` · ${timeframe}` : '';
   if (isZone) {
     showToast('Zone Alert Created', `${assetInfo.symbol} zone ${formatPrice(zoneLow, assetId)}–${formatPrice(zoneHigh, assetId)}${tfLabel} is now active.`, 'success');
+  } else if (isTap) {
+    showToast('Tap Alert Created', `${assetInfo.symbol} tap at ${formatPrice(targetPrice, assetId)} (±${tapTolerance}%)${tfLabel} is now active.`, 'success');
+  } else if (isProximity) {
+    showToast('Proximity Alert Created', `You'll be warned when ${assetInfo.symbol} is within ${proximityPct}% of ${formatPrice(targetPrice, assetId)}.`, 'success');
   } else {
     showToast('Alert Created', `${assetInfo.symbol} ${condition} ${formatPrice(targetPrice, assetId)}${tfLabel} is now active.`, 'success');
   }
 
-  sendBrowserNotification(
-    `Alert Set — ${assetInfo.symbol}`,
-    isZone
-      ? `Zone ${formatPrice(zoneLow, assetId)}–${formatPrice(zoneHigh, assetId)}${tfLabel}`
-      : `Price ${condition} ${formatPrice(targetPrice, assetId)}${tfLabel}`
-  );
-
   if (telegramEnabled) {
-    sendTelegram(tgCreatedMessage(assetInfo.symbol, condition, targetPrice, assetId, note, timeframe, zoneLow, zoneHigh, repeatInterval));
+    sendTelegram(tgCreatedMessage(assetInfo.symbol, condition, targetPrice, assetId, note, timeframe, zoneLow, zoneHigh, repeatInterval, tapTolerance, proximityPct));
   }
 
   renderAlerts();
@@ -1016,6 +1019,21 @@ function dismissAlert(id) {
   renderWatchlist();
 }
 
+// ── Alert condition SVG icons ─────────────────────────
+// Used in badge labels and detail lines throughout the alert card UI.
+const ALERT_ICONS = {
+  above:     `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><polyline points="1,7 5,3 9,7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  below:     `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><polyline points="1,3 5,7 9,3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  zone:      `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><rect x="1" y="3" width="8" height="4" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><line x1="1" y1="5" x2="9" y2="5" stroke="currentColor" stroke-width="0.8" stroke-dasharray="1.5 1.5"/></svg>`,
+  tap:       `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><circle cx="5" cy="5" r="3.5" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="5" r="1" fill="currentColor"/></svg>`,
+  proximity: `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><path d="M5 1 L5 5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M2 8 Q5 4.5 8 8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></svg>`,
+  paused:    `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><rect x="1.5" y="1" width="2.5" height="8" rx="1" fill="currentColor" opacity="0.7"/><rect x="6" y="1" width="2.5" height="8" rx="1" fill="currentColor" opacity="0.7"/></svg>`,
+  triggered: `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><polyline points="1,5 3.5,7.5 9,2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  inzone:    `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><rect x="1" y="3" width="8" height="4" rx="1" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity="0.2"/><circle cx="5" cy="5" r="1.2" fill="currentColor"/></svg>`,
+  near:      `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><circle cx="5" cy="5" r="4" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2 1.5"/><circle cx="5" cy="5" r="1.5" fill="currentColor" opacity="0.8"/></svg>`,
+  active:    `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><circle cx="5" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="5" r="1" fill="currentColor"/></svg>`,
+};
+
 function renderAlerts() {
   const container = document.getElementById('alerts-list');
   const active = alerts.filter(a => a.status === 'active').length;
@@ -1041,40 +1059,45 @@ function renderAlerts() {
     }
 
     let badgeClass, badgeLabel;
-    const isRepeatingZone = alert.condition === 'zone' && (alert.repeatInterval || 0) > 0;
-    const zoneInProgress  = isRepeatingZone && alert.zoneTriggeredOnce;
+    const isRepeatingZone  = alert.condition === 'zone'      && (alert.repeatInterval || 0) > 0;
+    const zoneInProgress   = isRepeatingZone && alert.zoneTriggeredOnce;
+    const proximityFiring  = alert.condition === 'proximity' && alert.proximityFired;
 
     if (isTriggered) {
-      badgeClass = alert.condition === 'zone' ? 'badge-triggered-below' : `badge-triggered-${dir}`;
-      badgeLabel = alert.condition === 'zone' ? '◈ TRIGGERED' : (dir === 'above' ? '▲ TRIGGERED' : '▼ TRIGGERED');
+      if (alert.condition === 'zone')      { badgeClass = 'badge-triggered-below'; badgeLabel = `${ALERT_ICONS.zone}TRIGGERED`; }
+      else if (alert.condition === 'tap')  { badgeClass = 'badge-triggered-above'; badgeLabel = `${ALERT_ICONS.triggered}TAPPED`; }
+      else                                 { badgeClass = `badge-triggered-${dir}`; badgeLabel = dir === 'above' ? `${ALERT_ICONS.above}TRIGGERED` : `${ALERT_ICONS.below}TRIGGERED`; }
     } else if (zoneInProgress) {
-      // Repeating zone that has fired at least once — show pulsing IN ZONE badge
-      badgeClass = 'badge-zone-active';
-      badgeLabel = '● IN ZONE';
+      badgeClass = 'badge-zone-active'; badgeLabel = `${ALERT_ICONS.inzone}IN ZONE`;
+    } else if (proximityFiring) {
+      badgeClass = 'badge-zone-active'; badgeLabel = `${ALERT_ICONS.near}NEAR`;
     } else if (alert.status === 'paused') {
-      badgeClass = 'badge-inactive'; badgeLabel = 'PAUSED';
+      badgeClass = 'badge-inactive'; badgeLabel = `${ALERT_ICONS.paused}PAUSED`;
     } else {
-      badgeClass = 'badge-active'; badgeLabel = 'ACTIVE';
+      badgeClass = 'badge-active'; badgeLabel = `${ALERT_ICONS.active}ACTIVE`;
     }
 
     const triggeredLine = isTriggered
-      ? `<span style="color:${dir === 'above' ? 'var(--green)' : 'var(--red)'}">
+      ? `<span style="color:${dir === 'above' || alert.condition === 'tap' ? 'var(--green)' : 'var(--red)'}">
            Hit ${formatPrice(alert.triggeredPrice, alert.assetId)} at ${alert.triggeredAt}
          </span><br>`
       : zoneInProgress
-        ? `<span style="color:var(--accent);font-size:0.78rem;">
-             Price inside zone · repeating every ${alert.repeatInterval}m
-           </span><br>`
-        : '';
+        ? `<span style="color:var(--accent);font-size:0.78rem;">Price inside zone · repeating every ${alert.repeatInterval}m</span><br>`
+      : proximityFiring
+        ? `<span style="color:var(--accent);font-size:0.78rem;">Price approaching · repeating every ${alert.repeatInterval}m</span><br>`
+      : '';
 
-    // Detail line — zone vs above/below
-    const isZoneAlert = alert.condition === 'zone';
-    const detailLine = isZoneAlert
-      ? `<strong>◈ ZONE</strong> ${formatPrice(alert.zoneLow, alert.assetId)} – ${formatPrice(alert.zoneHigh, alert.assetId)}${alert.timeframe ? ` <span style="opacity:0.6;font-size:0.75em">· ${alert.timeframe}</span>` : ''}${alert.repeatInterval ? ` <span style="opacity:0.6;font-size:0.75em">· every ${alert.repeatInterval}m</span>` : ''}`
-      : `<strong>${alert.condition === 'above'
-          ? '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><polyline points="1,7 5,3 9,7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>ABOVE'
-          : '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><polyline points="1,3 5,7 9,3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>BELOW'
-        }</strong> ${formatPrice(alert.targetPrice, alert.assetId)}${alert.timeframe ? ` <span style="opacity:0.6;font-size:0.75em">· ${alert.timeframe}</span>` : ''}`;
+    // Detail line — all condition types
+    let detailLine;
+    if (alert.condition === 'zone') {
+      detailLine = `<strong>${ALERT_ICONS.zone}ZONE</strong> ${formatPrice(alert.zoneLow, alert.assetId)} – ${formatPrice(alert.zoneHigh, alert.assetId)}${alert.timeframe ? ` <span style="opacity:0.6;font-size:0.75em">· ${alert.timeframe}</span>` : ''}${alert.repeatInterval ? ` <span style="opacity:0.6;font-size:0.75em">· every ${alert.repeatInterval}m</span>` : ''}`;
+    } else if (alert.condition === 'tap') {
+      detailLine = `<strong>${ALERT_ICONS.tap}TAP LEVEL</strong> ${formatPrice(alert.targetPrice, alert.assetId)} <span style="opacity:0.6;font-size:0.75em">· ±${alert.tapTolerance}% tolerance</span>${alert.timeframe ? ` <span style="opacity:0.6;font-size:0.75em">· ${alert.timeframe}</span>` : ''}`;
+    } else if (alert.condition === 'proximity') {
+      detailLine = `<strong>${ALERT_ICONS.proximity}APPROACH</strong> ${formatPrice(alert.targetPrice, alert.assetId)} <span style="opacity:0.6;font-size:0.75em">· within ${alert.proximityPct}%</span>${alert.timeframe ? ` <span style="opacity:0.6;font-size:0.75em">· ${alert.timeframe}</span>` : ''} <span style="opacity:0.6;font-size:0.75em">· every ${alert.repeatInterval}m</span>`;
+    } else {
+      detailLine = `<strong>${alert.condition === 'above' ? ALERT_ICONS.above + 'ABOVE' : ALERT_ICONS.below + 'BELOW'}</strong> ${formatPrice(alert.targetPrice, alert.assetId)}${alert.timeframe ? ` <span style="opacity:0.6;font-size:0.75em">· ${alert.timeframe}</span>` : ''}`;
+    }
 
     const actions = isTriggered
       ? `<button class="alert-action-btn dismiss" onclick="dismissAlert('${alert.id}')">
@@ -1224,8 +1247,8 @@ function renderHistory() {
 
   let html = `<div class="hist-summary">
     <div>${filtered.length} trigger${filtered.length !== 1 ? 's' : ''}</div>
-    <div>▲ Above: <span>${aboveCount}</span></div>
-    <div>▼ Below: <span>${belowCount}</span></div>
+    <div>${ALERT_ICONS.above}Above: <span>${aboveCount}</span></div>
+    <div>${ALERT_ICONS.below}Below: <span>${belowCount}</span></div>
   </div>`;
 
   sortedGroups.forEach(([assetId, group]) => {
@@ -1251,7 +1274,7 @@ function renderHistory() {
             return `
             <div class="hist-entry">
               <div class="hist-entry-left">
-                <span class="hist-entry-dir hist-dir-${h.condition}">${h.condition === 'above' ? '▲ ABOVE' : '▼ BELOW'}</span>
+                <span class="hist-entry-dir hist-dir-${h.condition}">${h.condition === 'above' ? ALERT_ICONS.above + 'ABOVE' : h.condition === 'below' ? ALERT_ICONS.below + 'BELOW' : h.condition === 'zone' ? ALERT_ICONS.zone + 'ZONE' : h.condition === 'tap' ? ALERT_ICONS.tap + 'TAP' : ALERT_ICONS.proximity + 'NEAR'}</span>
                 <span class="hist-entry-price">Target: ${formatPrice(h.targetPrice, h.assetId)}</span>
                 ${h.note ? `<span class="hist-entry-note">"${h.note}"</span>` : ''}
               </div>
@@ -1306,7 +1329,9 @@ function checkAlerts() {
     const currentPrice = priceData[alert.assetId]?.price || prices[alert.assetId];
     if (!currentPrice) return;
 
-    const isZone = alert.condition === 'zone';
+    const isZone      = alert.condition === 'zone';
+    const isTap       = alert.condition === 'tap';
+    const isProximity = alert.condition === 'proximity';
     let fired = false;
 
     if (isZone) {
@@ -1323,6 +1348,25 @@ function checkAlerts() {
         alert.lastTriggeredAt = now;
       }
       fired = true;
+    } else if (isTap) {
+      const tol = (alert.tapTolerance || 0.2) / 100;
+      const withinRange = Math.abs(currentPrice - alert.targetPrice) / alert.targetPrice <= tol;
+      if (!withinRange) { alert.tapTriggeredOnce = false; return; }
+      if (alert.tapTriggeredOnce) return;
+      alert.tapTriggeredOnce = true;
+      alert.status = 'triggered';
+      fired = true;
+    } else if (isProximity) {
+      const pct     = (alert.proximityPct || 2) / 100;
+      const dist    = Math.abs(currentPrice - alert.targetPrice) / alert.targetPrice;
+      const inRange = dist <= pct && dist > 0.001;
+      if (!inRange) { alert.proximityFired = false; return; }
+      const repeatMs  = (alert.repeatInterval || 15) * 60 * 1000;
+      const lastFired = alert.lastTriggeredAt || 0;
+      if (now - lastFired < repeatMs) return;
+      alert.lastTriggeredAt = now;
+      alert.proximityFired  = true;
+      fired = true;
     } else {
       fired =
         (alert.condition === 'above' && currentPrice >= alert.targetPrice) ||
@@ -1336,11 +1380,11 @@ function checkAlerts() {
     alert.triggeredPrice = currentPrice;
     triggeredToday++;
 
-    if (!isZone || (alert.repeatInterval || 0) === 0) {
+    if (!isProximity) {
       updateAlert(alert.id, {
-        status: 'triggered',
-        triggered_at: alert.triggeredAt,
-        triggered_price: currentPrice,
+        status:              (isZone && (alert.repeatInterval||0) > 0) ? 'active' : (isProximity ? 'active' : 'triggered'),
+        triggered_at:        alert.triggeredAt,
+        triggered_price:     currentPrice,
         triggered_direction: alert.condition,
       });
     }
@@ -1349,20 +1393,23 @@ function checkAlerts() {
     let msg;
     if (isZone) {
       msg = `Entered zone ${formatPrice(alert.zoneLow, alert.assetId)}–${formatPrice(alert.zoneHigh, alert.assetId)}${tfLabel} | Current price: ${formatPrice(currentPrice, alert.assetId)}`;
+    } else if (isTap) {
+      msg = `Tapped ${formatPrice(alert.targetPrice, alert.assetId)} (±${alert.tapTolerance}%)${tfLabel} | Current: ${formatPrice(currentPrice, alert.assetId)}`;
+    } else if (isProximity) {
+      const distPct = (Math.abs(currentPrice - alert.targetPrice) / alert.targetPrice * 100).toFixed(2);
+      msg = `${distPct}% from target ${formatPrice(alert.targetPrice, alert.assetId)}${tfLabel} | Current: ${formatPrice(currentPrice, alert.assetId)}`;
     } else {
-      msg = `${alert.condition === 'above' ? 'Rose above' : 'Fell below'} ${formatPrice(alert.targetPrice, alert.assetId)}${tfLabel} | Current price: ${formatPrice(currentPrice, alert.assetId)}`;
+      msg = `${alert.condition === 'above' ? 'Rose above' : 'Fell below'} ${formatPrice(alert.targetPrice, alert.assetId)}${tfLabel} | Current: ${formatPrice(currentPrice, alert.assetId)}`;
     }
 
-    showToast(`ALERT TRIGGERED — ${alert.symbol}`, msg, 'alert');
+    showToast(isProximity ? `APPROACHING — ${alert.symbol}` : `ALERT TRIGGERED — ${alert.symbol}`, msg, isProximity ? 'info' : 'alert');
     playAlertSound(alert.sound || selectedAlertSound);
-    sendBrowserNotification(`${alert.symbol} Alert Triggered`, msg);
-    // For repeating zone alerts, Telegram is handled exclusively by the Edge Function
-    // to avoid duplicate messages when the app is open at the same time.
-    const isRepeatingZone = isZone && (alert.repeatInterval || 0) > 0;
-    if (telegramEnabled && !isRepeatingZone) {
+    const isRepeating = (isZone || isProximity) && (alert.repeatInterval || 0) > 0;
+    if (telegramEnabled && !isRepeating) {
       sendTelegram(tgAlertMessage('trigger', alert.symbol, alert.condition,
         alert.targetPrice, currentPrice, alert.assetId,
-        alert.note, alert.timeframe, alert.zoneLow, alert.zoneHigh, alert.repeatInterval));
+        alert.note, alert.timeframe, alert.zoneLow, alert.zoneHigh,
+        alert.repeatInterval, alert.tapTolerance, alert.proximityPct));
     }
     renderAlerts();
   });
@@ -1653,18 +1700,22 @@ function tgRow(label, value) {
   return `<code>${label.padEnd(16)}</code>${value}`;
 }
 
-function tgAlertMessage(type, symbol, condition, targetPrice, currentPrice, assetId, note, timeframe, zoneLow, zoneHigh, repeatInterval) {
-  const isZone  = condition === 'zone';
-  const isAbove = condition === 'above';
-  // Auto-detect user's timezone for timestamp
-  const userTz   = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const now      = new Date();
-  const timeStr  = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: userTz });
-  const offset   = -now.getTimezoneOffset();
-  const sign     = offset >= 0 ? '+' : '-';
-  const absOff   = Math.abs(offset);
-  const offStr   = `UTC${sign}${String(Math.floor(absOff/60)).padStart(2,'0')}:${String(absOff%60).padStart(2,'0')}`;
-  const time     = `${timeStr} (${offStr})`;
+function tgTime() {
+  const userTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const now    = new Date();
+  const str    = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: userTz });
+  const offset = -now.getTimezoneOffset();
+  const sign   = offset >= 0 ? '+' : '-';
+  const abs    = Math.abs(offset);
+  return `${str} (UTC${sign}${String(Math.floor(abs/60)).padStart(2,'0')}:${String(abs%60).padStart(2,'0')})`;
+}
+
+function tgAlertMessage(type, symbol, condition, targetPrice, currentPrice, assetId, note, timeframe, zoneLow, zoneHigh, repeatInterval, tapTolerance, proximityPct) {
+  const isZone      = condition === 'zone';
+  const isAbove     = condition === 'above';
+  const isTap       = condition === 'tap';
+  const isProximity = condition === 'proximity';
+  const time        = tgTime();
 
   let header, subtitle, rows = [];
 
@@ -1674,7 +1725,23 @@ function tgAlertMessage(type, symbol, condition, targetPrice, currentPrice, asse
     rows.push(tgRow('Zone',          `<b>${formatPrice(zoneLow, assetId)} – ${formatPrice(zoneHigh, assetId)}</b>`));
     rows.push(tgRow('Current price', `<b>${formatPrice(currentPrice, assetId)}</b>`));
     if (timeframe)                            rows.push(tgRow('Timeframe', `<b>${timeframe}</b>`));
-    if (repeatInterval && repeatInterval > 0) rows.push(tgRow('Repeat',    `<b>Every ${repeatInterval} min</b>`));
+    if (repeatInterval && repeatInterval > 0) rows.push(tgRow('Repeat',   `<b>Every ${repeatInterval} min</b>`));
+  } else if (isTap) {
+    header   = `🎯 <b>TAP ALERT — ${symbol}</b>`;
+    subtitle = `Price touched your level`;
+    rows.push(tgRow('Level',         `<b>${formatPrice(targetPrice, assetId)}</b>`));
+    rows.push(tgRow('Current price', `<b>${formatPrice(currentPrice, assetId)}</b>`));
+    rows.push(tgRow('Tolerance',     `<b>±${tapTolerance}%</b>`));
+    if (timeframe) rows.push(tgRow('Timeframe', `<b>${timeframe}</b>`));
+  } else if (isProximity) {
+    const distPct = (Math.abs(currentPrice - targetPrice) / targetPrice * 100).toFixed(2);
+    header   = `⚠️ <b>APPROACHING — ${symbol}</b>`;
+    subtitle = `Price is getting close to your target`;
+    rows.push(tgRow('Target',        `<b>${formatPrice(targetPrice, assetId)}</b>`));
+    rows.push(tgRow('Current price', `<b>${formatPrice(currentPrice, assetId)}</b>`));
+    rows.push(tgRow('Distance',      `<b>${distPct}% away</b>`));
+    if (timeframe) rows.push(tgRow('Timeframe', `<b>${timeframe}</b>`));
+    if (repeatInterval) rows.push(tgRow('Repeating', `<b>Every ${repeatInterval} min</b>`));
   } else {
     const emoji   = isAbove ? '🚀' : '📉';
     const dirWord = isAbove ? 'broke above' : 'dropped below';
@@ -1686,13 +1753,14 @@ function tgAlertMessage(type, symbol, condition, targetPrice, currentPrice, asse
   }
 
   if (note) rows.push(tgRow('Note', `<i>${note}</i>`));
-
   return [header, ``, subtitle, ``, ...rows, ``, `⏰ ${time}`, ``, `<i>Tap to open TradeWatch</i>`].join('\n');
 }
 
-function tgCreatedMessage(symbol, condition, targetPrice, assetId, note, timeframe, zoneLow, zoneHigh, repeatInterval) {
-  const isZone  = condition === 'zone';
-  const isAbove = condition === 'above';
+function tgCreatedMessage(symbol, condition, targetPrice, assetId, note, timeframe, zoneLow, zoneHigh, repeatInterval, tapTolerance, proximityPct) {
+  const isZone      = condition === 'zone';
+  const isAbove     = condition === 'above';
+  const isTap       = condition === 'tap';
+  const isProximity = condition === 'proximity';
 
   let header, subtitle, rows = [];
 
@@ -1702,6 +1770,19 @@ function tgCreatedMessage(symbol, condition, targetPrice, assetId, note, timefra
     rows.push(tgRow('Zone',      `<b>${formatPrice(zoneLow, assetId)} – ${formatPrice(zoneHigh, assetId)}</b>`));
     if (timeframe)                            rows.push(tgRow('Timeframe', `<b>${timeframe}</b>`));
     if (repeatInterval && repeatInterval > 0) rows.push(tgRow('Repeat',   `<b>Every ${repeatInterval} min</b>`));
+  } else if (isTap) {
+    header   = `🎯 <b>Tap Alert Set — ${symbol}</b>`;
+    subtitle = `You'll be notified when <b>${symbol}</b> touches your level`;
+    rows.push(tgRow('Level',     `<b>${formatPrice(targetPrice, assetId)}</b>`));
+    rows.push(tgRow('Tolerance', `<b>±${tapTolerance}%</b>`));
+    if (timeframe) rows.push(tgRow('Timeframe', `<b>${timeframe}</b>`));
+  } else if (isProximity) {
+    header   = `⚠️ <b>Proximity Alert Set — ${symbol}</b>`;
+    subtitle = `You'll be warned when <b>${symbol}</b> is within ${proximityPct}% of your target`;
+    rows.push(tgRow('Target',    `<b>${formatPrice(targetPrice, assetId)}</b>`));
+    rows.push(tgRow('Distance',  `<b>Within ${proximityPct}%</b>`));
+    rows.push(tgRow('Repeats',   `<b>Every ${repeatInterval} min</b>`));
+    if (timeframe) rows.push(tgRow('Timeframe', `<b>${timeframe}</b>`));
   } else {
     const emoji   = isAbove ? '🟢' : '🔴';
     const dirWord = isAbove ? 'rises above' : 'falls below';
@@ -1712,7 +1793,6 @@ function tgCreatedMessage(symbol, condition, targetPrice, assetId, note, timefra
   }
 
   if (note) rows.push(tgRow('Note', `<i>${note}</i>`));
-
   return [header, ``, subtitle, ``, ...rows, ``, `<i>Watching the markets for you 👀</i>`].join('\n');
 }
 
