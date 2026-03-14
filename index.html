@@ -89,7 +89,7 @@
           <div class="tg-instructions" id="tg-detected-name" style="margin-top:6px;"></div>
         </div>
         <div id="tg-not-detected-box" style="display:none;">
-          <div class="tg-step">⚠️ Open in Telegram</div>
+          <div class="tg-step">Open in Telegram</div>
           <div class="tg-instructions">
             To use Telegram alerts, open this app via the bot: <strong>@tradewatchalert_bot</strong>. Your account will be detected automatically — no Chat ID needed.
           </div>
@@ -256,11 +256,13 @@
             <option value="above">Price rises ABOVE</option>
             <option value="below">Price falls BELOW</option>
             <option value="zone">Price enters ZONE</option>
+            <option value="tap">Price TAPS level</option>
+            <option value="proximity">Price APPROACHES target</option>
           </select>
         </div>
       </div>
 
-      <!-- Row 2a: Single target price (above/below) -->
+      <!-- Row 2a: Single target price (above/below/tap) -->
       <div id="alert-single-row" class="form-row">
         <div class="form-group">
           <label>TARGET PRICE</label>
@@ -272,7 +274,7 @@
         </div>
       </div>
 
-      <!-- Row 2b: Zone prices (hidden unless zone selected) -->
+      <!-- Row 2b: Zone prices -->
       <div id="alert-zone-row" style="display:none;">
         <div class="form-row">
           <div class="form-group">
@@ -299,6 +301,60 @@
           <div class="form-group">
             <label>NOTE (OPTIONAL)</label>
             <input type="text" id="alert-note-zone" placeholder="e.g. Consolidation zone">
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 2c: Tap level options -->
+      <div id="alert-tap-row" style="display:none;">
+        <div class="form-row">
+          <div class="form-group">
+            <label>TOUCH TOLERANCE</label>
+            <select id="alert-tap-tolerance">
+              <option value="0.1">±0.1% (very tight)</option>
+              <option value="0.2" selected>±0.2%</option>
+              <option value="0.5">±0.5%</option>
+              <option value="1.0">±1.0%</option>
+              <option value="custom">Custom %</option>
+            </select>
+          </div>
+          <div class="form-group" id="tap-custom-group" style="display:none;">
+            <label>CUSTOM TOLERANCE %</label>
+            <input type="number" id="alert-tap-custom" placeholder="e.g. 0.3" step="0.1" min="0.01" max="5">
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 2d: Proximity alert options -->
+      <div id="alert-proximity-row" style="display:none;">
+        <div class="form-row">
+          <div class="form-group">
+            <label>WARN WHEN WITHIN</label>
+            <select id="alert-proximity-pct" onchange="onProximityPctChange()">
+              <option value="1">1% of target</option>
+              <option value="2" selected>2% of target</option>
+              <option value="5">5% of target</option>
+              <option value="custom">Custom %</option>
+            </select>
+          </div>
+          <div class="form-group" id="proximity-custom-group" style="display:none;">
+            <label>CUSTOM %</label>
+            <input type="number" id="alert-proximity-custom" placeholder="e.g. 3" step="0.5" min="0.1" max="20">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>REPEAT WARNING EVERY</label>
+            <select id="alert-proximity-repeat">
+              <option value="5">Every 5 minutes</option>
+              <option value="10">Every 10 minutes</option>
+              <option value="15" selected>Every 15 minutes</option>
+              <option value="30">Every 30 minutes</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>NOTE (OPTIONAL)</label>
+            <input type="text" id="alert-note-proximity" placeholder="e.g. Watch this level">
           </div>
         </div>
       </div>
