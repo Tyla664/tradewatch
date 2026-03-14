@@ -1056,15 +1056,23 @@ function renderAlerts() {
     }
 
     let badgeClass, badgeLabel;
-    const isRepeatingZone  = alert.condition === 'zone'      && (alert.repeatInterval || 0) > 0;
+    const isRepeatingZone  = alert.condition === 'zone' && (alert.repeatInterval || 0) > 0;
     const zoneInProgress   = isRepeatingZone && alert.zoneTriggeredOnce;
+    // Check if price is currently inside the zone (live data)
+    const currentLivePrice = priceData[alert.assetId]?.price || 0;
+    const isCurrentlyInZone = alert.condition === 'zone' && currentLivePrice > 0
+      && currentLivePrice >= alert.zoneLow && currentLivePrice <= alert.zoneHigh;
 
     if (isTriggered) {
       if (alert.condition === 'zone')      { badgeClass = 'badge-triggered-below'; badgeLabel = `${ALERT_ICONS.zone}TRIGGERED`; }
       else if (alert.condition === 'tap')  { badgeClass = 'badge-triggered-above'; badgeLabel = `${ALERT_ICONS.triggered}TAPPED`; }
       else                                 { badgeClass = `badge-triggered-${dir}`; badgeLabel = dir === 'above' ? `${ALERT_ICONS.above}TRIGGERED` : `${ALERT_ICONS.below}TRIGGERED`; }
-    } else if (zoneInProgress) {
+    } else if (zoneInProgress && isCurrentlyInZone) {
+      // Has fired before AND price is still inside
       badgeClass = 'badge-zone-active'; badgeLabel = `${ALERT_ICONS.inzone}IN ZONE`;
+    } else if (zoneInProgress && !isCurrentlyInZone) {
+      // Has fired before BUT price has since left — waiting for re-entry
+      badgeClass = 'badge-zone-waiting'; badgeLabel = `${ALERT_ICONS.zone}WATCHING`;
     } else if (alert.status === 'paused') {
       badgeClass = 'badge-inactive'; badgeLabel = `${ALERT_ICONS.paused}PAUSED`;
     } else {
@@ -1075,8 +1083,10 @@ function renderAlerts() {
       ? `<span style="color:${dir === 'above' || alert.condition === 'tap' ? 'var(--green)' : 'var(--red)'}">
            Hit ${formatPrice(alert.triggeredPrice, alert.assetId)} at ${alert.triggeredAt}
          </span><br>`
-      : zoneInProgress
-        ? `<span style="color:var(--accent);font-size:0.78rem;">Price inside zone · repeating every ${alert.repeatInterval}m</span><br>`
+      : (zoneInProgress && isCurrentlyInZone)
+        ? `<span style="color:var(--accent);font-size:0.78rem;">Price inside zone · alerting every ${alert.repeatInterval}m</span><br>`
+      : (zoneInProgress && !isCurrentlyInZone)
+        ? `<span style="color:var(--muted);font-size:0.78rem;">Price left zone · watching for re-entry</span><br>`
       : '';
 
     // Detail line — all condition types
@@ -1326,7 +1336,14 @@ function checkAlerts() {
 
     if (isZone) {
       const inZone = currentPrice >= alert.zoneLow && currentPrice <= alert.zoneHigh;
-      if (!inZone) { alert.zoneTriggeredOnce = false; return; }
+      if (!inZone) {
+        // Price left the zone — reset so it can fire again on re-entry
+        if (alert.zoneTriggeredOnce) {
+          alert.zoneTriggeredOnce = false;
+          updateAlert(alert.id, { last_triggered_at: null });
+        }
+        return;
+      }
       const repeatMs = (alert.repeatInterval || 0) * 60 * 1000;
       const lastFired = alert.lastTriggeredAt || 0;
       if (repeatMs === 0) {
@@ -1336,6 +1353,9 @@ function checkAlerts() {
       } else {
         if (now - lastFired < repeatMs) return;
         alert.lastTriggeredAt = now;
+        alert.zoneTriggeredOnce = true;
+        // Persist so badge survives reload
+        updateAlert(alert.id, { last_triggered_at: new Date().toISOString() });
       }
       fired = true;
     } else if (isTap) {
