@@ -1100,24 +1100,20 @@ function renderAlerts() {
       detailLine = `<strong>${alert.condition === 'above' ? ALERT_ICONS.above + 'ABOVE' : ALERT_ICONS.below + 'BELOW'}</strong> ${formatPrice(alert.targetPrice, alert.assetId)}${alert.timeframe ? ` <span style="opacity:0.6;font-size:0.75em">· ${alert.timeframe}</span>` : ''}`;
     }
 
-    const actions = isTriggered
-      ? `<button class="alert-action-btn dismiss" onclick="dismissAlert('${alert.id}')">
-           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:4px">
-             <polyline points="1,5 3.5,7.5 9,2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-           </svg>DISMISS
-         </button>
-         <button class="alert-action-btn delete" onclick="deleteAlert('${alert.id}')">
-           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:4px"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>DELETE
-         </button>`
-      : `<button class="alert-action-btn toggle" onclick="toggleAlert('${alert.id}')">${alert.status === 'paused'
-          ? '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:4px"><polygon points="1,1 9,5 1,9" fill="currentColor"/></svg>RESUME'
-          : '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:4px"><rect x="1.5" y="1" width="2.5" height="8" rx="1" fill="currentColor"/><rect x="6" y="1" width="2.5" height="8" rx="1" fill="currentColor"/></svg>PAUSE'
-        }</button>
-        <button class="alert-action-btn delete" onclick="deleteAlert('${alert.id}')">
-          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:4px"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>DELETE
-        </button>`;
+    const isRepeat = (alert.condition === 'zone' || alert.condition === 'tap') && (alert.repeatInterval || 0) > 0;
+    const btnDelete  = `<button class="alert-action-btn delete" onclick="deleteAlert('${alert.id}')">${SVG_DELETE}DELETE</button>`;
+    const btnDismiss = `<button class="alert-action-btn dismiss" onclick="dismissAlert('${alert.id}')">${SVG_DISMISS}DISMISS</button>`;
+    const btnPause   = alert.status === 'paused'
+      ? `<button class="alert-action-btn toggle" onclick="toggleAlert('${alert.id}')">${SVG_RESUME}RESUME</button>`
+      : `<button class="alert-action-btn toggle" onclick="toggleAlert('${alert.id}')">${SVG_PAUSE}PAUSE</button>`;
 
-    div.innerHTML = `
+    const actions = isTriggered
+      ? btnDismiss + btnDelete
+      : isRepeat
+        ? btnDismiss + btnDelete
+        : btnPause   + btnDelete;
+
+        div.innerHTML = `
       <div class="alert-header-row">
         <div class="alert-symbol">${alert.symbol}</div>
         <div class="alert-badge ${badgeClass}">${badgeLabel}</div>
@@ -1748,7 +1744,8 @@ function tgAlertMessage(type, symbol, condition, targetPrice, currentPrice, asse
   }
 
   if (note) rows.push(tgRow('Note', `<i>${note}</i>`));
-  return [header, ``, subtitle, ``, ...rows, ``, `⏰ ${time}`, ``, `<i>Tap to open TradeWatch</i>`].join('\n');
+  const appLink = `<a href="https://t.me/tradewatchalert_bot/alerts">Open TradeWatch to dismiss →</a>`;
+  return [header, ``, subtitle, ``, ...rows, ``, `⏰ ${time}`, ``, appLink].join('\n');
 }
 
 function tgCreatedMessage(symbol, condition, targetPrice, assetId, note, timeframe, zoneLow, zoneHigh, repeatInterval, tapTolerance) {
