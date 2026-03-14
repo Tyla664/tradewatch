@@ -257,7 +257,6 @@
             <option value="below">Price falls BELOW</option>
             <option value="zone">Price enters ZONE</option>
             <option value="tap">Price TAPS level</option>
-            <option value="proximity">Price APPROACHES target</option>
           </select>
         </div>
       </div>
@@ -325,39 +324,6 @@
         </div>
       </div>
 
-      <!-- Row 2d: Proximity alert options -->
-      <div id="alert-proximity-row" style="display:none;">
-        <div class="form-row">
-          <div class="form-group">
-            <label>WARN WHEN WITHIN</label>
-            <select id="alert-proximity-pct" onchange="onProximityPctChange()">
-              <option value="1">1% of target</option>
-              <option value="2" selected>2% of target</option>
-              <option value="5">5% of target</option>
-              <option value="custom">Custom %</option>
-            </select>
-          </div>
-          <div class="form-group" id="proximity-custom-group" style="display:none;">
-            <label>CUSTOM %</label>
-            <input type="number" id="alert-proximity-custom" placeholder="e.g. 3" step="0.5" min="0.1" max="20">
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>REPEAT WARNING EVERY</label>
-            <select id="alert-proximity-repeat">
-              <option value="5">Every 5 minutes</option>
-              <option value="10">Every 10 minutes</option>
-              <option value="15" selected>Every 15 minutes</option>
-              <option value="30">Every 30 minutes</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>NOTE (OPTIONAL)</label>
-            <input type="text" id="alert-note-proximity" placeholder="e.g. Watch this level">
-          </div>
-        </div>
-      </div>
 
       <!-- Row 3: Timeframe -->
       <div class="form-row">
