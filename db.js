@@ -244,6 +244,8 @@ async function loadAlertsFromDB() {
       zoneHigh: r.zone_high ? parseFloat(r.zone_high) : null,
       timeframe: r.timeframe || null,
       repeatInterval: parseInt(r.repeat_interval) || 0,
+      tapTolerance:  r.tap_tolerance  ? parseFloat(r.tap_tolerance)  : null,
+      proximityPct:  r.proximity_pct  ? parseFloat(r.proximity_pct)  : null,
       status: r.status,
       sound: r.sound,
       note: r.note,
@@ -270,10 +272,12 @@ async function saveAlert(alert) {
       status:          alert.status || 'active',
       sound:           alert.sound || 'chime',
       note:            alert.note || '',
-      zone_low:        alert.zoneLow  || null,
-      zone_high:       alert.zoneHigh || null,
-      timeframe:       alert.timeframe || null,
+      zone_low:        alert.zoneLow        || null,
+      zone_high:       alert.zoneHigh       || null,
+      timeframe:       alert.timeframe      || null,
       repeat_interval: alert.repeatInterval || 0,
+      tap_tolerance:   alert.tapTolerance   || null,
+      proximity_pct:   alert.proximityPct   || null,
     });
     return { ...alert, id: rows[0].id };
   } catch (e) {
