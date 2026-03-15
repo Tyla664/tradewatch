@@ -156,10 +156,6 @@ let currentWLTab = 'hot'; // 'hot' | 'watchlist'
 // Set to true only on explicit user taps — never during background refreshes.
 let navigateToChartOnSelect = false;
 
-// ── Lightweight Charts globals ───────────────────────────────────────────────
-let chart = null;
-let candleSeries = null;
-let alertPriceLines = [];
 // ═══════════════════════════════════════════════
 // HOT LIST — seed + dynamic rankings
 // ═══════════════════════════════════════════════
@@ -423,173 +419,6 @@ function formatPrice(p, id) {
   return '$' + p.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
 
-// ── Lightweight Charts Implementation ────────────────────────────────────────
-
-function initLightweightChart() {
-  const container = document.getElementById('tv-container');
-  if (!container) return;
-
-  if (chart) {
-    chart.remove();
-    chart = null;
-    candleSeries = null;
-    alertPriceLines.forEach(o => o.line?.delete?.());
-    alertPriceLines = [];
-  }
-
-  container.innerHTML = '';
-
-  chart = LightweightCharts.createChart(container, {
-    width: container.clientWidth,
-    height: container.clientHeight || 400,
-    layout: { background: { type: 'solid', color: '#0f141a' }, textColor: '#d1d4dc' },
-    grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
-    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-    rightPriceScale: { borderColor: '#1e222d' },
-    timeScale: { borderColor: '#1e222d', timeVisible: true, secondsVisible: false },
-  });
-
-  candleSeries = chart.addCandlestickSeries({
-    upColor: '#00e676',
-    downColor: '#ff3d5a',
-    borderVisible: false,
-    wickUpColor: '#00e676',
-    wickDownColor: '#ff3d5a',
-  });
-
-  new ResizeObserver(() => {
-    chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
-  }).observe(container);
-
-  loadChartData();
-}
-
-async function loadChartData() {
-  if (!selectedAsset || !candleSeries) return;
-
-  const container = document.getElementById('tv-container');
-  container.innerHTML = '<div class="chart-loading">Loading chart…</div>';
-
-  try {
-    let candles = [];
-
-    if (selectedAsset.source === 'CoinGecko') {
-      const res = await fetch(`https://api.coingecko.com/api/v3/coins/${selectedAsset.id}/ohlc?vs_currency=usd&days=30`);
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      candles = data.map(([ts, o, h, l, c]) => ({
-        time: Math.floor(ts / 1000),
-        open: o, high: h, low: l, close: c
-      }));
-    } else if (selectedAsset.source === 'Twelve Data' && selectedAsset.tdSymbol) {
-      const res = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(selectedAsset.tdSymbol)}&interval=1day&outputsize=60&apikey=${TD_KEY}`);
-      const json = await res.json();
-      if (json.status !== 'ok' || !json.values) throw new Error();
-      candles = json.values.map(v => ({
-        time: Math.floor(new Date(v.datetime).getTime() / 1000),
-        open: Number(v.open),
-        high: Number(v.high),
-        low: Number(v.low),
-        close: Number(v.close)
-      })).reverse();
-    } else if (selectedAsset.source === 'Yahoo Finance') {
-      const sym = YAHOO_SYMBOLS[selectedAsset.id] || selectedAsset.id;
-      const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=3mo&interval=1d`);
-      const json = await res.json();
-      const result = json.chart?.result?.[0];
-      if (!result?.timestamp) throw new Error();
-      const ts = result.timestamp;
-      const q = result.indicators.quote[0];
-      candles = ts.map((t,i) => ({
-        time: t,
-        open: q.open[i],
-        high: q.high[i],
-        low: q.low[i],
-        close: q.close[i]
-      })).filter(c => c.open != null);
-    }
-
-    if (candles.length < 5) throw new Error('No data');
-
-    candleSeries.setData(candles);
-    container.querySelector('.chart-loading')?.remove();
-    renderAlertLines();
-
-  } catch (e) {
-    console.error(e);
-    container.innerHTML = '<div class="chart-error">Chart unavailable</div>';
-  }
-}
-
-function updateLivePriceOnChart() {
-  if (!candleSeries || !selectedAsset || !prices[selectedAsset.id]) return;
-
-  const p = prices[selectedAsset.id];
-  const now = Math.floor(Date.now() / 1000);
-  const data = candleSeries.data();
-  if (data.length === 0) return;
-  const last = data[data.length - 1];
-
-  if (now - last.time < 86400) {
-    candleSeries.update({
-      time: last.time,
-      open: last.open,
-      high: Math.max(last.high, p),
-      low: Math.min(last.low, p),
-      close: p
-    });
-  } else {
-    candleSeries.update({
-      time: now,
-      open: p,
-      high: p,
-      low: p,
-      close: p
-    });
-  }
-
-  renderAlertLines();
-}
-
-function renderAlertLines() {
-  if (!candleSeries) return;
-  alertPriceLines.forEach(o => o.line?.delete?.());
-  alertPriceLines = [];
-
-  alerts.filter(a => a.assetId === selectedAsset?.id && a.status === 'active')
-    .forEach(a => {
-      const color = a.condition === 'above' ? '#00e676' : a.condition === 'below' ? '#ff3d5a' : '#ff9800';
-
-      if (a.condition === 'zone') {
-        if (a.zoneLow) {
-          const line = candleSeries.createPriceLine({
-            price: a.zoneLow,
-            color, lineWidth: 1, lineStyle: 2,
-            axisLabelVisible: true,
-            title: 'Zone Low'
-          });
-          alertPriceLines.push({ line });
-        }
-        if (a.zoneHigh) {
-          const line = candleSeries.createPriceLine({
-            price: a.zoneHigh,
-            color, lineWidth: 1, lineStyle: 2,
-            axisLabelVisible: true,
-            title: 'Zone High'
-          });
-          alertPriceLines.push({ line });
-        }
-      } else if (a.targetPrice) {
-        const line = candleSeries.createPriceLine({
-          price: a.targetPrice,
-          color, lineWidth: 1, lineStyle: 2,
-          axisLabelVisible: true,
-          title: a.condition.toUpperCase()
-        });
-        alertPriceLines.push({ line });
-      }
-    });
-}
 // ═══════════════════════════════════════════════
 // REFRESH SELECTED ASSET PANEL (single source of truth)
 // Called by selectAsset, 8s tick, and live data callbacks.
@@ -1001,18 +830,64 @@ function getTVSymbol(asset) {
 
 let tvWidget = null;
 function loadTVChart(asset) {
-  selectedAsset = asset;
-  document.getElementById('sel-symbol').textContent = asset.symbol;
-  document.getElementById('sel-name').textContent = asset.name || asset.symbol;
-  const cur = priceData[asset.id]?.price || prices[asset.id];
-  document.getElementById('sel-price').textContent = cur ? cur.toFixed(2) : '—';
+  const container = document.getElementById('tradingview-widget');
+  if (!container) return;
+  container.innerHTML = '';
 
-  if (!chart) {
-    initLightweightChart();
+  const symbol = getTVSymbol(asset);
+  const isMobile = isMobileLayout();
+
+  if (!window.TradingView) {
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-family:var(--mono);font-size:0.75rem;letter-spacing:1px">LOADING CHART...</div>';
+    const script = document.createElement('script');
+    script.src = 'https://s3.tradingview.com/tv.js';
+    script.onload = () => {
+      container.innerHTML = '';
+      createTVWidget(symbol, isMobile);
+    };
+    script.onerror = () => {
+      container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-family:var(--mono);font-size:0.72rem;text-align:center;padding:20px">Chart unavailable.<br>Check your internet connection.</div>';
+    };
+    document.head.appendChild(script);
   } else {
-    loadChartData();
+    createTVWidget(symbol, isMobile);
   }
 }
+
+function createTVWidget(symbol, isMobile) {
+  const container = document.getElementById('tradingview-widget');
+  if (!container || !window.TradingView) return;
+  container.innerHTML = '';
+
+  const tvContainer = document.getElementById('tv-container');
+  let w = tvContainer ? tvContainer.offsetWidth : 0;
+  let h = tvContainer ? tvContainer.offsetHeight : 0;
+  if (w < 10 || h < 10) {
+    setTimeout(() => createTVWidget(symbol, isMobile), 100);
+    return;
+  }
+
+  new window.TradingView.widget({
+    container_id: 'tradingview-widget',
+    symbol,
+    interval: 'D',
+    timezone: 'Etc/UTC',
+    theme: 'dark',
+    style: '1',
+    locale: 'en',
+    toolbar_bg: '#0d1520',
+    enable_publishing: false,
+    hide_top_toolbar: false,
+    hide_legend: false,
+    save_image: false,
+    backgroundColor: '#080c12',
+    gridColor: 'rgba(26,45,69,0.5)',
+    allow_symbol_change: false,
+    withdateranges: !isMobile,
+    hide_side_toolbar: isMobile,
+    studies: [],
+    autosize: true,
+  });
 
   // Draw alert lines after chart has had time to render
 }
@@ -2538,7 +2413,6 @@ setInterval(() => {
   renderWatchlist();
   refreshSelectedAssetPanel();
   checkAlerts();
-  if (selectedAsset) updateLivePriceOnChart();
   document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
 }, 8000);
 
