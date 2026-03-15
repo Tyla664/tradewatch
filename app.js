@@ -5,9 +5,9 @@ const TD_KEY   = '6d7175c59a1546a28e37b0b23c402ec5'; // Twelve Data (indices fal
 
 // ═══════════════════════════════════════════════
 // DATA DEFINITIONS
-// source: CoinGecko = fetched via CoinGecko API
-//         Twelve Data = fetched via TD batch /price
-//         Simulated = indices only (TD free tier blocks)
+// source: CoinGecko    = fetched via CoinGecko API
+//         Twelve Data  = fetched via TD batch /price
+//         Yahoo Finance = indices via Yahoo Finance API (free, no key)
 // ═══════════════════════════════════════════════
 const ASSETS = {
   crypto: [
@@ -36,10 +36,14 @@ const ASSETS = {
     { id: 'XNG/USD', symbol: 'XNG/USD', name: 'Natural Gas',   tdSymbol: 'XNG/USD', source: 'Twelve Data' },
   ],
   indices: [
-    { id: 'SPX',  symbol: 'S&P 500',  name: 'S&P 500 Index',        tdSymbol: 'SPX',  source: 'Simulated' },
-    { id: 'IXIC', symbol: 'NASDAQ',   name: 'NASDAQ Composite',     tdSymbol: 'IXIC', source: 'Simulated' },
-    { id: 'DJI',  symbol: 'DOW',      name: 'Dow Jones Industrial', tdSymbol: 'DJI',  source: 'Simulated' },
-    { id: 'FTSE', symbol: 'FTSE 100', name: 'FTSE 100 Index',       tdSymbol: 'FTSE', source: 'Simulated' },
+    // US
+    { id: 'SPX',   symbol: 'S&P 500',  name: 'S&P 500',              source: 'Yahoo Finance' },
+    { id: 'IXIC',  symbol: 'NASDAQ',   name: 'NASDAQ Composite',     source: 'Yahoo Finance' },
+    { id: 'DJI',   symbol: 'DOW',      name: 'Dow Jones Industrial', source: 'Yahoo Finance' },
+    { id: 'NDX',   symbol: 'NDX 100',  name: 'NASDAQ 100',           source: 'Yahoo Finance' },
+    { id: 'RUT',   symbol: 'Russell',  name: 'Russell 2000',         source: 'Yahoo Finance' },
+    { id: 'VIX',   symbol: 'VIX',      name: 'CBOE Volatility',      source: 'Yahoo Finance' },
+    { id: 'DXY',   symbol: 'DXY',      name: 'US Dollar Index',      source: 'Yahoo Finance' },
   ]
 };
 
@@ -79,10 +83,56 @@ const ALL_ASSETS = [
   { id: 'WTI/USD', symbol: 'WTI/USD', name: 'WTI Crude Oil', tdSymbol: 'WTI/USD', source: 'Twelve Data', cat: 'commodities' },
   { id: 'XNG/USD', symbol: 'XNG/USD', name: 'Natural Gas',   tdSymbol: 'XNG/USD', source: 'Twelve Data', cat: 'commodities' },
   // Indices
-  { id: 'SPX',  symbol: 'S&P 500',  name: 'S&P 500 Index',        tdSymbol: 'SPX',  source: 'Simulated', cat: 'indices' },
-  { id: 'IXIC', symbol: 'NASDAQ',   name: 'NASDAQ Composite',     tdSymbol: 'IXIC', source: 'Simulated', cat: 'indices' },
-  { id: 'DJI',  symbol: 'DOW',      name: 'Dow Jones Industrial', tdSymbol: 'DJI',  source: 'Simulated', cat: 'indices' },
-  { id: 'FTSE', symbol: 'FTSE 100', name: 'FTSE 100 Index',       tdSymbol: 'FTSE', source: 'Simulated', cat: 'indices' },
+  // ── US Indices ──
+  { id:'SPX',    symbol:'S&P 500',   name:'S&P 500',               source:'Yahoo Finance', cat:'indices' },
+  { id:'IXIC',   symbol:'NASDAQ',    name:'NASDAQ Composite',      source:'Yahoo Finance', cat:'indices' },
+  { id:'DJI',    symbol:'DOW',       name:'Dow Jones Industrial',  source:'Yahoo Finance', cat:'indices' },
+  { id:'NDX',    symbol:'NDX 100',   name:'NASDAQ 100',            source:'Yahoo Finance', cat:'indices' },
+  { id:'RUT',    symbol:'Russell',   name:'Russell 2000',          source:'Yahoo Finance', cat:'indices' },
+  { id:'VIX',    symbol:'VIX',       name:'CBOE Volatility Index', source:'Yahoo Finance', cat:'indices' },
+  { id:'DXY',    symbol:'DXY',       name:'US Dollar Index',       source:'Yahoo Finance', cat:'indices' },
+  { id:'TNX',    symbol:'US10Y',     name:'US 10-Year Treasury',   source:'Yahoo Finance', cat:'indices' },
+  { id:'TYX',    symbol:'US30Y',     name:'US 30-Year Treasury',   source:'Yahoo Finance', cat:'indices' },
+  // ── European Indices ──
+  { id:'FTSE',   symbol:'FTSE 100',  name:'FTSE 100 (UK)',         source:'Yahoo Finance', cat:'indices' },
+  { id:'FTMC',   symbol:'FTSE 250',  name:'FTSE 250 (UK)',         source:'Yahoo Finance', cat:'indices' },
+  { id:'DAX',    symbol:'DAX 40',    name:'DAX 40 (Germany)',      source:'Yahoo Finance', cat:'indices' },
+  { id:'CAC',    symbol:'CAC 40',    name:'CAC 40 (France)',       source:'Yahoo Finance', cat:'indices' },
+  { id:'IBEX',   symbol:'IBEX 35',   name:'IBEX 35 (Spain)',       source:'Yahoo Finance', cat:'indices' },
+  { id:'FTSEMIB',symbol:'FTSE MIB',  name:'FTSE MIB (Italy)',      source:'Yahoo Finance', cat:'indices' },
+  { id:'SMI',    symbol:'SMI',       name:'SMI (Switzerland)',     source:'Yahoo Finance', cat:'indices' },
+  { id:'AEX',    symbol:'AEX',       name:'AEX (Netherlands)',     source:'Yahoo Finance', cat:'indices' },
+  { id:'BEL20',  symbol:'BEL 20',    name:'BEL 20 (Belgium)',      source:'Yahoo Finance', cat:'indices' },
+  { id:'STOXX50',symbol:'STOXX 50',  name:'EURO STOXX 50',         source:'Yahoo Finance', cat:'indices' },
+  { id:'OMX',    symbol:'OMXS30',    name:'OMX Stockholm 30',      source:'Yahoo Finance', cat:'indices' },
+  { id:'ATX',    symbol:'ATX',       name:'ATX (Austria)',         source:'Yahoo Finance', cat:'indices' },
+  { id:'WIG20',  symbol:'WIG20',     name:'WIG 20 (Poland)',       source:'Yahoo Finance', cat:'indices' },
+  { id:'MOEX',   symbol:'MOEX',      name:'MOEX (Russia)',         source:'Yahoo Finance', cat:'indices' },
+  { id:'ISE100', symbol:'BIST 100',  name:'BIST 100 (Turkey)',     source:'Yahoo Finance', cat:'indices' },
+  // ── Americas ──
+  { id:'GSPTSE', symbol:'TSX',       name:'S&P/TSX Composite',    source:'Yahoo Finance', cat:'indices' },
+  { id:'BVSP',   symbol:'BOVESPA',   name:'IBOVESPA (Brazil)',     source:'Yahoo Finance', cat:'indices' },
+  { id:'MXX',    symbol:'IPC',       name:'IPC Mexico',            source:'Yahoo Finance', cat:'indices' },
+  { id:'MERVAL', symbol:'MERVAL',    name:'MERVAL (Argentina)',    source:'Yahoo Finance', cat:'indices' },
+  // ── Asia-Pacific ──
+  { id:'N225',   symbol:'Nikkei',    name:'Nikkei 225 (Japan)',    source:'Yahoo Finance', cat:'indices' },
+  { id:'TOPIX',  symbol:'TOPIX',     name:'TOPIX (Japan)',         source:'Yahoo Finance', cat:'indices' },
+  { id:'HSI',    symbol:'Hang Seng', name:'Hang Seng (HK)',        source:'Yahoo Finance', cat:'indices' },
+  { id:'SHCOMP', symbol:'SSE',       name:'Shanghai Composite',    source:'Yahoo Finance', cat:'indices' },
+  { id:'CSI300', symbol:'CSI 300',   name:'CSI 300 (China)',       source:'Yahoo Finance', cat:'indices' },
+  { id:'SENSEX', symbol:'SENSEX',    name:'SENSEX (India)',        source:'Yahoo Finance', cat:'indices' },
+  { id:'NIFTY',  symbol:'NIFTY 50',  name:'Nifty 50 (India)',     source:'Yahoo Finance', cat:'indices' },
+  { id:'KOSPI',  symbol:'KOSPI',     name:'KOSPI (South Korea)',   source:'Yahoo Finance', cat:'indices' },
+  { id:'ASX200', symbol:'ASX 200',   name:'ASX 200 (Australia)',   source:'Yahoo Finance', cat:'indices' },
+  { id:'STI',    symbol:'STI',       name:'Straits Times (SG)',    source:'Yahoo Finance', cat:'indices' },
+  { id:'TWII',   symbol:'TAIEX',     name:'Taiwan Weighted',       source:'Yahoo Finance', cat:'indices' },
+  { id:'JCI',    symbol:'IDX',       name:'IDX Composite (ID)',    source:'Yahoo Finance', cat:'indices' },
+  { id:'NZ50',   symbol:'NZX 50',    name:'NZX 50 (New Zealand)',  source:'Yahoo Finance', cat:'indices' },
+  { id:'KLCI',   symbol:'KLCI',      name:'KLCI (Malaysia)',       source:'Yahoo Finance', cat:'indices' },
+  // ── Middle East & Africa ──
+  { id:'TADAWUL',symbol:'TASI',      name:'Tadawul (Saudi Arabia)',source:'Yahoo Finance', cat:'indices' },
+  { id:'EGX30',  symbol:'EGX 30',    name:'EGX 30 (Egypt)',        source:'Yahoo Finance', cat:'indices' },
+  { id:'JSE',    symbol:'JSE TOP40', name:'JSE Top 40 (S. Africa)',source:'Yahoo Finance', cat:'indices' },
 ];
 // ═══════════════════════════════════════════════
 let prices = {};
@@ -137,27 +187,66 @@ const CORS_PROXIES = [
 // ── REAL PRICE FETCHING ───────────────────────────
 // Crypto  → CoinGecko (free, no key)
 // Stocks/Forex/Commodities → Twelve Data (free key)
-// Indices → simulated only (Twelve Data blocks on free tier)
-
-// Fallback seed prices for indices only (kept in sync manually)
-const INDEX_SEEDS = {
-  SPX:  { price: 5632,  open: 5600 },
-  IXIC: { price: 17480, open: 17300 },
-  DJI:  { price: 41800, open: 41500 },
-  FTSE: { price: 8420,  open: 8380 },
+// ── Yahoo Finance — indices price fetcher ────────────────────────────────────
+// Maps our internal asset id → Yahoo Finance ticker symbol
+const YAHOO_SYMBOLS = {
+  // ── US ──
+  'SPX':'^GSPC',      'IXIC':'^IXIC',      'DJI':'^DJI',        'NDX':'^NDX',
+  'RUT':'^RUT',       'VIX':'^VIX',        'DXY':'DX-Y.NYB',    'TNX':'^TNX',    'TYX':'^TYX',
+  // ── Europe ──
+  'FTSE':'^FTSE',     'FTMC':'^FTMC',      'DAX':'^GDAXI',      'CAC':'^FCHI',
+  'IBEX':'^IBEX',     'FTSEMIB':'^FTSEMIB','SMI':'^SSMI',       'AEX':'^AEX',
+  'BEL20':'^BFX',     'STOXX50':'^STOXX50E',
+  'OMX':'^OMX',       'OMXH25':'^OMXHPI',  'OMXC25':'^OMXC25',  'OBX':'^OBX.OL',
+  'ATX':'^ATX',       'PSI20':'^PSI20',    'WIG20':'^WIG20',    'BUX':'^BUX',
+  'MOEX':'IMOEX.ME',  'ISE100':'^XU100',   'TA35':'^TA125.TA',
+  // ── Americas ──
+  'GSPTSE':'^GSPTSE', 'BVSP':'^BVSP',      'MXX':'^MXX',        'MERVAL':'^MERV', 'IPSA':'^IPSA',
+  // ── Asia-Pacific ──
+  'N225':'^N225',     'TOPIX':'^TOPX',     'HSI':'^HSI',        'HSCEi':'^HSCE',
+  'SHCOMP':'000001.SS','SZCOMP':'399001.SZ','CSI300':'000300.SS',
+  'SENSEX':'^BSESN',  'NIFTY':'^NSEI',     'KOSPI':'^KS11',     'TWII':'^TWII',
+  'ASX200':'^AXJO',   'AORD':'^AORD',      'NZ50':'^NZ50',      'STI':'^STI',
+  'KLCI':'^KLSE',     'JCI':'^JKSE',       'SET':'^SET.BK',     'PSEi':'^PSEi.PS',
+  // ── Middle East & Africa ──
+  'TADAWUL':'^TASI.SR','ADX':'^FTFADGI',   'DFM':'^DFMGI',
+  'EGX30':'^CASE30',  'JSE':'^JN0U.JO',    'NSE':'^NGSEINDX',
 };
-const indexSim = {};
 
-function getIndexSim(id) {
-  if (!indexSim[id]) {
-    const s = INDEX_SEEDS[id] || { price: 1000, open: 1000 };
-    indexSim[id] = { price: s.price, open: s.open, high: s.price * 1.003, low: s.price * 0.997 };
+async function fetchYahooIndex(assetId) {
+  const yahooSym = YAHOO_SYMBOLS[assetId];
+  if (!yahooSym) return null;
+  try {
+    // Use allorigins CORS proxy to bypass browser CORS restriction
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSym)}?interval=1m&range=1d`;
+    const proxied = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+    const res  = await fetch(proxied);
+    const data = await res.json();
+    const result = data?.chart?.result?.[0];
+    if (!result) return null;
+    const meta   = result.meta;
+    const price  = meta.regularMarketPrice || meta.previousClose;
+    const open   = meta.chartPreviousClose || meta.previousClose || price;
+    const high   = meta.regularMarketDayHigh  || price;
+    const low    = meta.regularMarketDayLow   || price;
+    const change = open > 0 ? (((price - open) / open) * 100).toFixed(2) : '0.00';
+    return { price, change, high, low, vol: '—', mcap: '—', live: true };
+  } catch(e) {
+    console.warn(`Yahoo fetch failed for ${assetId}:`, e);
+    return null;
   }
-  const drift = (Math.random() - 0.5) * 0.0008;
-  indexSim[id].price *= (1 + drift);
-  indexSim[id].high = Math.max(indexSim[id].high, indexSim[id].price);
-  indexSim[id].low  = Math.min(indexSim[id].low,  indexSim[id].price);
-  return indexSim[id];
+}
+
+// Batch fetch all indices — fire in parallel with small stagger to avoid rate limits
+async function fetchAllIndices(assets) {
+  await Promise.all(assets.map(async (asset, i) => {
+    // Small stagger: 50ms between each to avoid hammering allorigins
+    await new Promise(r => setTimeout(r, i * 50));
+    const d = await fetchYahooIndex(asset.id);
+    if (!d) return;
+    priceData[asset.id] = d;
+    prices[asset.id]    = d.price;
+  }));
 }
 
 function formatVol(n) {
@@ -290,13 +379,8 @@ async function fetchAllPrices() {
     tdAssets.length     ? fetchTDBatch(tdAssets)          : Promise.resolve(),
   ]);
 
-  // Indices — simulated drift only
-  indexAssets.forEach(asset => {
-    const sim    = getIndexSim(asset.id);
-    const change = (((sim.price - sim.open) / sim.open) * 100).toFixed(2);
-    priceData[asset.id] = { price: sim.price, change, high: sim.high, low: sim.low, vol: '—', mcap: '—', live: false };
-    prices[asset.id]    = sim.price;
-  });
+  // Indices — Yahoo Finance real data
+  if (indexAssets.length) await fetchAllIndices(indexAssets);
 
   // Update alert engine only — no price display
   checkAlerts();
@@ -311,15 +395,10 @@ async function fetchSingleAsset(asset) {
   if (asset.source === 'CoinGecko') {
     return await fetchCryptoPrices([asset]);
   }
-  if (INDEX_SEEDS[asset.id]) {
-    const sim = getIndexSim(asset.id);
-    priceData[asset.id] = {
-      price:  sim.price,
-      change: (((sim.price - sim.open) / sim.open) * 100).toFixed(2),
-      high: sim.high, low: sim.low, vol: '—', mcap: '—', live: false,
-    };
-    prices[asset.id] = sim.price;
-    return true;
+  if (asset.source === 'Yahoo Finance' || YAHOO_SYMBOLS[asset.id]) {
+    const d = await fetchYahooIndex(asset.id);
+    if (d) { priceData[asset.id] = d; prices[asset.id] = d.price; return true; }
+    return false;
   }
   // Single TD asset — still just 1 request
   await fetchTDBatch([asset]);
@@ -709,12 +788,37 @@ function getTVSymbol(asset) {
   };
   if (commodityMap[id]) return commodityMap[id];
 
-  // Indices
+  // Indices — TradingView symbol map
   const indexMap = {
-    'SPX': 'SP:SPX', 'IXIC': 'NASDAQ:IXIC', 'DJI': 'DJ:DJI',
-    'FTSE': 'SPREADEX:FTSE', 'DAX': 'XETR:DAX', 'CAC': 'EURONEXT:PX1',
-    'N225': 'TVC:NI225', 'HSI': 'TVC:HSI', 'ASX200': 'ASX:XJO',
-    'KOSPI': 'KRX:KOSPI', 'SENSEX': 'BSE:SENSEX', 'NDX': 'NASDAQ:NDX',
+    // US
+    'SPX':'SP:SPX', 'IXIC':'NASDAQ:IXIC', 'DJI':'DJ:DJI',
+    'NDX':'NASDAQ:NDX', 'RUT':'TVC:RUT', 'VIX':'TVC:VIX',
+    'DXY':'TVC:DXY', 'TNX':'TVC:TNX', 'TYX':'TVC:TYX',
+    // Europe
+    'FTSE':'TVC:UKX', 'FTMC':'SPREADEX:UK100',
+    'DAX':'XETR:DAX', 'CAC':'EURONEXT:PX1', 'IBEX':'TVC:IBEX',
+    'FTSEMIB':'TVC:FTSEMIB', 'SMI':'TVC:SMI', 'AEX':'TVC:AEX',
+    'BEL20':'TVC:BEL20', 'OMX':'OMXSTO:OMXS30',
+    'OMXH25':'TVC:HEX25', 'OMXC25':'TVC:OMXC25',
+    'OBX':'TVC:OBX', 'ATX':'TVC:ATX', 'PSI20':'TVC:PSI20',
+    'WIG20':'TVC:WIG20', 'BUX':'TVC:BUX', 'PX':'TVC:PX',
+    'MOEX':'MOEX:IMOEX', 'ISE100':'BIST:XU100', 'TA35':'TVC:TA35',
+    'STOXX50':'TVC:SX5E',
+    // Americas
+    'GSPTSE':'TVC:TSX', 'BVSP':'TVC:IBOV', 'MXX':'TVC:IPC',
+    'MERVAL':'TVC:MERVAL', 'IPSA':'TVC:IPSA',
+    // Asia-Pacific
+    'N225':'TVC:NI225', 'TOPIX':'TVC:TOPIX',
+    'HSI':'TVC:HSI', 'HSCEi':'TVC:HSCEI',
+    'SHCOMP':'SSE:000001', 'SZCOMP':'SZSE:399001', 'CSI300':'SSE:000300',
+    'SENSEX':'BSE:SENSEX', 'NIFTY':'NSE:NIFTY',
+    'KOSPI':'KRX:KOSPI', 'TWII':'TWSE:TAIEX',
+    'ASX200':'ASX:XJO', 'AORD':'ASX:XAO', 'NZ50':'NZX:NZ50',
+    'STI':'TVC:STI', 'KLCI':'TVC:KLCI', 'JCI':'IDX:COMPOSITE',
+    'SET':'TVC:SET', 'PSEi':'TVC:PSEi',
+    // Middle East & Africa
+    'TADAWUL':'TVC:TASI', 'ADX':'TVC:FTFADGI', 'DFM':'TVC:DFMGI',
+    'EGX30':'TVC:EGX30', 'JSE':'JSE:J200', 'NSE':'TVC:NGXASI',
   };
   if (indexMap[id]) return indexMap[id];
 
@@ -1333,6 +1437,8 @@ function isStockOpen(now) {
   return mins >= 870 && mins < 1260;
 }
 function isMarketOpenForAsset(assetId, now) {
+  // Yahoo Finance returns null/stale for indices when market closed — safe to check anytime
+  if (YAHOO_SYMBOLS[assetId]) return true;
   if (['bitcoin','ethereum','solana','ripple','binancecoin',
        'dogecoin','cardano','avalanche-2','chainlink','litecoin'].includes(assetId)) return true;
   if (['XAU/USD','XAG/USD','WTI/USD','XNG/USD'].includes(assetId)) return isForexOpen(now);
@@ -2019,66 +2125,72 @@ const ASSET_LIBRARY = [
   { id:'LUMBER',  symbol:'LUMBER',  name:'Lumber Futures',    cat:'commodities', tdSymbol:'LUMBER',  source:'Twelve Data', base:448 },
 
   // ── INDICES — Americas ────────────────────────
-  { id:'SPX',    symbol:'S&P 500',  name:'S&P 500 Index',           cat:'indices', tdSymbol:'SPX',    source:'Twelve Data', base:5234.1 },
-  { id:'IXIC',   symbol:'NASDAQ',   name:'NASDAQ Composite',        cat:'indices', tdSymbol:'IXIC',   source:'Twelve Data', base:16380.2 },
-  { id:'DJI',    symbol:'DOW',      name:'Dow Jones Industrial',    cat:'indices', tdSymbol:'DJI',    source:'Twelve Data', base:39170.4 },
-  { id:'RUT',    symbol:'Russell',  name:'Russell 2000',            cat:'indices', tdSymbol:'RUT',    source:'Twelve Data', base:2048 },
-  { id:'VIX',    symbol:'VIX',      name:'CBOE Volatility Index',   cat:'indices', tdSymbol:'VIX',    source:'Twelve Data', base:14.8 },
-  { id:'DXY',    symbol:'DXY',      name:'US Dollar Index',         cat:'indices', tdSymbol:'DXY',    source:'Twelve Data', base:104.2 },
-  { id:'TNX',    symbol:'US10Y',    name:'US 10-Year Treasury',     cat:'indices', tdSymbol:'TNX',    source:'Twelve Data', base:4.32 },
-  { id:'TYX',    symbol:'US30Y',    name:'US 30-Year Treasury',     cat:'indices', tdSymbol:'TYX',    source:'Twelve Data', base:4.55 },
-  { id:'NDX',    symbol:'NDX 100',  name:'NASDAQ 100',              cat:'indices', tdSymbol:'NDX',    source:'Twelve Data', base:18250 },
-  { id:'BVSP',   symbol:'BOVESPA',  name:'Bovespa (Brazil)',        cat:'indices', tdSymbol:'BVSP',   source:'Twelve Data', base:125800 },
-  { id:'MXX',    symbol:'IPC',      name:'IPC (Mexico)',            cat:'indices', tdSymbol:'MXX',    source:'Twelve Data', base:56400 },
-  { id:'MERVAL', symbol:'MERVAL',   name:'Merval (Argentina)',      cat:'indices', tdSymbol:'MERVAL', source:'Twelve Data', base:1125000 },
-  { id:'IPSA',   symbol:'IPSA',     name:'IPSA (Chile)',            cat:'indices', tdSymbol:'IPSA',   source:'Twelve Data', base:6420 },
-  { id:'COLCAP', symbol:'COLCAP',   name:'COLCAP (Colombia)',       cat:'indices', tdSymbol:'COLCAP', source:'Twelve Data', base:1380 },
+  // Indices — US
+  { id:'SPX',    symbol:'S&P 500',   name:'S&P 500',                  cat:'indices', source:'Yahoo Finance' },
+  { id:'IXIC',   symbol:'NASDAQ',    name:'NASDAQ Composite',         cat:'indices', source:'Yahoo Finance' },
+  { id:'DJI',    symbol:'DOW',       name:'Dow Jones Industrial',     cat:'indices', source:'Yahoo Finance' },
+  { id:'NDX',    symbol:'NDX 100',   name:'NASDAQ 100',               cat:'indices', source:'Yahoo Finance' },
+  { id:'RUT',    symbol:'Russell',   name:'Russell 2000',             cat:'indices', source:'Yahoo Finance' },
+  { id:'VIX',    symbol:'VIX',       name:'CBOE Volatility Index',    cat:'indices', source:'Yahoo Finance' },
+  { id:'DXY',    symbol:'DXY',       name:'US Dollar Index',          cat:'indices', source:'Yahoo Finance' },
+  { id:'TNX',    symbol:'US10Y',     name:'US 10-Year Treasury',      cat:'indices', source:'Yahoo Finance' },
+  { id:'TYX',    symbol:'US30Y',     name:'US 30-Year Treasury',      cat:'indices', source:'Yahoo Finance' },
   // Indices — Europe
-  { id:'FTSE',   symbol:'FTSE 100', name:'FTSE 100 (UK)',           cat:'indices', tdSymbol:'FTSE',   source:'Twelve Data', base:7735.6 },
-  { id:'DAX',    symbol:'DAX 40',   name:'DAX 40 (Germany)',        cat:'indices', tdSymbol:'DAX',    source:'Twelve Data', base:18420 },
-  { id:'CAC',    symbol:'CAC 40',   name:'CAC 40 (France)',         cat:'indices', tdSymbol:'CAC',    source:'Twelve Data', base:8080 },
-  { id:'IBEX',   symbol:'IBEX 35',  name:'IBEX 35 (Spain)',         cat:'indices', tdSymbol:'IBEX',   source:'Twelve Data', base:10842 },
-  { id:'FTSEMIB',symbol:'FTSE MIB', name:'FTSE MIB (Italy)',        cat:'indices', tdSymbol:'FTSEMIB',source:'Twelve Data', base:33420 },
-  { id:'SMI',    symbol:'SMI',      name:'Swiss Market Index',      cat:'indices', tdSymbol:'SMI',    source:'Twelve Data', base:11245 },
-  { id:'AEX',    symbol:'AEX',      name:'AEX (Netherlands)',       cat:'indices', tdSymbol:'AEX',    source:'Twelve Data', base:872 },
-  { id:'BEL20',  symbol:'BEL 20',   name:'BEL 20 (Belgium)',        cat:'indices', tdSymbol:'BEL20',  source:'Twelve Data', base:3842 },
-  { id:'OMX',    symbol:'OMXS30',   name:'OMX Stockholm 30',        cat:'indices', tdSymbol:'OMX',    source:'Twelve Data', base:2315 },
-  { id:'OMXH25', symbol:'OMXH25',   name:'OMX Helsinki 25',         cat:'indices', tdSymbol:'OMXH25', source:'Twelve Data', base:4820 },
-  { id:'OMXC25', symbol:'OMXC25',   name:'OMX Copenhagen 25',       cat:'indices', tdSymbol:'OMXC25', source:'Twelve Data', base:2450 },
-  { id:'OBX',    symbol:'OBX',      name:'OBX (Norway)',            cat:'indices', tdSymbol:'OBX',    source:'Twelve Data', base:1142 },
-  { id:'WIG20',  symbol:'WIG20',    name:'WIG 20 (Poland)',         cat:'indices', tdSymbol:'WIG20',  source:'Twelve Data', base:2380 },
-  { id:'BUX',    symbol:'BUX',      name:'Budapest Stock Exchange',  cat:'indices', tdSymbol:'BUX',    source:'Twelve Data', base:67500 },
-  { id:'PX',     symbol:'PX',       name:'Prague Stock Exchange',   cat:'indices', tdSymbol:'PX',     source:'Twelve Data', base:1560 },
-  { id:'ATX',    symbol:'ATX',      name:'ATX (Austria)',           cat:'indices', tdSymbol:'ATX',    source:'Twelve Data', base:3640 },
-  { id:'PSI20',  symbol:'PSI 20',   name:'PSI 20 (Portugal)',       cat:'indices', tdSymbol:'PSI20',  source:'Twelve Data', base:6820 },
-  { id:'MOEX',   symbol:'MOEX',     name:'MOEX (Russia)',           cat:'indices', tdSymbol:'MOEX',   source:'Twelve Data', base:3240 },
-  { id:'ISE100', symbol:'BIST 100', name:'BIST 100 (Turkey)',       cat:'indices', tdSymbol:'ISE100', source:'Twelve Data', base:9840 },
-  { id:'TA35',   symbol:'TA-35',    name:'Tel Aviv 35 (Israel)',    cat:'indices', tdSymbol:'TA35',   source:'Twelve Data', base:1945 },
+  { id:'FTSE',   symbol:'FTSE 100',  name:'FTSE 100 (UK)',            cat:'indices', source:'Yahoo Finance' },
+  { id:'FTMC',   symbol:'FTSE 250',  name:'FTSE 250 (UK)',            cat:'indices', source:'Yahoo Finance' },
+  { id:'DAX',    symbol:'DAX 40',    name:'DAX 40 (Germany)',         cat:'indices', source:'Yahoo Finance' },
+  { id:'CAC',    symbol:'CAC 40',    name:'CAC 40 (France)',          cat:'indices', source:'Yahoo Finance' },
+  { id:'IBEX',   symbol:'IBEX 35',   name:'IBEX 35 (Spain)',          cat:'indices', source:'Yahoo Finance' },
+  { id:'FTSEMIB',symbol:'FTSE MIB',  name:'FTSE MIB (Italy)',         cat:'indices', source:'Yahoo Finance' },
+  { id:'SMI',    symbol:'SMI',       name:'SMI (Switzerland)',        cat:'indices', source:'Yahoo Finance' },
+  { id:'AEX',    symbol:'AEX',       name:'AEX (Netherlands)',        cat:'indices', source:'Yahoo Finance' },
+  { id:'BEL20',  symbol:'BEL 20',    name:'BEL 20 (Belgium)',         cat:'indices', source:'Yahoo Finance' },
+  { id:'OMX',    symbol:'OMXS30',    name:'OMX Stockholm 30',         cat:'indices', source:'Yahoo Finance' },
+  { id:'OMXH25', symbol:'OMXH25',    name:'OMX Helsinki 25',          cat:'indices', source:'Yahoo Finance' },
+  { id:'OMXC25', symbol:'OMXC25',    name:'OMX Copenhagen 25',        cat:'indices', source:'Yahoo Finance' },
+  { id:'OBX',    symbol:'OBX',       name:'OBX (Norway)',             cat:'indices', source:'Yahoo Finance' },
+  { id:'ATX',    symbol:'ATX',       name:'ATX (Austria)',            cat:'indices', source:'Yahoo Finance' },
+  { id:'PSI20',  symbol:'PSI 20',    name:'PSI 20 (Portugal)',        cat:'indices', source:'Yahoo Finance' },
+  { id:'WIG20',  symbol:'WIG20',     name:'WIG 20 (Poland)',          cat:'indices', source:'Yahoo Finance' },
+  { id:'BUX',    symbol:'BUX',       name:'BUX (Hungary)',            cat:'indices', source:'Yahoo Finance' },
+  { id:'PX',     symbol:'PX',        name:'Prague Stock Exchange',    cat:'indices', source:'Yahoo Finance' },
+  { id:'MOEX',   symbol:'MOEX',      name:'MOEX (Russia)',            cat:'indices', source:'Yahoo Finance' },
+  { id:'ISE100', symbol:'BIST 100',  name:'BIST 100 (Turkey)',        cat:'indices', source:'Yahoo Finance' },  // Yahoo: ^XU100
+  { id:'TA35',   symbol:'TA-35',     name:'TA-35 (Israel)',           cat:'indices', source:'Yahoo Finance' },
+  { id:'STOXX50',symbol:'STOXX 50',  name:'EURO STOXX 50',            cat:'indices', source:'Yahoo Finance' },
+  // Indices — Americas
+  { id:'GSPTSE', symbol:'TSX',       name:'S&P/TSX Composite (Canada)',cat:'indices',source:'Yahoo Finance' },
+  { id:'BVSP',   symbol:'BOVESPA',   name:'IBOVESPA (Brazil)',         cat:'indices', source:'Yahoo Finance' },
+  { id:'MXX',    symbol:'IPC',       name:'IPC Mexico',               cat:'indices', source:'Yahoo Finance' },
+  { id:'MERVAL', symbol:'MERVAL',    name:'MERVAL (Argentina)',        cat:'indices', source:'Yahoo Finance' },
+  { id:'IPSA',   symbol:'IPSA',      name:'IPSA (Chile)',             cat:'indices', source:'Yahoo Finance' },
   // Indices — Asia-Pacific
-  { id:'N225',   symbol:'Nikkei',   name:'Nikkei 225 (Japan)',      cat:'indices', tdSymbol:'N225',   source:'Twelve Data', base:38540 },
-  { id:'HSI',    symbol:'Hang Seng',name:'Hang Seng (Hong Kong)',   cat:'indices', tdSymbol:'HSI',    source:'Twelve Data', base:17123 },
-  { id:'ASX200', symbol:'ASX 200',  name:'ASX 200 (Australia)',     cat:'indices', tdSymbol:'ASX',    source:'Twelve Data', base:7802 },
-  { id:'KOSPI',  symbol:'KOSPI',    name:'KOSPI (South Korea)',     cat:'indices', tdSymbol:'KOSPI',  source:'Twelve Data', base:2590 },
-  { id:'SENSEX', symbol:'SENSEX',   name:'SENSEX (India)',          cat:'indices', tdSymbol:'SENSEX', source:'Twelve Data', base:72500 },
-  { id:'NIFTY',  symbol:'NIFTY 50', name:'Nifty 50 (India)',        cat:'indices', tdSymbol:'NIFTY',  source:'Twelve Data', base:21980 },
-  { id:'TWII',   symbol:'TAIEX',    name:'Taiwan Weighted (TAIEX)', cat:'indices', tdSymbol:'TWII',   source:'Twelve Data', base:19840 },
-  { id:'STI',    symbol:'STI',      name:'Straits Times (Singapore)',cat:'indices',tdSymbol:'STI',    source:'Twelve Data', base:3240 },
-  { id:'KLCI',   symbol:'KLCI',     name:'KLCI (Malaysia)',         cat:'indices', tdSymbol:'KLCI',   source:'Twelve Data', base:1542 },
-  { id:'JCI',    symbol:'IDX',      name:'IDX Composite (Indonesia)',cat:'indices',tdSymbol:'JCI',    source:'Twelve Data', base:7320 },
-  { id:'SET',    symbol:'SET',      name:'SET Index (Thailand)',    cat:'indices', tdSymbol:'SET',    source:'Twelve Data', base:1385 },
-  { id:'PSEi',   symbol:'PSEi',     name:'PSEi (Philippines)',      cat:'indices', tdSymbol:'PSEi',   source:'Twelve Data', base:6540 },
-  { id:'CSI300', symbol:'CSI 300',  name:'CSI 300 (China)',         cat:'indices', tdSymbol:'CSI300', source:'Twelve Data', base:3520 },
-  { id:'SHCOMP', symbol:'SSE',      name:'Shanghai Composite',      cat:'indices', tdSymbol:'SHCOMP', source:'Twelve Data', base:3092 },
-  { id:'SZCOMP', symbol:'SZSE',     name:'Shenzhen Composite',      cat:'indices', tdSymbol:'SZCOMP', source:'Twelve Data', base:1820 },
-  { id:'HSCEi',  symbol:'HSCEI',    name:'Hang Seng China Ent.',    cat:'indices', tdSymbol:'HSCEI',  source:'Twelve Data', base:6120 },
-  { id:'NZ50',   symbol:'NZX 50',   name:'NZX 50 (New Zealand)',    cat:'indices', tdSymbol:'NZ50',   source:'Twelve Data', base:11840 },
+  { id:'N225',   symbol:'Nikkei',    name:'Nikkei 225 (Japan)',        cat:'indices', source:'Yahoo Finance' },
+  { id:'TOPIX',  symbol:'TOPIX',     name:'TOPIX (Japan)',             cat:'indices', source:'Yahoo Finance' },
+  { id:'HSI',    symbol:'Hang Seng', name:'Hang Seng (Hong Kong)',     cat:'indices', source:'Yahoo Finance' },
+  { id:'HSCEi',  symbol:'HSCEI',     name:'Hang Seng China Ent.',      cat:'indices', source:'Yahoo Finance' },
+  { id:'SHCOMP', symbol:'SSE',       name:'Shanghai Composite',        cat:'indices', source:'Yahoo Finance' },
+  { id:'SZCOMP', symbol:'SZSE',      name:'Shenzhen Composite',        cat:'indices', source:'Yahoo Finance' },
+  { id:'CSI300', symbol:'CSI 300',   name:'CSI 300 (China)',           cat:'indices', source:'Yahoo Finance' },
+  { id:'SENSEX', symbol:'SENSEX',    name:'SENSEX (India)',            cat:'indices', source:'Yahoo Finance' },
+  { id:'NIFTY',  symbol:'NIFTY 50',  name:'Nifty 50 (India)',         cat:'indices', source:'Yahoo Finance' },
+  { id:'KOSPI',  symbol:'KOSPI',     name:'KOSPI (South Korea)',       cat:'indices', source:'Yahoo Finance' },
+  { id:'TWII',   symbol:'TAIEX',     name:'Taiwan Weighted',           cat:'indices', source:'Yahoo Finance' },
+  { id:'ASX200', symbol:'ASX 200',   name:'ASX 200 (Australia)',       cat:'indices', source:'Yahoo Finance' },
+  { id:'AORD',   symbol:'All Ords',  name:'All Ordinaries (Australia)',cat:'indices', source:'Yahoo Finance' },
+  { id:'NZ50',   symbol:'NZX 50',    name:'NZX 50 (New Zealand)',      cat:'indices', source:'Yahoo Finance' },
+  { id:'STI',    symbol:'STI',       name:'Straits Times (Singapore)', cat:'indices', source:'Yahoo Finance' },
+  { id:'KLCI',   symbol:'KLCI',      name:'KLCI (Malaysia)',           cat:'indices', source:'Yahoo Finance' },
+  { id:'JCI',    symbol:'IDX',       name:'IDX Composite (Indonesia)', cat:'indices', source:'Yahoo Finance' },
+  { id:'SET',    symbol:'SET',       name:'SET Index (Thailand)',      cat:'indices', source:'Yahoo Finance' },
+  { id:'PSEi',   symbol:'PSEi',      name:'PSEi (Philippines)',        cat:'indices', source:'Yahoo Finance' },
   // Indices — Middle East & Africa
-  { id:'TADAWUL',symbol:'TASI',     name:'Tadawul (Saudi Arabia)',  cat:'indices', tdSymbol:'TADAWUL',source:'Twelve Data', base:11250 },
-  { id:'ADX',    symbol:'ADX',      name:'Abu Dhabi Securities Exch.',cat:'indices',tdSymbol:'ADX',   source:'Twelve Data', base:9380 },
-  { id:'DFM',    symbol:'DFM',      name:'Dubai Financial Market',  cat:'indices', tdSymbol:'DFM',    source:'Twelve Data', base:4120 },
-  { id:'EGX30',  symbol:'EGX 30',   name:'EGX 30 (Egypt)',          cat:'indices', tdSymbol:'EGX30',  source:'Twelve Data', base:24500 },
-  { id:'JSE',    symbol:'JSE TOP40',name:'JSE Top 40 (South Africa)',cat:'indices',tdSymbol:'JSE',    source:'Twelve Data', base:68200 },
-  { id:'NSE',    symbol:'NSE ASI',  name:'NSE All-Share (Nigeria)', cat:'indices', tdSymbol:'NSE',    source:'Twelve Data', base:97500 },
+  { id:'TADAWUL',symbol:'TASI',      name:'Tadawul (Saudi Arabia)',    cat:'indices', source:'Yahoo Finance' },
+  { id:'ADX',    symbol:'ADX',       name:'Abu Dhabi (UAE)',           cat:'indices', source:'Yahoo Finance' },
+  { id:'DFM',    symbol:'DFM',       name:'Dubai Financial Market',   cat:'indices', source:'Yahoo Finance' },
+  { id:'EGX30',  symbol:'EGX 30',    name:'EGX 30 (Egypt)',           cat:'indices', source:'Yahoo Finance' },
+  { id:'JSE',    symbol:'JSE TOP40', name:'JSE Top 40 (S. Africa)',   cat:'indices', source:'Yahoo Finance' },
+  { id:'NSE',    symbol:'NSE ASI',   name:'NGX All-Share (Nigeria)',   cat:'indices', source:'Yahoo Finance' },
 
   // ── ETFs ──────────────────────────────────────
   { id:'SPY',  symbol:'SPY',  name:'SPDR S&P 500 ETF',         cat:'etf', tdSymbol:'SPY',  source:'Twelve Data', base:523.4 },
