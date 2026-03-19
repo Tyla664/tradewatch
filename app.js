@@ -951,351 +951,314 @@ window.addEventListener('popstate', (e) => {
 // No external symbol restrictions — every asset works
 // ═══════════════════════════════════════════════
 
-let lwChart       = null;  // LightweightCharts instance
-let lwSeries      = null;  // CandlestickSeries
-let lwAlertLines  = [];    // PriceLine handles for alert levels
-let lwCurrentTF   = '1D';  // active timeframe
-let lwCurrentAsset = null; // asset currently displayed
+let lwChart        = null;
+let lwSeries       = null;
+let lwAlertLines   = [];
+let lwCurrentTF    = '1D';
+let lwCurrentAsset = null;
 
-// ── Timeframe config ────────────────────────────
+// ── Timeframe config ──────────────────────────────────────────────────────
 const TF_CONFIG = {
-  '1H':  { label:'1H',  granularity: 3600,       count: 168  }, // 7 days of hourly
-  '4H':  { label:'4H',  granularity: 14400,      count: 120  }, // 20 days of 4H
-  '1D':  { label:'1D',  granularity: 86400,       count: 180  }, // 6 months daily
-  '1W':  { label:'1W',  granularity: 604800,      count: 104  }, // 2 years weekly
+  '1H':  { granularity:   3600, count: 168 },
+  '4H':  { granularity:  14400, count: 120 },
+  '1D':  { granularity:  86400, count: 180 },
+  '1W':  { granularity: 604800, count: 104 },
 };
 
+const BINANCE_SYMBOL = {
+  'bitcoin':'BTCUSDT',       'ethereum':'ETHUSDT',      'solana':'SOLUSDT',
+  'ripple':'XRPUSDT',        'binancecoin':'BNBUSDT',   'dogecoin':'DOGEUSDT',
+  'cardano':'ADAUSDT',       'avalanche-2':'AVAXUSDT',  'chainlink':'LINKUSDT',
+  'litecoin':'LTCUSDT',      'polkadot':'DOTUSDT',      'shiba-inu':'SHIBUSDT',
+  'uniswap':'UNIUSDT',       'cosmos':'ATOMUSDT',       'stellar':'XLMUSDT',
+  'monero':'XMRUSDT',        'tron':'TRXUSDT',          'aave':'AAVEUSDT',
+  'near':'NEARUSDT',         'aptos':'APTUSDT',         'arbitrum':'ARBUSDT',
+  'optimism':'OPUSDT',       'sui':'SUIUSDT',           'toncoin':'TONUSDT',
+  'pepe':'PEPEUSDT',         'bonk':'BONKUSDT',         'maker':'MKRUSDT',
+  'kaspa':'KASUSDT',         'render-token':'RENDERUSDT','fetch-ai':'FETUSDT',
+  'worldcoin-wld':'WLDUSDT','celestia':'TIAUSDT',       'starknet':'STRKUSDT',
+  'hedera':'HBARUSDT',       'vechain':'VETUSDT',       'algorand':'ALGOUSDT',
+  'internet-computer':'ICPUSDT','filecoin':'FILUSDT',
+  'injective-protocol':'INJUSDT','sei-network':'SEIUSDT',
+  'immutable-x':'IMXUSDT',  'polygon':'MATICUSDT',
+};
+const BINANCE_TF = { '1H':'1h','4H':'4h','1D':'1d','1W':'1w' };
+
+// ── Timeframe button handler ───────────────────────────────────────────────
 function setChartTF(tf) {
   lwCurrentTF = tf;
-  // Update button states
   document.querySelectorAll('.chart-tf-btn').forEach(b => {
-    b.classList.toggle('active', b.textContent === tf);
+    b.classList.toggle('active', b.textContent.trim() === tf);
   });
   if (lwCurrentAsset) loadLWChart(lwCurrentAsset);
 }
 
-// ── Create or reset the chart instance ──────────
+// ── Create chart instance ──────────────────────────────────────────────────
 function ensureLWChart() {
   const container = document.getElementById('lw-chart');
   if (!container) return false;
+  if (lwChart) return true; // already created
 
-  if (!lwChart) {
-    const w = container.clientWidth  || container.offsetWidth  || 400;
-    const h = container.clientHeight || container.offsetHeight || 480;
-    lwChart = LightweightCharts.createChart(container, {
-      width:  w,
-      height: h,
-      layout: {
-        background:  { color: '#080c12' },
-        textColor:   '#8899aa',
-        fontFamily:  'var(--mono, monospace)',
-        fontSize:    11,
-      },
-      grid: {
-        vertLines: { color: 'rgba(26,45,69,0.4)' },
-        horzLines: { color: 'rgba(26,45,69,0.4)' },
-      },
-      crosshair: {
-        mode: LightweightCharts.CrosshairMode.Normal,
-        vertLine: { color: 'rgba(0,212,255,0.4)', labelBackgroundColor: '#0d1520' },
-        horzLine: { color: 'rgba(0,212,255,0.4)', labelBackgroundColor: '#0d1520' },
-      },
-      rightPriceScale: {
-        borderColor: 'rgba(26,45,69,0.6)',
-        textColor:   '#8899aa',
-      },
-      timeScale: {
-        borderColor:      'rgba(26,45,69,0.6)',
-        timeVisible:      true,
-        secondsVisible:   false,
-        rightOffset:      8,
-        fixLeftEdge:      true,
-      },
-      handleScroll: true,
-      handleScale:  true,
-    });
+  // Measure from the parent tv-container (has explicit CSS height)
+  const tvCont = document.getElementById('tv-container');
+  const w = (tvCont && tvCont.offsetWidth  > 10 ? tvCont.offsetWidth  : 400);
+  const h = (tvCont && tvCont.offsetHeight > 10 ? tvCont.offsetHeight : 460);
 
-    lwSeries = lwChart.addCandlestickSeries({
-      upColor:        '#00e676',
-      downColor:      '#ff3d5a',
-      borderUpColor:  '#00e676',
-      borderDownColor:'#ff3d5a',
-      wickUpColor:    '#00e676',
-      wickDownColor:  '#ff3d5a',
-    });
+  lwChart = LightweightCharts.createChart(container, {
+    width:  w,
+    height: h,
+    layout: {
+      background: { type: 'solid', color: '#080c12' },
+      textColor:  '#8899aa',
+      fontSize:   11,
+    },
+    grid: {
+      vertLines: { color: 'rgba(26,45,69,0.4)' },
+      horzLines: { color: 'rgba(26,45,69,0.4)' },
+    },
+    crosshair: { mode: 1 }, // 1 = Normal
+    rightPriceScale: { borderColor: 'rgba(26,45,69,0.6)' },
+    timeScale: {
+      borderColor:    'rgba(26,45,69,0.6)',
+      timeVisible:    true,
+      secondsVisible: false,
+      rightOffset:    8,
+    },
+    handleScroll: true,
+    handleScale:  true,
+  });
 
-    // Resize observer
+  lwSeries = lwChart.addCandlestickSeries({
+    upColor:         '#00e676',
+    downColor:       '#ff3d5a',
+    borderUpColor:   '#00e676',
+    borderDownColor: '#ff3d5a',
+    wickUpColor:     '#00e676',
+    wickDownColor:   '#ff3d5a',
+  });
+
+  // Resize observer — keeps chart sized to its container
+  try {
     const ro = new ResizeObserver(() => {
-      const w = container.clientWidth  || container.offsetWidth;
-      const h = container.clientHeight || container.offsetHeight;
-      if (lwChart && w > 0 && h > 0) {
-        lwChart.applyOptions({ width: w, height: h });
-      }
+      if (!lwChart || !tvCont) return;
+      const nw = tvCont.offsetWidth;
+      const nh = tvCont.offsetHeight;
+      if (nw > 10 && nh > 10) lwChart.applyOptions({ width: nw, height: nh });
     });
-    ro.observe(container);
-  }
+    ro.observe(tvCont || container);
+  } catch(e) {}
+
   return true;
 }
 
-// ── Show / hide loading overlay ─────────────────
+// ── Loading overlay ────────────────────────────────────────────────────────
 function setChartLoading(on) {
   const el = document.getElementById('chart-loading');
-  if (el) el.style.display = on ? 'flex' : 'none';
+  if (el) el.classList.toggle('visible', on);
 }
 
-// ── Main entry point ─────────────────────────────
+// ── Main chart loader ──────────────────────────────────────────────────────
 async function loadLWChart(asset) {
   if (!asset) return;
   lwCurrentAsset = asset;
 
-  const container = document.getElementById('lw-chart');
-  if (!container) return;
-
-  // Make sure container is visible before measuring
-  const tvCont = document.getElementById('tv-container');
-  if (tvCont) tvCont.style.display = '';
-
-  // Destroy and recreate chart to ensure clean state and correct dimensions
+  // Destroy stale chart so it remeasures correctly
   if (lwChart) {
     try { lwChart.remove(); } catch(e) {}
-    lwChart  = null;
-    lwSeries = null;
-    lwAlertLines = [];
+    lwChart = null; lwSeries = null; lwAlertLines = [];
   }
-
   if (!ensureLWChart()) return;
   setChartLoading(true);
 
   const candles = await fetchOHLC(asset, lwCurrentTF);
 
+  setChartLoading(false);
   if (!candles || candles.length === 0) {
-    setChartLoading(false);
-    // Show empty state message on chart
-    if (lwSeries) lwSeries.setData([]);
-    showChartError('No candle data available for this asset.');
+    showChartMsg('No chart data available for ' + asset.symbol);
     return;
   }
 
-  lwSeries.setData(candles);
-  lwChart.timeScale().fitContent();
-  setChartLoading(false);
+  hideChartMsg();
+  try {
+    lwSeries.setData(candles);
+    lwChart.timeScale().fitContent();
+  } catch(e) {
+    console.warn('LW setData error:', e);
+  }
 
-  // Draw alert price lines for this asset
   drawAlertLines(asset.id);
 }
 
-// ── Fetch OHLC candles ────────────────────────────
-// Routes to Deriv REST for forex/commodities/indices/synthetics
-// Routes to CoinGecko for crypto
+// ── OHLC routing ──────────────────────────────────────────────────────────
 async function fetchOHLC(asset, tf) {
   const cfg = TF_CONFIG[tf] || TF_CONFIG['1D'];
 
-  // CoinGecko for crypto
-  if (asset.sources?.includes('coingecko') && asset.cgId) {
-    return fetchCoinGeckoOHLC(asset, cfg);
+  // Crypto → Binance (no CORS, no key)
+  if (BINANCE_SYMBOL[asset.id]) {
+    const d = await fetchBinanceOHLC(asset.id, cfg, tf);
+    if (d && d.length) return d;
   }
 
-  // Deriv REST for everything with a derivSym
+  // Forex / commodities / synthetics / indices → Deriv WebSocket candles
   if (asset.derivSym) {
-    return fetchDerivOHLC(asset, cfg);
+    const d = await fetchDerivOHLC(asset.derivSym, cfg);
+    if (d && d.length) return d;
   }
 
-  // OANDA for stocks CFD (when key set)
+  // Stocks CFD → OANDA
   if (OANDA_KEY && asset.oandaSym) {
-    return fetchOandaOHLC(asset, cfg);
+    const d = await fetchOandaOHLC(asset.oandaSym, cfg);
+    if (d && d.length) return d;
   }
 
   return null;
 }
 
-// ═══════════════════════════════════════════════
-// OHLC DATA SOURCES
-// Crypto  → Binance REST (no CORS, no key, reliable)
-// Forex   → Deriv WebSocket ticks_history request
-// Stocks  → OANDA REST candles (server-side key)
-// ═══════════════════════════════════════════════
-
-// ── Binance REST OHLC — crypto ───────────────────
-// Binance supports browser CORS, no API key needed
-const BINANCE_SYMBOL = {
-  bitcoin:'BTCUSDT',    ethereum:'ETHUSDT',   solana:'SOLUSDT',
-  ripple:'XRPUSDT',     binancecoin:'BNBUSDT', dogecoin:'DOGEUSDT',
-  cardano:'ADAUSDT',    'avalanche-2':'AVAXUSDT', chainlink:'LINKUSDT',
-  litecoin:'LTCUSDT',   polkadot:'DOTUSDT',   'shiba-inu':'SHIBUSDT',
-  uniswap:'UNIUSDT',    cosmos:'ATOMUSDT',    stellar:'XLMUSDT',
-  monero:'XMRUSDT',     tron:'TRXUSDT',       aave:'AAVEUSDT',
-  near:'NEARUSDT',      aptos:'APTUSDT',      arbitrum:'ARBUSDT',
-  optimism:'OPUSDT',    sui:'SUIUSDT',        toncoin:'TONUSDT',
-  pepe:'PEPEUSDT',      bonk:'BONKUSDT',      maker:'MKRUSDT',
-  kaspa:'KASUSDT',      'render-token':'RENDERUSDT', 'fetch-ai':'FETUSDT',
-  'worldcoin-wld':'WLDUSDT', celestia:'TIAUSDT', starknet:'STRKUSDT',
-  hedera:'HBARUSDT',    vechain:'VETUSDT',    algorand:'ALGOUSDT',
-  'internet-computer':'ICPUSDT', filecoin:'FILUSDT',
-  'injective-protocol':'INJUSDT', 'sei-network':'SEIUSDT',
-  'immutable-x':'IMXUSDT', polygon:'MATICUSDT',
-};
-
-const BINANCE_TF = {
-  '1H':'1h', '4H':'4h', '1D':'1d', '1W':'1w'
-};
-
-async function fetchBinanceOHLC(asset, cfg) {
-  const sym = BINANCE_SYMBOL[asset.id];
-  if (!sym) return null;
-  const interval = BINANCE_TF[lwCurrentTF] || '1d';
+// ── Binance klines — crypto ────────────────────────────────────────────────
+async function fetchBinanceOHLC(assetId, cfg, tf) {
+  const sym      = BINANCE_SYMBOL[assetId];
+  const interval = BINANCE_TF[tf] || '1d';
   try {
     const res  = await fetch(
       `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${interval}&limit=${cfg.count}`
     );
+    if (!res.ok) return null;
     const data = await res.json();
     if (!Array.isArray(data) || !data.length) return null;
-
-    // Binance: [openTime, open, high, low, close, volume, ...]
-    const candles = data.map(k => ({
-      time:  Math.floor(k[0] / 1000),
-      open:  parseFloat(k[1]),
-      high:  parseFloat(k[2]),
-      low:   parseFloat(k[3]),
-      close: parseFloat(k[4]),
-    }));
-    const seen = new Set();
-    return candles
-      .filter(c => { if (seen.has(c.time)) return false; seen.add(c.time); return true; })
-      .sort((a, b) => a.time - b.time);
-  } catch(e) {
-    console.warn('Binance OHLC failed:', e);
-    return null;
-  }
+    return dedupe(data.map(k => ({
+      time: Math.floor(k[0] / 1000),
+      open: +k[1], high: +k[2], low: +k[3], close: +k[4],
+    })));
+  } catch(e) { console.warn('Binance OHLC:', e); return null; }
 }
 
-// ── Deriv OHLC via WebSocket ─────────────────────
-// ticks_history with style=candles over the same WS
-async function fetchDerivOHLC(asset, cfg) {
-  return new Promise((resolve) => {
-    // Use a one-shot WebSocket request for OHLC
-    const ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}`);
+// ── Deriv WebSocket candles — forex / commodities / indices ───────────────
+function fetchDerivOHLC(derivSym, cfg) {
+  return new Promise(resolve => {
     let done = false;
-    const timeout = setTimeout(() => {
-      done = true;
-      try { ws.close(); } catch(e) {}
-      resolve(null);
-    }, 10000);
+    const ws  = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}`);
+    const t   = setTimeout(() => { done = true; try { ws.close(); } catch(e){} resolve(null); }, 12000);
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({
-        ticks_history: asset.derivSym,
-        style:         'candles',
-        granularity:   cfg.granularity,
-        count:         cfg.count,
-        end:           'latest',
-        adjust_start_time: 1,
-      }));
-    };
+    ws.onopen = () => ws.send(JSON.stringify({
+      ticks_history: derivSym,
+      style:         'candles',
+      granularity:   cfg.granularity,
+      count:         cfg.count,
+      end:           'latest',
+      adjust_start_time: 1,
+    }));
 
-    ws.onmessage = (evt) => {
+    ws.onmessage = evt => {
       if (done) return;
       try {
         const msg = JSON.parse(evt.data);
-        if (msg.msg_type === 'candles' || msg.candles) {
-          done = true;
-          clearTimeout(timeout);
-          ws.close();
+        if (msg.candles || msg.msg_type === 'candles') {
+          done = true; clearTimeout(t); ws.close();
           const raw = msg.candles || [];
           if (!raw.length) return resolve(null);
-          const candles = raw.map(c => ({
-            time:  c.epoch,
-            open:  parseFloat(c.open),
-            high:  parseFloat(c.high),
-            low:   parseFloat(c.low),
-            close: parseFloat(c.close),
-          }));
-          const seen = new Set();
-          resolve(
-            candles
-              .filter(c => { if (seen.has(c.time)) return false; seen.add(c.time); return true; })
-              .sort((a, b) => a.time - b.time)
-          );
+          resolve(dedupe(raw.map(c => ({
+            time: c.epoch,
+            open: +c.open, high: +c.high, low: +c.low, close: +c.close,
+          }))));
         } else if (msg.error) {
-          done = true;
-          clearTimeout(timeout);
-          ws.close();
-          console.warn('Deriv OHLC WS error:', msg.error.message, asset.derivSym);
+          done = true; clearTimeout(t); ws.close();
+          console.warn('Deriv candles error:', msg.error.message, derivSym);
           resolve(null);
         }
       } catch(e) { resolve(null); }
     };
-
-    ws.onerror = () => {
-      if (!done) { done = true; clearTimeout(timeout); resolve(null); }
-    };
-    ws.onclose = () => {
-      if (!done) { done = true; clearTimeout(timeout); resolve(null); }
-    };
+    ws.onerror = () => { if (!done) { done=true; clearTimeout(t); resolve(null); } };
+    ws.onclose = () => { if (!done) { done=true; clearTimeout(t); resolve(null); } };
   });
 }
 
-// ── OANDA OHLC — stocks CFD ──────────────────────
-async function fetchOandaOHLC(asset, cfg) {
-  if (!OANDA_KEY || !asset.oandaSym) return null;
+// ── OANDA mid-price candles — stocks CFD ──────────────────────────────────
+async function fetchOandaOHLC(oandaSym, cfg) {
   const granMap = { 3600:'H1', 14400:'H4', 86400:'D', 604800:'W' };
   const gran    = granMap[cfg.granularity] || 'D';
   try {
     const res = await fetch(
-      `${OANDA_BASE}/instruments/${asset.oandaSym}/candles?granularity=${gran}&count=${cfg.count}&price=M`,
+      `${OANDA_BASE}/instruments/${oandaSym}/candles?granularity=${gran}&count=${cfg.count}&price=M`,
       { headers: { Authorization: `Bearer ${OANDA_KEY}` } }
     );
     if (!res.ok) return null;
     const data = await res.json();
     if (!data.candles?.length) return null;
-    const candles = data.candles
-      .filter(c => c.complete !== false)
-      .map(c => ({
-        time:  Math.floor(new Date(c.time).getTime() / 1000),
-        open:  parseFloat(c.mid.o),
-        high:  parseFloat(c.mid.h),
-        low:   parseFloat(c.mid.l),
-        close: parseFloat(c.mid.c),
-      }));
-    const seen = new Set();
-    return candles
-      .filter(c => { if (seen.has(c.time)) return false; seen.add(c.time); return true; })
-      .sort((a, b) => a.time - b.time);
-  } catch(e) {
-    console.warn('OANDA OHLC failed:', e);
-    return null;
-  }
+    return dedupe(
+      data.candles
+        .filter(c => c.complete !== false)
+        .map(c => ({
+          time:  Math.floor(new Date(c.time).getTime() / 1000),
+          open:  +c.mid.o, high: +c.mid.h, low: +c.mid.l, close: +c.mid.c,
+        }))
+    );
+  } catch(e) { console.warn('OANDA OHLC:', e); return null; }
 }
 
-// ── Route to correct OHLC source ─────────────────
-async function fetchOHLC(asset, tf) {
-  const cfg = TF_CONFIG[tf] || TF_CONFIG['1D'];
-
-  // Crypto: Binance first (no CORS), fall back to CoinGecko
-  if (BINANCE_SYMBOL[asset.id]) {
-    const data = await fetchBinanceOHLC(asset, cfg);
-    if (data?.length) return data;
-  }
-
-  // Deriv WebSocket candles — forex, commodities, synthetics, indices on Deriv
-  if (asset.derivSym) {
-    const data = await fetchDerivOHLC(asset, cfg);
-    if (data?.length) return data;
-  }
-
-  // OANDA for stocks CFD
-  if (OANDA_KEY && asset.oandaSym) {
-    return fetchOandaOHLC(asset, cfg);
-  }
-
-  return null;
+// ── Helpers ────────────────────────────────────────────────────────────────
+function dedupe(candles) {
+  const seen = new Set();
+  return candles
+    .filter(c => { if (seen.has(c.time)) return false; seen.add(c.time); return true; })
+    .sort((a, b) => a.time - b.time);
 }
 
-// Aliases so existing call sites (selectAsset, mobileTab, etc.) keep working
-function loadTVChart(asset)        { loadLWChart(asset); }
-function getTVSymbol(asset)        { return asset?.derivSym || asset?.id || ''; }
-function generateChartData()       {}
-function drawChart()               {}
-function setTF()                   {}
+function showChartMsg(msg) {
+  const el = document.getElementById('chart-msg');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add('visible');
+  setTimeout(() => el.classList.remove('visible'), 6000);
+}
+function hideChartMsg() {
+  const el = document.getElementById('chart-msg');
+  if (el) el.classList.remove('visible');
+}
+
+// ── Alert price lines ──────────────────────────────────────────────────────
+function clearAlertLines() {
+  lwAlertLines.forEach(l => { try { if (lwSeries) lwSeries.removePriceLine(l); } catch(e){} });
+  lwAlertLines = [];
+}
+
+function drawAlertLines(assetId) {
+  if (!lwSeries) return;
+  clearAlertLines();
+  alerts
+    .filter(a => a.assetId === assetId && a.status === 'active')
+    .forEach(alert => {
+      const green = '#00e676', red = '#ff3d5a', cyan = '#00d4ff', gold = '#f0b429';
+      if (alert.condition === 'zone') {
+        [[alert.zoneLow, 'Zone Low'], [alert.zoneHigh, 'Zone High']].forEach(([price, lbl]) => {
+          try {
+            lwAlertLines.push(lwSeries.createPriceLine({
+              price, color: cyan, lineWidth: 1, lineStyle: 2, // 2 = Dashed
+              axisLabelVisible: true,
+              title: lbl + (alert.note ? ' · ' + alert.note : ''),
+            }));
+          } catch(e) {}
+        });
+      } else {
+        const color = alert.condition === 'above' ? green : alert.condition === 'tap' ? gold : red;
+        const pfx   = alert.condition === 'above' ? '▲ ' : alert.condition === 'tap' ? '◎ ' : '▼ ';
+        try {
+          lwAlertLines.push(lwSeries.createPriceLine({
+            price: alert.targetPrice, color, lineWidth: 1, lineStyle: 2,
+            axisLabelVisible: true,
+            title: pfx + formatPrice(alert.targetPrice, assetId) + (alert.note ? ' · ' + alert.note : ''),
+          }));
+        } catch(e) {}
+      }
+    });
+}
+
+// ── Compat stubs for old call sites ───────────────────────────────────────
+function loadTVChart(asset)   { loadLWChart(asset); }
+function getTVSymbol()        { return ''; }
+function generateChartData()  {}
+function drawChart()          {}
+function setTF()              {}
+
 
 
 // ═══════════════════════════════════════════════
