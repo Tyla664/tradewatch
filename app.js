@@ -225,7 +225,7 @@ const ALL_ASSETS = [
 
   // ── US Indices (Deriv covers the main 3 + DXY) ───────────────────────────
   { id:'SPX',    symbol:'S&P 500',  name:'S&P 500',              cat:'indices', sources:['deriv','oanda'], derivSym:'US500',    oandaSym:'SPX500_USD' },
-  { id:'DJI',    symbol:'DOW',      name:'Dow Jones Industrial', cat:'indices', sources:['deriv','oanda'], derivSym:'US30',     oandaSym:'US30_USD'   },
+  { id:'DJI',    symbol:'US30',     name:'US 30 (Wall Street)',  cat:'indices', sources:['deriv','oanda'], derivSym:'US30',     oandaSym:'US30_USD'   },
   { id:'NDX',    symbol:'NDX 100',  name:'NASDAQ 100',           cat:'indices', sources:['deriv','oanda'], derivSym:'USTEC',    oandaSym:'NAS100_USD' },
   { id:'DXY',    symbol:'DXY',      name:'US Dollar Index',      cat:'indices', sources:['deriv'],         derivSym:'DXY'                            },
   { id:'IXIC',   symbol:'NASDAQ',   name:'NASDAQ Composite',     cat:'indices', sources:['unavailable']                                              },
@@ -945,176 +945,357 @@ window.addEventListener('popstate', (e) => {
 // TRADINGVIEW CHART
 // ═══════════════════════════════════════════════
 
-// Maps our asset IDs to TradingView symbols
-function getTVSymbol(asset) {
-  if (!asset) return 'BINANCE:BTCUSDT';
-  const id  = asset.id;
-  const cat = asset.cat ||
-    (Object.entries(ASSETS).find(([, arr]) => arr.find(a => a.id === id)) || [])[0];
+// ═══════════════════════════════════════════════
+// LIGHTWEIGHT CHARTS — custom candlestick chart
+// Data sourced from Deriv REST (OHLC) + CoinGecko
+// No external symbol restrictions — every asset works
+// ═══════════════════════════════════════════════
 
-  // ── Crypto — Binance pairs ──────────────────────────────────────────────────
-  const cryptoMap = {
-    bitcoin:'BINANCE:BTCUSDT',         ethereum:'BINANCE:ETHUSDT',
-    solana:'BINANCE:SOLUSDT',           ripple:'BINANCE:XRPUSDT',
-    binancecoin:'BINANCE:BNBUSDT',      cardano:'BINANCE:ADAUSDT',
-    dogecoin:'BINANCE:DOGEUSDT',        polkadot:'BINANCE:DOTUSDT',
-    'avalanche-2':'BINANCE:AVAXUSDT',   chainlink:'BINANCE:LINKUSDT',
-    litecoin:'BINANCE:LTCUSDT',         uniswap:'BINANCE:UNIUSDT',
-    stellar:'BINANCE:XLMUSDT',          monero:'BINANCE:XMRUSDT',
-    tron:'BINANCE:TRXUSDT',             'shiba-inu':'BINANCE:SHIBUSDT',
-    cosmos:'BINANCE:ATOMUSDT',          filecoin:'BINANCE:FILUSDT',
-    'internet-computer':'BINANCE:ICPUSDT', aptos:'BINANCE:APTUSDT',
-    arbitrum:'BINANCE:ARBUSDT',         optimism:'BINANCE:OPUSDT',
-    near:'BINANCE:NEARUSDT',            vechain:'BINANCE:VETUSDT',
-    algorand:'BINANCE:ALGOUSDT',        hedera:'BINANCE:HBARUSDT',
-    aave:'BINANCE:AAVEUSDT',            maker:'BINANCE:MKRUSDT',
-    'fetch-ai':'BINANCE:FETUSDT',       'injective-protocol':'BINANCE:INJUSDT',
-    sui:'BINANCE:SUIUSDT',              'sei-network':'BINANCE:SEIUSDT',
-    'render-token':'BINANCE:RENDERUSDT',toncoin:'BINANCE:TONUSDT',
-    pepe:'BINANCE:PEPEUSDT',            bonk:'BINANCE:BONKUSDT',
-    kaspa:'BINANCE:KASUSDT',            'worldcoin-wld':'BINANCE:WLDUSDT',
-    celestia:'BINANCE:TIAUSDT',         starknet:'BINANCE:STRKUSDT',
-    'immutable-x':'BINANCE:IMXUSDT',    polygon:'BINANCE:MATICUSDT',
-    'near-protocol':'BINANCE:NEARUSDT', 'fetch-ai':'BINANCE:FETUSDT',
-  };
-  if (cryptoMap[id]) return cryptoMap[id];
+let lwChart       = null;  // LightweightCharts instance
+let lwSeries      = null;  // CandlestickSeries
+let lwAlertLines  = [];    // PriceLine handles for alert levels
+let lwCurrentTF   = '1D';  // active timeframe
+let lwCurrentAsset = null; // asset currently displayed
 
-  // ── Forex — FX_ prefix (handles all currency pairs) ────────────────────────
-  if (cat === 'forex' || (id.includes('/') && !['XAU','XAG','XPT','XPD'].some(m => id.startsWith(m)))) {
-    const clean = id.replace('/', '');
-    return `FX:${clean}`;
-  }
+// ── Timeframe config ────────────────────────────
+const TF_CONFIG = {
+  '1H':  { label:'1H',  granularity: 3600,       count: 168  }, // 7 days of hourly
+  '4H':  { label:'4H',  granularity: 14400,      count: 120  }, // 20 days of 4H
+  '1D':  { label:'1D',  granularity: 86400,       count: 180  }, // 6 months daily
+  '1W':  { label:'1W',  granularity: 604800,      count: 104  }, // 2 years weekly
+};
 
-  // ── Commodities ─────────────────────────────────────────────────────────────
-  const commodityMap = {
-    'XAU/USD':'TVC:GOLD',    'XAG/USD':'TVC:SILVER',
-    'WTI/USD':'TVC:USOIL',   'BRENT/USD':'TVC:UKOIL',
-    'XNG/USD':'TVC:NGAS',    'XPT/USD':'TVC:PLATINUM',
-    'XPD/USD':'TVC:PALLADIUM','COPPER':'COMEX:HG1!',
-    'WHEAT':'CBOT:ZW1!',     'CORN':'CBOT:ZC1!',
-    'SOYBEAN':'CBOT:ZS1!',   'SUGAR':'ICEUS:SB1!',
-    'COFFEE':'ICEUS:KC1!',   'COTTON':'ICEUS:CT1!',
-  };
-  if (commodityMap[id]) return commodityMap[id];
-
-  // ── Indices ──────────────────────────────────────────────────────────────────
-  const indexMap = {
-    // US
-    'SPX':'SP:SPX',          'IXIC':'NASDAQ:IXIC',       'DJI':'DJ:DJI',
-    'NDX':'NASDAQ:NDX',      'RUT':'TVC:RUT',             'VIX':'TVC:VIX',
-    'DXY':'TVC:DXY',         'TNX':'TVC:TNX',             'TYX':'TVC:TYX',
-    // Europe
-    'FTSE':'TVC:UKX',        'FTMC':'TVC:FTMC',           'DAX':'XETR:DAX',
-    'CAC':'EURONEXT:PX1',    'IBEX':'TVC:IBEX',           'FTSEMIB':'TVC:FTSEMIB',
-    'SMI':'TVC:SMI',         'AEX':'TVC:AEX',             'BEL20':'TVC:BEL20',
-    'STOXX50':'TVC:SX5E',    'OMX':'OMXSTO:OMXS30',       'ATX':'TVC:ATX',
-    'PSI20':'TVC:PSI20',     'WIG20':'TVC:WIG20',         'BUX':'TVC:BUX',
-    'MOEX':'MOEX:IMOEX',     'ISE100':'BIST:XU100',       'TA35':'TVC:TA35',
-    // Americas
-    'GSPTSE':'TVC:TSX',      'BVSP':'TVC:IBOV',           'MXX':'TVC:IPC',
-    'MERVAL':'TVC:MERVAL',   'IPSA':'TVC:IPSA',
-    // Asia-Pacific
-    'N225':'TVC:NI225',      'TOPIX':'TVC:TOPIX',         'HSI':'TVC:HSI',
-    'SHCOMP':'SSE:000001',   'CSI300':'SSE:000300',        'SENSEX':'BSE:SENSEX',
-    'NIFTY':'NSE:NIFTY',     'KOSPI':'KRX:KOSPI',         'TWII':'TWSE:TAIEX',
-    'ASX200':'ASX:XJO',      'STI':'TVC:STI',             'KLCI':'TVC:KLCI',
-    'JCI':'IDX:COMPOSITE',   'SET':'TVC:SET',             'PSEi':'TVC:PSEi',
-    'NZ50':'NZX:NZ50',
-    // Middle East & Africa
-    'TADAWUL':'TVC:TASI',    'ADX':'TVC:FTFADGI',         'DFM':'TVC:DFMGI',
-    'EGX30':'TVC:EGX30',     'JSE':'JSE:J200',            'NSE':'TVC:NGXASI',
-    // Deriv Synthetics — use Deriv chart feed where available
-    'R_10':'INDEX:VOLATILITY10', 'R_25':'INDEX:VOLATILITY25',
-    'R_50':'INDEX:VOLATILITY50', 'R_75':'INDEX:VOLATILITY75',
-    'R_100':'INDEX:VOLATILITY100',
-  };
-  if (indexMap[id]) return indexMap[id];
-
-  // Deriv synthetic indices without a TV symbol — show a placeholder chart (SPX)
-  const derivSynthetics = ['BOOM500','BOOM1000','CRASH500','CRASH1000',
-    'STPFALL','JUMP10','JUMP25','JUMP50','JUMP75','JUMP100','DEX900UP','DEX900DN'];
-  if (derivSynthetics.includes(id)) return 'SP:SPX'; // best available proxy
-
-  // ── Stocks ────────────────────────────────────────────────────────────────────
-  const nyse = ['JPM','BAC','GS','MS','WMT','XOM','CVX','KO','DIS','NKE','JNJ','PFE','V','MA','LLY'];
-  if (nyse.includes(id)) return `NYSE:${id}`;
-  // European stocks
-  if (id === 'LVMH') return 'EURONEXT:MC';
-  if (id === 'SAP')  return 'XETR:SAP';
-  if (id === 'SHEL') return 'LSE:SHEL';
-  if (id === 'NOVO-B') return 'CPH:NOVO_B';
-  // Default NASDAQ
-  return `NASDAQ:${id}`;
+function setChartTF(tf) {
+  lwCurrentTF = tf;
+  // Update button states
+  document.querySelectorAll('.chart-tf-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent === tf);
+  });
+  if (lwCurrentAsset) loadLWChart(lwCurrentAsset);
 }
 
-let tvWidget = null;
-function loadTVChart(asset) {
-  const container = document.getElementById('tradingview-widget');
-  if (!container) return;
-  container.innerHTML = '';
+// ── Create or reset the chart instance ──────────
+function ensureLWChart() {
+  const container = document.getElementById('lw-chart');
+  if (!container) return false;
 
-  const symbol = getTVSymbol(asset);
-  const isMobile = isMobileLayout();
+  if (!lwChart) {
+    lwChart = LightweightCharts.createChart(container, {
+      width:  container.clientWidth,
+      height: container.clientHeight,
+      layout: {
+        background:  { color: '#080c12' },
+        textColor:   '#8899aa',
+        fontFamily:  'var(--mono, monospace)',
+        fontSize:    11,
+      },
+      grid: {
+        vertLines: { color: 'rgba(26,45,69,0.4)' },
+        horzLines: { color: 'rgba(26,45,69,0.4)' },
+      },
+      crosshair: {
+        mode: LightweightCharts.CrosshairMode.Normal,
+        vertLine: { color: 'rgba(0,212,255,0.4)', labelBackgroundColor: '#0d1520' },
+        horzLine: { color: 'rgba(0,212,255,0.4)', labelBackgroundColor: '#0d1520' },
+      },
+      rightPriceScale: {
+        borderColor: 'rgba(26,45,69,0.6)',
+        textColor:   '#8899aa',
+      },
+      timeScale: {
+        borderColor:      'rgba(26,45,69,0.6)',
+        timeVisible:      true,
+        secondsVisible:   false,
+        rightOffset:      8,
+        fixLeftEdge:      true,
+      },
+      handleScroll: true,
+      handleScale:  true,
+    });
 
-  if (!window.TradingView) {
-    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-family:var(--mono);font-size:0.75rem;letter-spacing:1px">LOADING CHART...</div>';
-    const script = document.createElement('script');
-    script.src = 'https://s3.tradingview.com/tv.js';
-    script.onload = () => {
-      container.innerHTML = '';
-      createTVWidget(symbol, isMobile);
-    };
-    script.onerror = () => {
-      container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-family:var(--mono);font-size:0.72rem;text-align:center;padding:20px">Chart unavailable.<br>Check your internet connection.</div>';
-    };
-    document.head.appendChild(script);
-  } else {
-    createTVWidget(symbol, isMobile);
+    lwSeries = lwChart.addCandlestickSeries({
+      upColor:        '#00e676',
+      downColor:      '#ff3d5a',
+      borderUpColor:  '#00e676',
+      borderDownColor:'#ff3d5a',
+      wickUpColor:    '#00e676',
+      wickDownColor:  '#ff3d5a',
+    });
+
+    // Resize observer
+    const ro = new ResizeObserver(() => {
+      if (lwChart && container.clientWidth > 0) {
+        lwChart.applyOptions({
+          width:  container.clientWidth,
+          height: container.clientHeight,
+        });
+      }
+    });
+    ro.observe(container);
   }
+  return true;
 }
 
-function createTVWidget(symbol, isMobile) {
-  const container = document.getElementById('tradingview-widget');
-  if (!container || !window.TradingView) return;
-  container.innerHTML = '';
+// ── Show / hide loading overlay ─────────────────
+function setChartLoading(on) {
+  const el = document.getElementById('chart-loading');
+  if (el) el.style.display = on ? 'flex' : 'none';
+}
 
-  const tvContainer = document.getElementById('tv-container');
-  let w = tvContainer ? tvContainer.offsetWidth : 0;
-  let h = tvContainer ? tvContainer.offsetHeight : 0;
-  if (w < 10 || h < 10) {
-    setTimeout(() => createTVWidget(symbol, isMobile), 100);
+// ── Main entry point ─────────────────────────────
+async function loadLWChart(asset) {
+  if (!asset) return;
+  lwCurrentAsset = asset;
+
+  // Clear old alert lines before fetching new data
+  clearAlertLines();
+
+  if (!ensureLWChart()) return;
+  setChartLoading(true);
+
+  const candles = await fetchOHLC(asset, lwCurrentTF);
+
+  if (!candles || candles.length === 0) {
+    setChartLoading(false);
+    // Show empty state message on chart
+    if (lwSeries) lwSeries.setData([]);
+    showChartError('No candle data available for this asset.');
     return;
   }
 
-  new window.TradingView.widget({
-    container_id: 'tradingview-widget',
-    symbol,
-    interval: 'D',
-    timezone: 'Etc/UTC',
-    theme: 'dark',
-    style: '1',
-    locale: 'en',
-    toolbar_bg: '#0d1520',
-    enable_publishing: false,
-    hide_top_toolbar: false,
-    hide_legend: false,
-    save_image: false,
-    backgroundColor: '#080c12',
-    gridColor: 'rgba(26,45,69,0.5)',
-    allow_symbol_change: false,
-    withdateranges: !isMobile,
-    hide_side_toolbar: isMobile,
-    studies: [],
-    autosize: true,
-  });
+  lwSeries.setData(candles);
+  lwChart.timeScale().fitContent();
+  setChartLoading(false);
 
-  // Draw alert lines after chart has had time to render
+  // Draw alert price lines for this asset
+  drawAlertLines(asset.id);
 }
 
-// Keep stubs so nothing else breaks
-function generateChartData() {}
-function drawChart() {}
-function setTF() {}
+// ── Fetch OHLC candles ────────────────────────────
+// Routes to Deriv REST for forex/commodities/indices/synthetics
+// Routes to CoinGecko for crypto
+async function fetchOHLC(asset, tf) {
+  const cfg = TF_CONFIG[tf] || TF_CONFIG['1D'];
+
+  // CoinGecko for crypto
+  if (asset.sources?.includes('coingecko') && asset.cgId) {
+    return fetchCoinGeckoOHLC(asset, cfg);
+  }
+
+  // Deriv REST for everything with a derivSym
+  if (asset.derivSym) {
+    return fetchDerivOHLC(asset, cfg);
+  }
+
+  // OANDA for stocks CFD (when key set)
+  if (OANDA_KEY && asset.oandaSym) {
+    return fetchOandaOHLC(asset, cfg);
+  }
+
+  return null;
+}
+
+// ── CoinGecko OHLC ───────────────────────────────
+async function fetchCoinGeckoOHLC(asset, cfg) {
+  // CoinGecko /ohlc endpoint returns daily/weekly candles
+  // days param: 1=hourly (up to 2 days), 7-90=daily, max=daily
+  const days = cfg.granularity <= 3600  ? 2
+             : cfg.granularity <= 14400 ? 14
+             : cfg.granularity <= 86400 ? 180
+             : 365;
+  try {
+    const res  = await fetch(
+      `https://api.coingecko.com/api/v3/coins/${asset.cgId}/ohlc?vs_currency=usd&days=${days}`
+    );
+    const data = await res.json();
+    if (!Array.isArray(data) || !data.length) return null;
+
+    // CoinGecko returns [timestamp_ms, open, high, low, close]
+    const candles = data.map(([t, o, h, l, c]) => ({
+      time:  Math.floor(t / 1000),
+      open:  o, high: h, low: l, close: c,
+    }));
+
+    // Deduplicate and sort
+    const seen = new Set();
+    return candles
+      .filter(c => { if (seen.has(c.time)) return false; seen.add(c.time); return true; })
+      .sort((a, b) => a.time - b.time);
+  } catch(e) {
+    console.warn('CoinGecko OHLC failed:', e);
+    return null;
+  }
+}
+
+// ── Deriv OHLC via ticks_history ─────────────────
+// Deriv's ticks_history endpoint returns OHLC candles
+// when style=candles and granularity is set
+async function fetchDerivOHLC(asset, cfg) {
+  try {
+    const end   = Math.floor(Date.now() / 1000);
+    const start = end - cfg.granularity * cfg.count;
+
+    const body = {
+      ticks_history: asset.derivSym,
+      style:         'candles',
+      granularity:   cfg.granularity,
+      start,
+      end,
+      count:         cfg.count,
+      adjust_start_time: 1,
+    };
+
+    const res  = await fetch(
+      `https://api.deriv.com/api/v1/?app_id=${DERIV_APP_ID}`,
+      {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      }
+    );
+    const data = await res.json();
+
+    if (data.error || !data.candles?.length) {
+      console.warn('Deriv OHLC error:', data.error?.message || 'no candles', asset.derivSym);
+      return null;
+    }
+
+    // Deriv returns [{epoch, open, high, low, close}]
+    const candles = data.candles.map(c => ({
+      time:  c.epoch,
+      open:  parseFloat(c.open),
+      high:  parseFloat(c.high),
+      low:   parseFloat(c.low),
+      close: parseFloat(c.close),
+    }));
+
+    const seen = new Set();
+    return candles
+      .filter(c => { if (seen.has(c.time)) return false; seen.add(c.time); return true; })
+      .sort((a, b) => a.time - b.time);
+  } catch(e) {
+    console.warn('Deriv OHLC failed:', e);
+    return null;
+  }
+}
+
+// ── OANDA OHLC for stocks CFD ─────────────────────
+async function fetchOandaOHLC(asset, cfg) {
+  if (!OANDA_KEY || !asset.oandaSym) return null;
+  try {
+    // OANDA granularity mapping
+    const granMap = { 3600: 'H1', 14400: 'H4', 86400: 'D', 604800: 'W' };
+    const gran    = granMap[cfg.granularity] || 'D';
+    const count   = cfg.count;
+
+    const res  = await fetch(
+      `${OANDA_BASE}/instruments/${asset.oandaSym}/candles?granularity=${gran}&count=${count}&price=M`,
+      { headers: { Authorization: `Bearer ${OANDA_KEY}` } }
+    );
+    const data = await res.json();
+
+    if (!data.candles?.length) return null;
+
+    const candles = data.candles
+      .filter(c => c.complete !== false)
+      .map(c => ({
+        time:  Math.floor(new Date(c.time).getTime() / 1000),
+        open:  parseFloat(c.mid.o),
+        high:  parseFloat(c.mid.h),
+        low:   parseFloat(c.mid.l),
+        close: parseFloat(c.mid.c),
+      }));
+
+    const seen = new Set();
+    return candles
+      .filter(c => { if (seen.has(c.time)) return false; seen.add(c.time); return true; })
+      .sort((a, b) => a.time - b.time);
+  } catch(e) {
+    console.warn('OANDA OHLC failed:', e);
+    return null;
+  }
+}
+
+// ── Alert price lines on chart ────────────────────
+function clearAlertLines() {
+  if (!lwSeries) return;
+  lwAlertLines.forEach(line => {
+    try { lwSeries.removePriceLine(line); } catch(e) {}
+  });
+  lwAlertLines = [];
+}
+
+function drawAlertLines(assetId) {
+  if (!lwSeries) return;
+  clearAlertLines();
+
+  const assetAlerts = alerts.filter(a =>
+    a.assetId === assetId && a.status === 'active'
+  );
+
+  assetAlerts.forEach(alert => {
+    const isAbove = alert.condition === 'above';
+    const isZone  = alert.condition === 'zone';
+    const isTap   = alert.condition === 'tap';
+    const color   = isAbove ? '#00e676' : isZone ? '#00d4ff' : isTap ? '#f0b429' : '#ff3d5a';
+
+    if (isZone) {
+      // Draw two lines for zone bounds
+      [
+        { price: alert.zoneLow,  title: `Zone Low${alert.note ? ' · ' + alert.note : ''}` },
+        { price: alert.zoneHigh, title: `Zone High${alert.note ? ' · ' + alert.note : ''}` },
+      ].forEach(({ price, title }) => {
+        const line = lwSeries.createPriceLine({
+          price,
+          color,
+          lineWidth:   1,
+          lineStyle:   LightweightCharts.LineStyle.Dashed,
+          axisLabelVisible: true,
+          title,
+        });
+        lwAlertLines.push(line);
+      });
+    } else {
+      const price = alert.targetPrice;
+      const label = (isAbove ? '▲ ' : isTap ? '◎ ' : '▼ ') +
+                    formatPrice(price, assetId) +
+                    (alert.note ? ' · ' + alert.note : '');
+      const line = lwSeries.createPriceLine({
+        price,
+        color,
+        lineWidth:   1,
+        lineStyle:   LightweightCharts.LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: label,
+      });
+      lwAlertLines.push(line);
+    }
+  });
+}
+
+function showChartError(msg) {
+  const container = document.getElementById('lw-chart');
+  if (!container) return;
+  // Overlay message without destroying the chart instance
+  let errEl = document.getElementById('chart-error-msg');
+  if (!errEl) {
+    errEl = document.createElement('div');
+    errEl.id = 'chart-error-msg';
+    errEl.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:0.72rem;font-family:var(--mono);text-align:center;padding:20px;pointer-events:none;z-index:3;background:rgba(8,12,18,0.7)';
+    document.getElementById('tv-container')?.appendChild(errEl);
+  }
+  errEl.textContent = msg;
+  errEl.style.display = 'flex';
+  setTimeout(() => { if (errEl) errEl.style.display = 'none'; }, 5000);
+}
+
+// Aliases so existing call sites (selectAsset, mobileTab, etc.) keep working
+function loadTVChart(asset)        { loadLWChart(asset); }
+function getTVSymbol(asset)        { return asset?.derivSym || asset?.id || ''; }
+function generateChartData()       {}
+function drawChart()               {}
+function setTF()                   {}
+
 
 // ═══════════════════════════════════════════════
 // ALERTS
@@ -1360,6 +1541,7 @@ function dismissAlert(id) {
   alerts = alerts.filter(a => a.id !== id);
   renderAlerts();
   renderWatchlist();
+  if (lwCurrentAsset) drawAlertLines(lwCurrentAsset.id);
 }
 
 // ── Alert condition SVG icons ─────────────────────────
@@ -1485,6 +1667,9 @@ function renderAlerts() {
   // Update mobile alert badge dot — only for active (waiting) alerts
   const dot = document.getElementById('alert-dot');
   if (dot) dot.classList.toggle('show', alerts.some(a => a.status === 'active'));
+
+  // Refresh alert lines on the chart for the currently viewed asset
+  if (lwCurrentAsset) drawAlertLines(lwCurrentAsset.id);
 }
 
 // ═══════════════════════════════════════════════
