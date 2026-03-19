@@ -954,15 +954,20 @@ window.addEventListener('popstate', (e) => {
 let lwChart        = null;
 let lwSeries       = null;
 let lwAlertLines   = [];
-let lwCurrentTF    = '1D';
+let lwCurrentTF    = '1D'; // default
 let lwCurrentAsset = null;
 
 // ── Timeframe config ──────────────────────────────────────────────────────
 const TF_CONFIG = {
-  '1H':  { granularity:   3600, count: 168 },
-  '4H':  { granularity:  14400, count: 120 },
-  '1D':  { granularity:  86400, count: 180 },
-  '1W':  { granularity: 604800, count: 104 },
+  '1m':  { granularity:    60, count: 120  }, // 2 hours of 1m
+  '5m':  { granularity:   300, count: 144  }, // 12 hours of 5m
+  '15m': { granularity:   900, count: 192  }, // 2 days of 15m
+  '30m': { granularity:  1800, count: 240  }, // 5 days of 30m
+  '1H':  { granularity:  3600, count: 168  }, // 7 days of 1H
+  '4H':  { granularity: 14400, count: 120  }, // 20 days of 4H
+  '1D':  { granularity: 86400, count: 180  }, // 6 months daily
+  '1W':  { granularity: 604800, count: 104 }, // 2 years weekly
+  '1M':  { granularity: 2592000, count: 36 }, // 3 years monthly
 };
 
 const BINANCE_SYMBOL = {
@@ -982,7 +987,10 @@ const BINANCE_SYMBOL = {
   'injective-protocol':'INJUSDT','sei-network':'SEIUSDT',
   'immutable-x':'IMXUSDT',  'polygon':'MATICUSDT',
 };
-const BINANCE_TF = { '1H':'1h','4H':'4h','1D':'1d','1W':'1w' };
+const BINANCE_TF = {
+  '1m':'1m', '5m':'5m', '15m':'15m', '30m':'30m',
+  '1H':'1h', '4H':'4h', '1D':'1d',  '1W':'1w', '1M':'1M',
+};
 
 // ── Timeframe button handler ───────────────────────────────────────────────
 function setChartTF(tf) {
@@ -1029,12 +1037,12 @@ function ensureLWChart() {
   });
 
   lwSeries = lwChart.addCandlestickSeries({
-    upColor:         '#00e676',
-    downColor:       '#ff3d5a',
-    borderUpColor:   '#00e676',
-    borderDownColor: '#ff3d5a',
-    wickUpColor:     '#00e676',
-    wickDownColor:   '#ff3d5a',
+    upColor:         '#26a69a',
+    downColor:       '#ef5350',
+    borderUpColor:   '#26a69a',
+    borderDownColor: '#ef5350',
+    wickUpColor:     '#26a69a',
+    wickDownColor:   '#ef5350',
   });
 
   // Resize observer — keeps chart sized to its container
@@ -1093,10 +1101,14 @@ async function loadLWChart(asset) {
 async function fetchOHLC(asset, tf) {
   const cfg = TF_CONFIG[tf] || TF_CONFIG['1D'];
 
-  // Crypto → Binance (no CORS, no key)
+  // Crypto: try Binance first, fall back to CoinGecko
   if (BINANCE_SYMBOL[asset.id]) {
     const d = await fetchBinanceOHLC(asset.id, cfg, tf);
     if (d && d.length) return d;
+    // Binance failed (CORS/network) — try CoinGecko OHLC
+    const cg = await fetchCoinGeckoOHLC(asset, cfg, tf);
+    if (cg && cg.length) return cg;
+    return null; // crypto — don't fall through to Deriv
   }
 
   // Forex / commodities / synthetics / indices → Deriv WebSocket candles
@@ -1112,6 +1124,24 @@ async function fetchOHLC(asset, tf) {
   }
 
   return null;
+}
+
+// ── CoinGecko OHLC — crypto fallback ────────────────────────────────────
+async function fetchCoinGeckoOHLC(asset, cfg, tf) {
+  if (!asset.cgId) return null;
+  // CoinGecko /ohlc returns candles at 1D or 4D granularity depending on days param
+  const days = tf === '1H' ? 1 : tf === '4H' ? 7 : tf === '1D' ? 90 : 365;
+  try {
+    const res  = await fetch(
+      `https://api.coingecko.com/api/v3/coins/${asset.cgId}/ohlc?vs_currency=usd&days=${days}`
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!Array.isArray(data) || !data.length) return null;
+    return dedupe(data.map(([t, o, h, l, c]) => ({
+      time: Math.floor(t / 1000), open: o, high: h, low: l, close: c,
+    })));
+  } catch(e) { console.warn('CoinGecko OHLC:', e); return null; }
 }
 
 // ── Binance klines — crypto ────────────────────────────────────────────────
@@ -3048,9 +3078,14 @@ function showTgToast(msg) {
 (function() {
   let touchStartX = 0, touchStartY = 0;
 
+  let touchStartedInChart = false;
+
   document.addEventListener('touchstart', e => {
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
+    // Track if touch started inside the chart canvas
+    const chartEl = document.getElementById('lw-chart');
+    touchStartedInChart = chartEl ? chartEl.contains(e.target) : false;
   }, { passive: true });
 
   document.addEventListener('touchend', e => {
@@ -3061,15 +3096,20 @@ function showTgToast(msg) {
     const dx = e.changedTouches[0].clientX - touchStartX;
     const dy = e.changedTouches[0].clientY - touchStartY;
 
-    // Must be mostly horizontal and at least 60px
-    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    // If touch started inside the chart, only allow edge-swipe back
+    // (left 30px of screen) — this lets chart pan/zoom work freely
+    const current = navStack[navStack.length - 1];
+    if (touchStartedInChart && current === 'chart') {
+      // Only trigger back if swipe started from left edge of screen
+      if (touchStartX > 30) return;
+    }
+
+    // Stricter threshold: 80px horizontal, must be much more horizontal than vertical
+    if (Math.abs(dx) < 80 || Math.abs(dx) < Math.abs(dy) * 2.5) return;
 
     if (dx > 0) {
-      // Swipe RIGHT → go back
       goBack();
     } else {
-      // Swipe LEFT → go forward contextually
-      const current = navStack[navStack.length - 1];
       if (current === 'watchlist' && selectedAsset) {
         mobileTab('chart');
       } else if (current === 'chart') {
