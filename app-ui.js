@@ -2,9 +2,7 @@
 // Telegram, library modal, toast, onboarding, init()
 
 // ═══════════════════════════════════════════════
-let audioCtx = null;
-let soundEnabled = true;
-let selectedAlertSound = 'chime';
+// (declared in app-config.js)
 
 function getAudioCtx() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -115,8 +113,7 @@ function previewSound() {
 // ═══════════════════════════════════════════════
 // SERVICE WORKER + PUSH NOTIFICATIONS
 // ═══════════════════════════════════════════════
-let notifEnabled = false;
-let swRegistration = null;
+// (declared in app-config.js)
 
 // Register the service worker as soon as the page loads.
 // Requires the app to be served over HTTPS or localhost — not file://.
@@ -141,10 +138,7 @@ function sendBrowserNotification() {}
 // ═══════════════════════════════════════════════
 // TELEGRAM ALERTS
 // ═══════════════════════════════════════════════
-const TELEGRAM_WORKER_URL = 'https://telegram-worker.meet-tyla.workers.dev';
-let telegramEnabled = false;
-let telegramChatId  = localStorage.getItem('tg_chat_id') || '';
-let telegramUserName = '';
+// (declared in app-config.js)
 
 // ── Auto-detect user from Telegram WebApp SDK ─────
 (function detectTelegramUser() {
@@ -419,7 +413,7 @@ function removeAssetFromWatchlist(assetId, cat, event) {
 // Used by the "Add Asset" modal browser.
 // This replaces the old static ASSET_LIBRARY.
 // ═══════════════════════════════════════════════
-const ASSET_LIBRARY = ALL_ASSETS;
+// (declared in app-config.js)
 
 
 function openAddModal() {
@@ -962,8 +956,7 @@ function showOnboardingScreen() {
 // EDIT ALERT — opens prefilled alert form for
 // an existing alert. Saves changes to DB.
 // ═══════════════════════════════════════════════
-let editingAlertId    = null; // tracks which alert is being edited
-let userTypingInForm  = false; // true when alert form inputs are focused — pauses chart/DOM refresh
+// (declared in app-config.js)
 
 function editAlert(id) {
   const alert = alerts.find(a => a.id === id);
