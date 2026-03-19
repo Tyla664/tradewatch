@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>TradeWatch — Personal Alert Dashboard</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
@@ -231,9 +232,16 @@
 
     <div class="chart-toolbar">
       <div class="chart-toolbar-label">CHART</div>
+      <div class="chart-tf-group">
+        <button class="chart-tf-btn active" onclick="setChartTF('1H')">1H</button>
+        <button class="chart-tf-btn" onclick="setChartTF('4H')">4H</button>
+        <button class="chart-tf-btn" onclick="setChartTF('1D')">1D</button>
+        <button class="chart-tf-btn" onclick="setChartTF('1W')">1W</button>
+      </div>
     </div>
     <div class="tv-container" id="tv-container">
-      <div id="tradingview-widget"></div>
+      <div id="lw-chart"></div>
+      <div id="chart-loading" style="display:none;position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-family:var(--mono);font-size:0.72rem;letter-spacing:1px;background:var(--surface);">LOADING CHART...</div>
     </div>
 
     <!-- Alert Form -->
