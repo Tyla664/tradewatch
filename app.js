@@ -2701,6 +2701,39 @@ function tgCreatedMessage(symbol, condition, targetPrice, assetId, note, timefra
   return [header, ``, subtitle, ``, ...rows, ``, `<i>Watching the markets for you 👀</i>`].join('\n');
 }
 
+// ── Telegram message for edited alerts ────────────────────────────────────
+function tgEditedMessage(symbol, condition, targetPrice, assetId, note, timeframe, zoneLow, zoneHigh, repeatInterval, tapTolerance) {
+  const isZone  = condition === 'zone';
+  const isAbove = condition === 'above';
+  const isTap   = condition === 'tap';
+
+  let header, subtitle, rows = [];
+
+  if (isZone) {
+    header   = `✏️ <b>Alert Updated — ${symbol}</b>`;
+    subtitle = `Your zone alert has been updated`;
+    rows.push(tgRow('Zone',      `<b>${formatPrice(zoneLow, assetId)} – ${formatPrice(zoneHigh, assetId)}</b>`));
+    if (timeframe)                            rows.push(tgRow('Timeframe', `<b>${timeframe}</b>`));
+    if (repeatInterval && repeatInterval > 0) rows.push(tgRow('Repeat',   `<b>Every ${repeatInterval} min</b>`));
+  } else if (isTap) {
+    header   = `✏️ <b>Alert Updated — ${symbol}</b>`;
+    subtitle = `Your tap alert has been updated`;
+    rows.push(tgRow('Level',     `<b>${formatPrice(targetPrice, assetId)}</b>`));
+    rows.push(tgRow('Tolerance', `<b>±${tapTolerance}%</b>`));
+    if (timeframe) rows.push(tgRow('Timeframe', `<b>${timeframe}</b>`));
+  } else {
+    const emoji   = isAbove ? '🟢' : '🔴';
+    const dirWord = isAbove ? 'rises above' : 'falls below';
+    header   = `✏️ <b>Alert Updated — ${symbol}</b>`;
+    subtitle = `Now watching for <b>${symbol}</b> to ${dirWord}`;
+    rows.push(tgRow('New target', `<b>${formatPrice(targetPrice, assetId)}</b>`));
+    if (timeframe) rows.push(tgRow('Timeframe', `<b>${timeframe}</b>`));
+  }
+
+  if (note) rows.push(tgRow('Note', `<i>${note}</i>`));
+  return [header, '', subtitle, '', ...rows, '', '<i>Alert is active and watching.</i>'].join('\n');
+}
+
 // ═══════════════════════════════════════════════
 // REMOVE ASSET FROM WATCHLIST
 // ═══════════════════════════════════════════════
@@ -3403,6 +3436,14 @@ async function saveEditedAlert() {
   renderAlerts();
   renderWatchlist();
   showToast('Alert Updated', `${alert.symbol} alert has been updated.`, 'success');
+
+  // Telegram notification — inform user their alert was updated
+  if (telegramEnabled && telegramChatId) {
+    sendTelegram(tgEditedMessage(
+      alert.symbol, condition, targetPrice, alert.assetId,
+      note, timeframe, zoneLow, zoneHigh, repeatInterval, tapTolerance
+    ));
+  }
 
   // Switch to alerts panel to show the updated alert
   if (isMobileLayout()) {
