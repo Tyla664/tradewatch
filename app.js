@@ -809,6 +809,11 @@ function switchWLTab(tab) {
   }
 }
 function selectAsset(asset) {
+  // Cancel any active edit when switching assets
+  if (editingAlertId && selectedAsset && selectedAsset.id !== asset.id) {
+    cancelEditAlert();
+  }
+
   selectedAsset = asset;
 
   // Track click for dynamic Hot List rankings (non-blocking)
@@ -1127,6 +1132,9 @@ function onConditionChange() {
 }
 
 async function createAlert() {
+  // If edit mode is active, route to saveEditedAlert instead
+  if (editingAlertId) return saveEditedAlert();
+
   if (!selectedAsset) return showToast('No Asset', 'Tap any asset from the Hot List or Watchlist first.', 'error');
 
   const assetId    = selectedAsset.id;
@@ -1445,17 +1453,19 @@ function renderAlerts() {
 
     const isRepeat      = (alert.condition === 'zone' || alert.condition === 'tap') && (alert.repeatInterval || 0) > 0;
     const hasEverFired  = !!alert.zoneTriggeredOnce || !!alert.tapTriggeredOnce || alert.status === 'triggered';
+    const SVG_EDIT    = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:4px"><path d="M1 7.5L2.5 9 8 3.5 6.5 2 1 7.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="none"/><line x1="5.5" y1="2.5" x2="7.5" y2="4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
     const btnDelete     = `<button class="alert-action-btn delete" onclick="deleteAlert('${alert.id}')">${SVG_DELETE}DELETE</button>`;
     const btnDismiss    = `<button class="alert-action-btn dismiss" onclick="dismissAlert('${alert.id}')">${SVG_DISMISS}DISMISS</button>`;
+    const btnEdit       = `<button class="alert-action-btn toggle" onclick="editAlert('${alert.id}')" title="Edit alert">${SVG_EDIT}EDIT</button>`;
     const btnPause      = alert.status === 'paused'
       ? `<button class="alert-action-btn toggle" onclick="toggleAlert('${alert.id}')">${SVG_RESUME}RESUME</button>`
       : `<button class="alert-action-btn toggle" onclick="toggleAlert('${alert.id}')">${SVG_PAUSE}PAUSE</button>`;
 
-    // PAUSE: shown on any active alert that has never fired yet
-    // DISMISS: shown once alert has triggered at least once (repeating or not)
+    // Triggered/repeating-fired: DISMISS + DELETE only
+    // Active/paused: EDIT + PAUSE/RESUME + DELETE
     const actions = isTriggered || (isRepeat && hasEverFired)
       ? btnDismiss + btnDelete
-      : btnPause   + btnDelete;
+      : btnEdit + btnPause + btnDelete;
 
         div.innerHTML = `
       <div class="alert-header-row">
@@ -2399,7 +2409,6 @@ async function init() {
 
   if (isTelegramApp) {
     soundEnabled = prefs?.sound_enabled ?? true;
-    // Always update timezone offset — ensures EF always has the current accurate offset
     savePreferencesDB({
       telegram_chat_id: telegramChatId,
       telegram_enabled: true,
@@ -2407,7 +2416,15 @@ async function init() {
       timezone:         Intl.DateTimeFormat().resolvedOptions().timeZone,
       utc_offset_mins:  -new Date().getTimezoneOffset(),
     });
-    // Silent connection — no nag toast
+
+    // ── New user onboarding: show linking screen, auto send test ──
+    const hasOnboarded = localStorage.getItem('tw_onboarded');
+    if (!hasOnboarded) {
+      // Show the onboarding splash — it will resolve when test passes
+      const onboardOk = await showOnboardingScreen();
+      if (!onboardOk) return; // user is stuck on error screen — halt
+      localStorage.setItem('tw_onboarded', '1');
+    }
   } else {
     // Not inside Telegram — show blocking connect prompt
     soundEnabled = prefs?.sound_enabled ?? true;
@@ -2529,6 +2546,302 @@ document.addEventListener('visibilitychange', () => {
     if (isMobileLayout()) mobileTab(navStack[navStack.length-1], false);
   }
 });
+
+// ═══════════════════════════════════════════════
+// ONBOARDING SCREEN — shown once for new users
+// Automatically links Telegram and sends a test
+// message. Dismisses only when confirmed sent.
+// ═══════════════════════════════════════════════
+
+function cancelEditAlert() {
+  if (!editingAlertId) return;
+  editingAlertId = null;
+  const setBtn = document.getElementById('set-alert-btn');
+  if (setBtn) {
+    setBtn.textContent = 'SET ALERT';
+    setBtn.style.background = '';
+    setBtn.style.borderColor = '';
+  }
+  // Clear form
+  ['alert-price','alert-zone-low','alert-zone-high','alert-note','alert-note-zone'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.value = ''; delete el.dataset.userEdited; }
+  });
+}
+
+function showOnboardingScreen() {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.id = 'onboarding-overlay';
+    overlay.style.cssText = `
+      position:fixed;inset:0;z-index:99999;
+      background:var(--bg);
+      display:flex;flex-direction:column;
+      align-items:center;justify-content:center;
+      padding:32px;text-align:center;
+    `;
+
+    // ── Phase 1: Linking splash ──────────────────
+    // Inject spin keyframe once
+    if (!document.getElementById('tw-spin-style')) {
+      const s = document.createElement('style');
+      s.id = 'tw-spin-style';
+      s.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+      document.head.appendChild(s);
+    }
+
+    function showLinking() {
+      overlay.innerHTML = `
+        <div style="margin-bottom:28px">
+          <svg width="52" height="52" viewBox="0 0 52 52" fill="none">
+            <circle cx="26" cy="26" r="25" stroke="var(--accent)" stroke-width="2" stroke-dasharray="157" stroke-dashoffset="0" opacity="0.2"/>
+            <circle cx="26" cy="26" r="25" stroke="var(--accent)" stroke-width="2" stroke-dasharray="40 117"
+              style="animation:spin 1.2s linear infinite;transform-origin:center"/>
+          </svg>
+        </div>
+        <div style="font-size:1rem;font-weight:700;letter-spacing:0.1em;color:var(--text);margin-bottom:10px;">LINKING YOUR ACCOUNT</div>
+        <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;max-width:260px;">
+          Connecting TradeWatch to your Telegram.<br>This only takes a moment…
+        </div>`;
+      document.body.appendChild(overlay);
+
+      // Auto-send test message after a brief linking pause
+      setTimeout(() => attemptTestMessage(), 1800);
+    }
+
+    // ── Phase 2: Test message ─────────────────────
+    async function attemptTestMessage() {
+      const msg = '🎉 <b>TradeWatch Connected!</b>\n\nYour account is linked. You\'ll receive instant alerts here the moment a price target is hit.\n\n<i>You\'re all set. 📊</i>';
+      const ok  = await sendTelegram(msg);
+
+      if (ok) {
+        showSuccess();
+      } else {
+        showError();
+      }
+    }
+
+    // ── Phase 3a: Success — auto-dismiss ──────────
+    function showSuccess() {
+      overlay.innerHTML = `
+        <div style="margin-bottom:24px">
+          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+            <circle cx="28" cy="28" r="27" stroke="var(--green)" stroke-width="2" fill="none" opacity="0.2"/>
+            <circle cx="28" cy="28" r="27" stroke="var(--green)" stroke-width="2" fill="none"/>
+            <polyline points="16,28 24,36 40,20" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          </svg>
+        </div>
+        <div style="font-size:1rem;font-weight:700;letter-spacing:0.1em;color:var(--green);margin-bottom:10px;">TELEGRAM CONNECTED</div>
+        <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;max-width:260px;margin-bottom:20px;">
+          Check your Telegram — a confirmation message has been sent.<br>Taking you to the app…
+        </div>`;
+
+      // Dismiss after 2 seconds and continue into app
+      setTimeout(() => {
+        overlay.remove();
+        resolve(true);
+      }, 2000);
+    }
+
+    // ── Phase 3b: Error — show retry ─────────────
+    function showError() {
+      overlay.innerHTML = `
+        <div style="margin-bottom:24px">
+          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+            <circle cx="28" cy="28" r="27" stroke="var(--red)" stroke-width="2" fill="none" opacity="0.2"/>
+            <circle cx="28" cy="28" r="27" stroke="var(--red)" stroke-width="2" fill="none"/>
+            <line x1="18" y1="18" x2="38" y2="38" stroke="var(--red)" stroke-width="2.5" stroke-linecap="round"/>
+            <line x1="38" y1="18" x2="18" y2="38" stroke="var(--red)" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div style="font-size:1rem;font-weight:700;letter-spacing:0.1em;color:var(--red);margin-bottom:10px;">CONNECTION FAILED</div>
+        <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;max-width:270px;margin-bottom:28px;">
+          We couldn't send a test message to your Telegram.<br>
+          Make sure you've started a conversation with<br>
+          <b style="color:var(--text)">@tradewatchalert_bot</b> and try again.
+        </div>
+        <button onclick="window.__onboardRetry()" style="
+          background:var(--accent);color:#000;
+          font-weight:700;font-size:0.85rem;
+          letter-spacing:0.08em;padding:14px 32px;
+          border:none;border-radius:10px;cursor:pointer;
+          margin-bottom:12px;width:100%;max-width:260px;
+        ">RETRY</button>
+        <a href="https://t.me/tradewatchalert_bot" target="_blank" style="
+          font-size:0.75rem;color:var(--muted);text-decoration:none;
+        ">Open @tradewatchalert_bot →</a>`;
+
+      window.__onboardRetry = () => {
+        showLinking();
+      };
+    }
+
+    showLinking();
+  });
+}
+
+// ═══════════════════════════════════════════════
+// EDIT ALERT — opens prefilled alert form for
+// an existing alert. Saves changes to DB.
+// ═══════════════════════════════════════════════
+let editingAlertId = null; // tracks which alert is being edited
+
+function editAlert(id) {
+  const alert = alerts.find(a => a.id === id);
+  if (!alert) return;
+
+  // Select the alert's asset so the form targets the right asset
+  const asset = ASSET_BY_ID.get(alert.assetId);
+  if (asset) {
+    // Navigate to chart page (where form lives) and select asset
+    navigateToChartOnSelect = true;
+    selectAsset(asset);
+  }
+
+  // Mark edit mode
+  editingAlertId = id;
+
+  // Populate form fields with existing alert values
+  const condEl = document.getElementById('alert-condition');
+  if (condEl) { condEl.value = alert.condition; onConditionChange(); }
+
+  const tfEl = document.getElementById('alert-timeframe');
+  if (tfEl) tfEl.value = alert.timeframe || '';
+
+  if (alert.condition === 'zone') {
+    const lowEl  = document.getElementById('alert-zone-low');
+    const highEl = document.getElementById('alert-zone-high');
+    const noteEl = document.getElementById('alert-note-zone');
+    const repEl  = document.getElementById('alert-repeat');
+    if (lowEl)  { lowEl.value  = alert.zoneLow;  lowEl.dataset.userEdited  = '1'; }
+    if (highEl) { highEl.value = alert.zoneHigh; highEl.dataset.userEdited = '1'; }
+    if (noteEl) noteEl.value = alert.note || '';
+    if (repEl)  repEl.value  = alert.repeatInterval || 0;
+  } else {
+    const priceEl = document.getElementById('alert-price');
+    const noteEl  = document.getElementById('alert-note');
+    if (priceEl) { priceEl.value = alert.targetPrice; priceEl.dataset.userEdited = '1'; }
+    if (noteEl)  noteEl.value = alert.note || '';
+    if (alert.condition === 'tap') {
+      const tolEl = document.getElementById('alert-tap-tolerance');
+      if (tolEl) tolEl.value = alert.tapTolerance || 0.2;
+    }
+  }
+
+  // Change the SET ALERT button label to UPDATE ALERT
+  const setBtn = document.getElementById('set-alert-btn');
+  if (setBtn) {
+    setBtn.textContent = 'UPDATE ALERT';
+    setBtn.style.background = 'rgba(0,212,255,0.15)';
+    setBtn.style.borderColor = 'rgba(0,212,255,0.5)';
+  }
+
+  // Show a toast so user knows they're in edit mode
+  showToast('Edit Mode', `Editing ${alert.symbol} alert — adjust values and tap UPDATE ALERT.`, 'alert');
+
+  // Switch to chart panel on mobile
+  if (isMobileLayout()) mobileTab('chart');
+}
+
+async function saveEditedAlert() {
+  if (!editingAlertId) return createAlert(); // fall through to create if no edit in progress
+
+  const alert = alerts.find(a => a.id === editingAlertId);
+  if (!alert) { editingAlertId = null; return createAlert(); }
+
+  const condition = document.getElementById('alert-condition').value;
+  const timeframe = document.getElementById('alert-timeframe').value;
+  const isZone    = condition === 'zone';
+  const isTap     = condition === 'tap';
+
+  let targetPrice = 0, zoneLow = 0, zoneHigh = 0, note = '', repeatInterval = 0, tapTolerance = 0.2;
+
+  if (isZone) {
+    zoneLow        = parseFloat(document.getElementById('alert-zone-low').value);
+    zoneHigh       = parseFloat(document.getElementById('alert-zone-high').value);
+    note           = document.getElementById('alert-note-zone').value.trim();
+    repeatInterval = parseInt(document.getElementById('alert-repeat').value) || 0;
+    if (isNaN(zoneLow) || isNaN(zoneHigh) || zoneLow <= 0 || zoneHigh <= 0)
+      return showToast('Invalid Zone', 'Enter valid zone low and high prices.', 'error');
+    if (zoneLow >= zoneHigh)
+      return showToast('Invalid Zone', 'Zone low must be less than zone high.', 'error');
+    targetPrice = zoneLow;
+  } else if (isTap) {
+    targetPrice  = parseFloat(document.getElementById('alert-price').value);
+    note         = document.getElementById('alert-note').value.trim();
+    if (isNaN(targetPrice) || targetPrice <= 0)
+      return showToast('Invalid Price', 'Enter a valid target price.', 'error');
+    const tolSel = document.getElementById('alert-tap-tolerance').value;
+    tapTolerance = tolSel === 'custom'
+      ? parseFloat(document.getElementById('alert-tap-custom').value) || 0.2
+      : parseFloat(tolSel);
+  } else {
+    targetPrice = parseFloat(document.getElementById('alert-price').value);
+    note        = document.getElementById('alert-note').value.trim();
+    if (isNaN(targetPrice) || targetPrice <= 0)
+      return showToast('Invalid Price', 'Enter a valid target price.', 'error');
+  }
+
+  // Apply changes locally
+  Object.assign(alert, {
+    condition, timeframe: timeframe || null,
+    targetPrice, note,
+    zoneLow:       isZone ? zoneLow      : null,
+    zoneHigh:      isZone ? zoneHigh     : null,
+    tapTolerance:  isTap  ? tapTolerance : null,
+    repeatInterval,
+    status: 'active', // reset to active if it was paused/triggered
+    zoneTriggeredOnce: false,
+  });
+
+  // Save to DB
+  await updateAlert(editingAlertId, {
+    condition,
+    target_price:    targetPrice,
+    zone_low:        isZone ? zoneLow      : null,
+    zone_high:       isZone ? zoneHigh     : null,
+    tap_tolerance:   isTap  ? tapTolerance : null,
+    timeframe:       timeframe || null,
+    repeat_interval: repeatInterval,
+    note,
+    status:          'active',
+    last_triggered_at: null,
+    proximity_warn_count: 0,
+  });
+
+  // Exit edit mode
+  editingAlertId = null;
+
+  // Reset button
+  const setBtn = document.getElementById('set-alert-btn');
+  if (setBtn) {
+    setBtn.textContent = 'SET ALERT';
+    setBtn.style.background = '';
+    setBtn.style.borderColor = '';
+  }
+
+  // Reset form
+  document.getElementById('alert-price').value         = '';
+  document.getElementById('alert-zone-low').value      = '';
+  document.getElementById('alert-zone-high').value     = '';
+  document.getElementById('alert-note').value          = '';
+  document.getElementById('alert-note-zone').value     = '';
+  document.getElementById('alert-timeframe').value     = '';
+  document.getElementById('alert-repeat').value        = '0';
+  delete document.getElementById('alert-price').dataset.userEdited;
+  delete document.getElementById('alert-zone-low').dataset.userEdited;
+  delete document.getElementById('alert-zone-high').dataset.userEdited;
+
+  renderAlerts();
+  renderWatchlist();
+  showToast('Alert Updated', `${alert.symbol} alert has been updated.`, 'success');
+
+  // Switch to alerts panel to show the updated alert
+  if (isMobileLayout()) {
+    switchAlertTab('active');
+    mobileTab('alerts');
+  }
+}
 
 // ── TELEGRAM CONNECT PROMPT (blocks app if not in Telegram) ──
 function showTgConnectPrompt() {
