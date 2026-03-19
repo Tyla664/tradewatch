@@ -472,3 +472,28 @@ const HOT_LIST_SEED = {
                '1HZ75V','1HZ100V','JD10','JD25','JD50','JD75','JD100'],
 };
 let HOT_LIST = { ...HOT_LIST_SEED };
+
+// ── Globals declared here so all files can access them ────────────────────
+// (These were previously scattered in app-ui.js / app-alerts.js)
+
+// Sound
+let audioCtx           = null;
+let soundEnabled       = true;
+let selectedAlertSound = 'chime';
+
+// Notifications
+let notifEnabled    = false;
+let swRegistration  = null;
+
+// Telegram
+const TELEGRAM_WORKER_URL = 'https://telegram-worker.meet-tyla.workers.dev';
+let telegramEnabled  = false;
+let telegramChatId   = localStorage.getItem('tg_chat_id') || '';
+let telegramUserName = '';
+
+// Asset library reference
+const ASSET_LIBRARY = ALL_ASSETS;
+
+// Alert editing
+let editingAlertId   = null;
+let userTypingInForm = false;
