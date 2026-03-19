@@ -958,16 +958,19 @@ let lwCurrentTF    = '1D'; // default
 let lwCurrentAsset = null;
 
 // ── Timeframe config ──────────────────────────────────────────────────────
+// Deriv valid granularities (seconds): 60 120 180 300 600 900 1800 3600 7200 14400 28800 86400
+// Binance supports: 1m 3m 5m 15m 30m 1h 2h 4h 6h 8h 12h 1d 3d 1w 1M
+// Counts are generous — Deriv max is 5000, Binance max is 1000
 const TF_CONFIG = {
-  '1m':  { granularity:    60, count: 120  }, // 2 hours of 1m
-  '5m':  { granularity:   300, count: 144  }, // 12 hours of 5m
-  '15m': { granularity:   900, count: 192  }, // 2 days of 15m
-  '30m': { granularity:  1800, count: 240  }, // 5 days of 30m
-  '1H':  { granularity:  3600, count: 168  }, // 7 days of 1H
-  '4H':  { granularity: 14400, count: 120  }, // 20 days of 4H
-  '1D':  { granularity: 86400, count: 180  }, // 6 months daily
-  '1W':  { granularity: 604800, count: 104 }, // 2 years weekly
-  '1M':  { granularity: 2592000, count: 36 }, // 3 years monthly
+  '1m':  { granularity:    60, count: 500,  binance: '1m'  }, // ~8 hours
+  '5m':  { granularity:   300, count: 500,  binance: '5m'  }, // ~1.7 days
+  '15m': { granularity:   900, count: 500,  binance: '15m' }, // ~5 days
+  '30m': { granularity:  1800, count: 500,  binance: '30m' }, // ~10 days
+  '1H':  { granularity:  3600, count: 500,  binance: '1h'  }, // ~21 days
+  '4H':  { granularity: 14400, count: 500,  binance: '4h'  }, // ~83 days
+  '1D':  { granularity: 86400, count: 365,  binance: '1d'  }, // 1 year
+  '1W':  { granularity: 86400, count: 365,  binance: '1d'  }, // use daily, group to weekly display
+  '1M':  { granularity: 86400, count: 730,  binance: '1d'  }, // use daily, group to monthly display
 };
 
 const BINANCE_SYMBOL = {
@@ -987,10 +990,7 @@ const BINANCE_SYMBOL = {
   'injective-protocol':'INJUSDT','sei-network':'SEIUSDT',
   'immutable-x':'IMXUSDT',  'polygon':'MATICUSDT',
 };
-const BINANCE_TF = {
-  '1m':'1m', '5m':'5m', '15m':'15m', '30m':'30m',
-  '1H':'1h', '4H':'4h', '1D':'1d',  '1W':'1w', '1M':'1M',
-};
+// Binance intervals now stored in TF_CONFIG.binance
 
 // ── Timeframe button handler ───────────────────────────────────────────────
 function setChartTF(tf) {
@@ -1089,7 +1089,27 @@ async function loadLWChart(asset) {
   hideChartMsg();
   try {
     lwSeries.setData(candles);
-    lwChart.timeScale().fitContent();
+    // Show last ~80 candles on screen by default, but allow scrolling back
+    const ts = lwChart.timeScale();
+    ts.fitContent();
+    // After fitContent, zoom in to show last 80 bars so chart isn't squished
+    if (candles.length > 80) {
+      const last80 = candles.slice(-80);
+      ts.setVisibleRange({
+        from: last80[0].time,
+        to:   candles[candles.length - 1].time,
+      });
+    }
+    // Allow scrolling past the right edge and back into history
+    lwChart.applyOptions({
+      timeScale: {
+        rightOffset:   5,
+        barSpacing:    8,
+        fixLeftEdge:   false,
+        fixRightEdge:  false,
+        lockVisibleTimeRangeOnResize: false,
+      },
+    });
   } catch(e) {
     console.warn('LW setData error:', e);
   }
@@ -1129,8 +1149,11 @@ async function fetchOHLC(asset, tf) {
 // ── CoinGecko OHLC — crypto fallback ────────────────────────────────────
 async function fetchCoinGeckoOHLC(asset, cfg, tf) {
   if (!asset.cgId) return null;
-  // CoinGecko /ohlc returns candles at 1D or 4D granularity depending on days param
-  const days = tf === '1H' ? 1 : tf === '4H' ? 7 : tf === '1D' ? 90 : 365;
+  // CoinGecko OHLC granularity is auto-selected by days:
+  // 1d=30min, 7d=4H, 14d=4H, 30-max=1D
+  // Best match per TF:
+  const daysMap = { '1m':1,'5m':1,'15m':1,'30m':1,'1H':1,'4H':7,'1D':90,'1W':365,'1M':365 };
+  const days = daysMap[tf] || 90;
   try {
     const res  = await fetch(
       `https://api.coingecko.com/api/v3/coins/${asset.cgId}/ohlc?vs_currency=usd&days=${days}`
@@ -1138,28 +1161,63 @@ async function fetchCoinGeckoOHLC(asset, cfg, tf) {
     if (!res.ok) return null;
     const data = await res.json();
     if (!Array.isArray(data) || !data.length) return null;
-    return dedupe(data.map(([t, o, h, l, c]) => ({
+    const raw = dedupe(data.map(([t, o, h, l, c]) => ({
       time: Math.floor(t / 1000), open: o, high: h, low: l, close: c,
     })));
+    if (tf === '1W') return aggregateCandles(raw, 'week');
+    if (tf === '1M') return aggregateCandles(raw, 'month');
+    return raw;
   } catch(e) { console.warn('CoinGecko OHLC:', e); return null; }
 }
 
 // ── Binance klines — crypto ────────────────────────────────────────────────
 async function fetchBinanceOHLC(assetId, cfg, tf) {
   const sym      = BINANCE_SYMBOL[assetId];
-  const interval = BINANCE_TF[tf] || '1d';
+  const interval = cfg.binance || '1d';
   try {
     const res  = await fetch(
-      `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${interval}&limit=${cfg.count}`
+      `https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${interval}&limit=${Math.min(cfg.count, 1000)}`
     );
     if (!res.ok) return null;
     const data = await res.json();
     if (!Array.isArray(data) || !data.length) return null;
-    return dedupe(data.map(k => ({
+    const raw = dedupe(data.map(k => ({
       time: Math.floor(k[0] / 1000),
       open: +k[1], high: +k[2], low: +k[3], close: +k[4],
     })));
+    // For 1W and 1M, aggregate daily candles into weekly/monthly bars
+    if (tf === '1W') return aggregateCandles(raw, 'week');
+    if (tf === '1M') return aggregateCandles(raw, 'month');
+    return raw;
   } catch(e) { console.warn('Binance OHLC:', e); return null; }
+}
+
+// Aggregate daily candles into weekly or monthly bars
+function aggregateCandles(candles, period) {
+  if (!candles.length) return [];
+  const groups = {};
+  candles.forEach(c => {
+    const d = new Date(c.time * 1000);
+    let key;
+    if (period === 'week') {
+      // Start of the ISO week (Monday)
+      const day = d.getUTCDay() || 7;
+      const mon = new Date(d);
+      mon.setUTCDate(d.getUTCDate() - day + 1);
+      mon.setUTCHours(0, 0, 0, 0);
+      key = Math.floor(mon.getTime() / 1000);
+    } else {
+      // Start of the month
+      key = Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) / 1000);
+    }
+    if (!groups[key]) groups[key] = { time: key, open: c.open, high: c.high, low: c.low, close: c.close };
+    else {
+      groups[key].high  = Math.max(groups[key].high,  c.high);
+      groups[key].low   = Math.min(groups[key].low,   c.low);
+      groups[key].close = c.close;
+    }
+  });
+  return Object.values(groups).sort((a, b) => a.time - b.time);
 }
 
 // ── Deriv WebSocket candles — forex / commodities / indices ───────────────
@@ -1204,8 +1262,11 @@ function fetchDerivOHLC(derivSym, cfg) {
 
 // ── OANDA mid-price candles — stocks CFD ──────────────────────────────────
 async function fetchOandaOHLC(oandaSym, cfg) {
-  const granMap = { 3600:'H1', 14400:'H4', 86400:'D', 604800:'W' };
-  const gran    = granMap[cfg.granularity] || 'D';
+  const tfGranMap = {
+    '1m':'M1','5m':'M5','15m':'M15','30m':'M30',
+    '1H':'H1','4H':'H4','1D':'D','1W':'W','1M':'M'
+  };
+  const gran = tfGranMap[lwCurrentTF] || 'D';
   try {
     const res = await fetch(
       `${OANDA_BASE}/instruments/${oandaSym}/candles?granularity=${gran}&count=${cfg.count}&price=M`,
