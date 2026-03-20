@@ -1953,15 +1953,20 @@ function renderAlerts() {
   const container = document.getElementById('alerts-list');
   if (!container) return;
 
-  // Always make sure the active-tab container is visible when rendering
-  // (can get stuck hidden if switchAlertTab was called while alerts were empty)
-  if (currentAlertTab === 'active' || currentAlertTab === undefined) {
-    container.style.display = '';
+  // ── Always force #alerts-list visible when rendering active tab ───────────
+  // This is the definitive fix: #alerts-list can never stay hidden.
+  // switchAlertTab('history') hides it — but any call to renderAlerts()
+  // must show it again if we're on the active tab (or tab state is unknown).
+  container.style.display = '';
+  container.style.visibility = 'visible';
+
+  // Sync tab UI if we're forcing active
+  if (!currentAlertTab || currentAlertTab === 'active') {
+    currentAlertTab = 'active';
     const histEl = document.getElementById('alerts-history');
     if (histEl) histEl.style.display = 'none';
     document.getElementById('atab-active')?.classList.add('active');
     document.getElementById('atab-history')?.classList.remove('active');
-    currentAlertTab = 'active';
   }
 
   const active = alerts.filter(a => a.status === 'active').length;
@@ -2123,10 +2128,12 @@ function clearAlertHistory() {
 let currentAlertTab = 'active';
 function switchAlertTab(tab) {
   currentAlertTab = tab;
-  document.getElementById('alerts-list').style.display    = tab === 'active'  ? '' : 'none';
-  document.getElementById('alerts-history').style.display = tab === 'history' ? '' : 'none';
-  document.getElementById('atab-active').classList.toggle('active',  tab === 'active');
-  document.getElementById('atab-history').classList.toggle('active', tab === 'history');
+  const listEl    = document.getElementById('alerts-list');
+  const histEl    = document.getElementById('alerts-history');
+  if (listEl) listEl.style.display    = tab === 'active'  ? '' : 'none';
+  if (histEl) histEl.style.display    = tab === 'history' ? '' : 'none';
+  document.getElementById('atab-active')?.classList.toggle('active',  tab === 'active');
+  document.getElementById('atab-history')?.classList.toggle('active', tab === 'history');
   if (tab === 'history') renderHistory();
   if (tab === 'active')  renderAlerts();
 }
