@@ -265,6 +265,7 @@ function mobileTab(tab, pushState = true) {
   // Hide all panels
   document.getElementById('panel-watchlist').classList.remove('mobile-active');
   document.getElementById('panel-main').classList.remove('mobile-active');
+  document.getElementById('panel-journal')?.classList.remove('mobile-active');
   document.getElementById('panel-alerts').classList.remove('mobile-active');
 
   // Deactivate all nav buttons
@@ -283,6 +284,15 @@ function mobileTab(tab, pushState = true) {
     panel.scrollTop = 0;
     document.getElementById('mnav-chart').classList.add('active');
     setTimeout(() => { if (selectedAsset) loadTVChart(selectedAsset); }, 150);
+  } else if (tab === 'journal') {
+    if (fab) fab.classList.remove('visible');
+    const panel = document.getElementById('panel-journal');
+    if (panel) {
+      panel.classList.add('mobile-active');
+      panel.scrollTop = 0;
+    }
+    document.getElementById('mnav-journal')?.classList.add('active');
+    if (typeof renderJournal === 'function') renderJournal();
   } else if (tab === 'alerts') {
     if (fab) fab.classList.remove('visible');
     const panel = document.getElementById('panel-alerts');
