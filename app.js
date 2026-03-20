@@ -1027,10 +1027,14 @@ function selectAsset(asset) {
   const priceInput = document.getElementById('alert-price');
   if (priceInput) { priceInput.value = ''; delete priceInput.dataset.userEdited; }
 
-  // Update setup form placeholders with live price context
-  if (typeof updateSetupPricePlaceholders === 'function') {
-    updateSetupPricePlaceholders(setupDirection || 'long');
+  // Clear setup form user-edited flags and refill with new asset's price
+  if (!editingAlertId) {
+    ['setup-entry','setup-sl','setup-tp1','setup-tp2','setup-tp3'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.value = ''; delete el.dataset.userEdited; }
+    });
   }
+  updateSetupPricePlaceholders(setupDirection || 'long');
 
   // Update panel content via shared function
   refreshSelectedAssetPanel();
@@ -2351,22 +2355,55 @@ function setSetupDirection(dir) {
 }
 
 function updateSetupPricePlaceholders(dir) {
-  const price = selectedAsset ? (priceData[selectedAsset.id]?.price || '') : '';
-  const p = price ? parseFloat(price) : null;
+  const rawPrice = selectedAsset ? (priceData[selectedAsset.id]?.price || null) : null;
+  const p = rawPrice ? parseFloat(rawPrice) : null;
+  const assetId = selectedAsset?.id || '';
 
-  if (dir === 'long') {
-    document.getElementById('setup-entry').placeholder = p ? `Entry e.g. ${p.toPrecision(5)}` : 'Entry — current or limit price';
-    document.getElementById('setup-sl').placeholder    = p ? `SL below e.g. ${(p * 0.995).toPrecision(5)}` : 'SL — below entry';
-    document.getElementById('setup-tp1').placeholder   = p ? `TP1 above e.g. ${(p * 1.01).toPrecision(5)}` : 'TP1 — above entry';
-    document.getElementById('setup-tp2').placeholder   = p ? `TP2 e.g. ${(p * 1.02).toPrecision(5)}` : 'TP2 — optional';
-    document.getElementById('setup-tp3').placeholder   = p ? `TP3 e.g. ${(p * 1.03).toPrecision(5)}` : 'TP3 — optional';
-  } else {
-    document.getElementById('setup-entry').placeholder = p ? `Entry e.g. ${p.toPrecision(5)}` : 'Entry — current or limit price';
-    document.getElementById('setup-sl').placeholder    = p ? `SL above e.g. ${(p * 1.005).toPrecision(5)}` : 'SL — above entry';
-    document.getElementById('setup-tp1').placeholder   = p ? `TP1 below e.g. ${(p * 0.99).toPrecision(5)}` : 'TP1 — below entry';
-    document.getElementById('setup-tp2').placeholder   = p ? `TP2 e.g. ${(p * 0.98).toPrecision(5)}` : 'TP2 — optional';
-    document.getElementById('setup-tp3').placeholder   = p ? `TP3 e.g. ${(p * 0.97).toPrecision(5)}` : 'TP3 — optional';
+  // Helper: format to appropriate decimal places for the asset
+  const fmt = (val) => val ? formatPrice(val, assetId) : '';
+
+  // Calculate sensible default levels based on direction and live price
+  let entryVal, slVal, tp1Val, tp2Val, tp3Val;
+  if (p) {
+    // Use pip-based % offsets — forex ~0.3%, crypto ~1%, synthetics ~0.5%
+    const isCrypto = selectedAsset?.cat === 'crypto';
+    const isForex  = selectedAsset?.cat === 'forex';
+    const slPct    = isCrypto ? 0.015 : isForex ? 0.003 : 0.007;
+    const tp1Pct   = isCrypto ? 0.025 : isForex ? 0.005 : 0.012;
+
+    if (dir === 'long') {
+      entryVal = p;
+      slVal    = p * (1 - slPct);
+      tp1Val   = p * (1 + tp1Pct);
+      tp2Val   = p * (1 + tp1Pct * 2);
+      tp3Val   = p * (1 + tp1Pct * 3);
+    } else {
+      entryVal = p;
+      slVal    = p * (1 + slPct);
+      tp1Val   = p * (1 - tp1Pct);
+      tp2Val   = p * (1 - tp1Pct * 2);
+      tp3Val   = p * (1 - tp1Pct * 3);
+    }
   }
+
+  const fields = [
+    { id: 'setup-entry', hint: dir === 'long' ? 'Entry price (long)' : 'Entry price (short)', val: entryVal },
+    { id: 'setup-sl',    hint: dir === 'long' ? 'Stop loss — below entry' : 'Stop loss — above entry', val: slVal },
+    { id: 'setup-tp1',   hint: dir === 'long' ? 'TP1 — above entry' : 'TP1 — below entry', val: tp1Val },
+    { id: 'setup-tp2',   hint: dir === 'long' ? 'TP2 — optional' : 'TP2 — optional', val: tp2Val },
+    { id: 'setup-tp3',   hint: dir === 'long' ? 'TP3 — optional' : 'TP3 — optional', val: tp3Val },
+  ];
+
+  fields.forEach(({ id, hint, val }) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    // Always update placeholder with context
+    el.placeholder = val ? fmt(val) : hint;
+    // Pre-fill the value ONLY if user hasn't edited it AND it's not in edit mode
+    if (!el.dataset.userEdited && !editingAlertId && val) {
+      el.value = fmt(val);
+    }
+  });
 }
 
 function setTp2Notify(val) {
@@ -2541,6 +2578,7 @@ function renderSetupCard(alert, div) {
   const isFinalState = ['full_tp','sl_hit'].includes(j.tradeStatus || '');
   const btnLog    = `<button class="alert-action-btn dismiss" onclick="logTradeFromAlert('${alert.id}')">LOG TRADE</button>`;
   const btnClose  = `<button class="alert-action-btn toggle"  onclick="dismissSetupAlert('${alert.id}')">CLOSE</button>`;
+  const btnEdit   = `<button class="alert-action-btn toggle"  onclick="editSetupAlert('${alert.id}')" title="Edit setup">${SVG_EDIT}EDIT</button>`;
   const btnDelete = `<button class="alert-action-btn delete"  onclick="deleteAlert('${alert.id}')">DELETE</button>`;
   const btnDismiss = isFinalState ? btnLog : btnClose;
 
@@ -2554,13 +2592,74 @@ function renderSetupCard(alert, div) {
       ${alert.timeframe ? `<br><span style="opacity:0.5;font-size:0.68rem">· ${alert.timeframe}</span>` : ''}
       ${journalLines ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-size:0.72rem;line-height:1.7">${journalLines}</div>` : ''}
     </div>
-    <div class="alert-actions">${btnDismiss}${btnDelete}</div>`;
+    <div class="alert-actions">${btnDismiss}${btnEdit}${btnDelete}</div>`;
 }
 
 function dismissSetupAlert(id) {
   const alert = alerts.find(a => a.id === id);
   if (!alert) return;
   showManualCloseForm(alert, getJournal(alert));
+}
+
+function editSetupAlert(id) {
+  const alert = alerts.find(a => a.id === id);
+  if (!alert) return;
+  const j = getJournal(alert);
+
+  // Navigate to chart tab where the setup form lives
+  if (isMobileLayout()) mobileTab('chart');
+
+  // Switch condition dropdown to setup
+  const condEl = document.getElementById('alert-condition');
+  if (condEl) { condEl.value = 'setup'; onConditionChange(); }
+
+  // Fill direction
+  const dir = j.direction || 'long';
+  setSetupDirection(dir);
+
+  // Fill price fields
+  const set = (id, val) => { const el = document.getElementById(id); if (el && val) { el.value = val; el.dataset.userEdited = '1'; } };
+  set('setup-entry', alert.targetPrice);
+  set('setup-sl',    j.sl);
+  set('setup-tp1',   j.tp1);
+  set('setup-tp2',   j.tp2);
+  set('setup-tp3',   j.tp3);
+
+  // Fill timeframe
+  const tfEl = document.getElementById('setup-timeframe');
+  if (tfEl && alert.timeframe) tfEl.value = alert.timeframe;
+
+  // Fill journal fields
+  const setTxt = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+  setTxt('setup-type',         j.setupType   || '');
+  setTxt('setup-entry-reason', j.entryReason || '');
+  setTxt('setup-htf-context',  j.htfContext  || '');
+
+  // TP2 notify
+  const tp2Yes = document.getElementById('setup-tp2notify-yes');
+  const tp2No  = document.getElementById('setup-tp2notify-no');
+  if (tp2Yes && tp2No) {
+    const notify = j.tp2Notify !== false;
+    tp2Yes.classList.toggle('active',  notify);
+    tp2No.classList.toggle('active', !notify);
+  }
+
+  // Mark as editing this setup alert
+  editingAlertId = id;
+
+  // Update button label
+  const btn = document.getElementById('set-alert-btn');
+  if (btn) {
+    btn.textContent = 'UPDATE SETUP';
+    btn.style.background  = 'rgba(0,212,255,0.15)';
+    btn.style.borderColor = 'rgba(0,212,255,0.5)';
+  }
+
+  // Select the asset
+  const asset = ASSET_BY_ID.get(alert.assetId);
+  if (asset) selectAsset(asset);
+
+  showToast('Edit Setup', `Editing ${alert.symbol} setup — adjust values and tap UPDATE SETUP.`, 'alert');
 }
 
 function showManualCloseForm(alert, journal) {
@@ -3268,25 +3367,28 @@ function toggleSound() {
 }
 
 function toggleTheme() {
-  const root = document.documentElement;
-  const isLight = root.classList.toggle('light-mode');
+  const root    = document.documentElement;
+  const isLight = root.getAttribute('data-theme') !== 'light';
+  root.setAttribute('data-theme', isLight ? 'light' : 'dark');
   localStorage.setItem('tw_theme', isLight ? 'light' : 'dark');
-  const btn = document.getElementById('theme-btn');
-  if (btn) btn.title = isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode';
   const moon = document.getElementById('theme-moon');
   const sun  = document.getElementById('theme-sun');
-  if (moon) moon.style.display = isLight ? 'none' : 'block';
-  if (sun)  sun.style.display  = isLight ? 'block' : 'none';
+  if (moon) moon.style.display = isLight ? 'none'  : '';
+  if (sun)  sun.style.display  = isLight ? ''      : 'none';
+  const btn = document.getElementById('theme-btn');
+  if (btn) btn.title = isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode';
 }
 
 function initTheme() {
   const saved = localStorage.getItem('tw_theme');
   if (saved === 'light') {
-    document.documentElement.classList.add('light-mode');
+    document.documentElement.setAttribute('data-theme', 'light');
     const moon = document.getElementById('theme-moon');
     const sun  = document.getElementById('theme-sun');
     if (moon) moon.style.display = 'none';
-    if (sun)  sun.style.display  = 'block';
+    if (sun)  sun.style.display  = '';
+  } else {
+    document.documentElement.setAttribute('data-theme', 'dark');
   }
 }
 
