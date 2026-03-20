@@ -1225,3 +1225,274 @@
     .modal-overlay.tg-open { align-items: flex-end; }
     .tg-modal-body { padding: 16px 16px 32px; }
   }
+
+/* ── Setup Alert / Trade Journal ────────────────────── */
+.setup-dir-btn {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  padding: 7px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.setup-dir-btn:hover { color: var(--text); border-color: var(--accent); }
+.setup-dir-btn.active {
+  background: rgba(0,212,255,0.1);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}
+/* Trade status badges */
+.badge-watching   { background: rgba(100,120,160,0.18); color: #7a8faa; }
+.badge-running    { background: rgba(0,212,100,0.15);   color: #00e676; animation: pulse-running 2s infinite; }
+.badge-tp1-hit    { background: rgba(0,212,100,0.2);    color: #00e676; }
+.badge-tp2-hit    { background: rgba(0,180,255,0.2);    color: #00d4ff; }
+.badge-full-tp    { background: rgba(0,212,100,0.25);   color: #00e676; font-weight:800; }
+.badge-sl-hit     { background: rgba(255,61,90,0.2);    color: #ff3d5a; }
+@keyframes pulse-running {
+  0%,100% { opacity:1; }
+  50%      { opacity:0.65; }
+}
+/* Trade setup card border */
+.alert-item.trade-watching { border-color: rgba(100,120,160,0.3); }
+.alert-item.trade-running  { border-color: rgba(0,230,118,0.4); }
+.alert-item.trade-sl-hit   { border-color: rgba(255,61,90,0.5); }
+.alert-item.trade-full-tp  { border-color: rgba(0,230,118,0.6); }
+
+/* ── Journal Panel ─────────────────────────────── */
+.journal-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+#journal-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-bottom: 1px solid var(--border);
+}
+.journal-stat {
+  padding: 10px 8px;
+  text-align: center;
+  border-right: 1px solid var(--border);
+}
+.journal-stat:last-child { border-right: none; }
+.journal-stat-val {
+  font-family: var(--mono);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.journal-stat-lbl {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+}
+#journal-list { padding: 16px; overflow-y: auto; flex: 1; }
+
+/* Journal trade card */
+.journal-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+.journal-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.journal-card-symbol {
+  font-family: var(--mono);
+  font-weight: 800;
+  font-size: 0.9rem;
+  letter-spacing: 0.05em;
+}
+.journal-card-body {
+  padding: 0 16px 14px;
+  border-top: 1px solid var(--border);
+}
+.journal-screenshots {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.journal-screenshot-img {
+  flex: 1;
+  max-height: 160px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.journal-month-header {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  padding: 4px 0 8px;
+  margin-top: 4px;
+}
+/* Outcome badges */
+.outcome-full-tp { color: #00e676; }
+.outcome-sl-hit  { color: #ff3d5a; }
+.outcome-partial { color: #00d4ff; }
+
+/* 5-tab nav: shrink labels slightly */
+@media (max-width: 480px) {
+  .mobile-nav { gap: 0; }
+  .mobile-nav-btn { font-size: 0.5rem; padding: 6px 2px 4px; }
+  .nav-icon svg { width: 19px; height: 19px; }
+}
+
+/* ── Trade Journal Page ─────────────────────────────────────────────── */
+.journal-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+/* Stats strip */
+.journal-stat {
+  flex: 1;
+  text-align: center;
+  padding: 12px 4px;
+  border-right: 1px solid var(--border);
+  font-family: var(--mono);
+}
+.journal-stat:last-child { border-right: none; }
+.journal-stat-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  display: block;
+  margin-bottom: 2px;
+}
+.journal-stat-label {
+  font-size: 0.55rem;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  display: block;
+}
+/* Journal entry card */
+.journal-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.journal-card:active { border-color: var(--accent); }
+.journal-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 10px;
+  cursor: pointer;
+}
+.journal-card-symbol {
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.journal-card-dir {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  margin-left: 6px;
+}
+.journal-card-outcome {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 3px 8px;
+  border-radius: 5px;
+}
+.joutcome-full-tp    { background: rgba(0,230,118,0.15); color: #00e676; }
+.joutcome-tp2-hit    { background: rgba(0,212,255,0.15); color: #00d4ff; }
+.joutcome-tp1-hit    { background: rgba(0,212,255,0.1);  color: #00d4ff; }
+.joutcome-breakeven  { background: rgba(150,150,150,0.15); color: #aaa; }
+.joutcome-sl-hit     { background: rgba(255,61,90,0.15); color: #ff3d5a; }
+.joutcome-manual-exit{ background: rgba(150,150,150,0.12); color: #aaa; }
+
+.journal-card-body {
+  padding: 0 14px 14px;
+  display: none;
+  font-family: var(--mono);
+  font-size: 0.73rem;
+}
+.journal-card-body.open { display: block; }
+.journal-levels {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.journal-level-item { display: flex; flex-direction: column; gap: 2px; }
+.journal-level-label { font-size: 0.55rem; color: var(--muted); letter-spacing: 0.08em; }
+.journal-level-value { font-size: 0.78rem; font-weight: 700; }
+.journal-notes { font-size: 0.72rem; color: var(--muted); line-height: 1.7; }
+.journal-notes b { color: var(--text); }
+.journal-screenshots {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+.journal-screenshot-thumb {
+  flex: 1;
+  max-height: 140px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.journal-card-meta {
+  font-size: 0.6rem;
+  color: var(--muted);
+  margin-top: 6px;
+  display: flex;
+  justify-content: space-between;
+}
+/* Screenshot upload area */
+.screenshot-upload-area {
+  border: 1.5px dashed var(--border);
+  border-radius: 10px;
+  min-height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  overflow: hidden;
+  position: relative;
+}
+.screenshot-upload-area:hover { border-color: var(--accent); }
+.screenshot-preview-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-family: var(--mono);
+}
+.screenshot-preview-img {
+  width: 100%;
+  height: 90px;
+  object-fit: cover;
+}
