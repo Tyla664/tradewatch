@@ -1253,18 +1253,18 @@
 }
 
 /* ── Light mode ─────────────────────────────────────────────────────────── */
-.light-mode {
+:root.light-mode {
   --bg:        #f0f4f8;
   --surface:   #ffffff;
   --surface2:  #e8edf3;
-  --border:    #d0dae6;
+  --border:    #c8d8e8;
   --accent:    #0099bb;
   --accent2:   #e85a1e;
   --green:     #00a854;
   --red:       #e02020;
   --gold:      #c9a000;
   --text:      #0d1a26;
-  --muted:     #6a8099;
+  --muted:     #5a7a99;
   --mono:      'Space Mono', monospace;
   --sans:      'Syne', sans-serif;
 }
