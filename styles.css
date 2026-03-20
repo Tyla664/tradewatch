@@ -795,15 +795,26 @@
     background: rgba(8,12,18,0.97);
     backdrop-filter: blur(20px);
     border-top: 1px solid var(--border);
-    padding: 0; height: 60px;
-    grid-template-columns: repeat(4, 1fr);
+    height: 60px;
+    /* Scrollable horizontal nav — TradingView style */
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: 0;
   }
+  .mobile-nav::-webkit-scrollbar { display: none; }
   .mobile-nav-btn {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 3px; background: transparent; border: none; color: var(--muted);
     font-size: 0.55rem; font-family: var(--mono); letter-spacing: 0.5px;
-    cursor: pointer; transition: color 0.15s; padding: 8px 4px;
+    cursor: pointer; transition: color 0.15s; padding: 8px 12px;
     text-transform: uppercase; position: relative;
+    flex: 0 0 auto;           /* don't shrink — keep full size */
+    min-width: 68px;          /* consistent tap target */
+    scroll-snap-align: start;
   }
   .mobile-nav-btn .nav-icon { font-size: 1.15rem; line-height: 1; display: flex; align-items: center; justify-content: center; }
   .mobile-nav-btn .nav-icon svg { transition: transform 0.2s; }
@@ -1098,17 +1109,19 @@
     .empty-state .icon { font-size: 3rem; }
     .empty-state p { font-size: 0.78rem; }
 
-    /* ── Bottom nav ── */
+    /* ── Bottom nav — scrollable horizontal like TradingView ── */
     .mobile-nav {
-      display: grid;
+      display: flex;
       height: calc(60px + env(safe-area-inset-bottom));
       padding-bottom: env(safe-area-inset-bottom);
+      align-items: stretch;
     }
     .mobile-nav-btn {
-      font-size: 0.58rem;
+      font-size: 0.55rem;
       gap: 4px;
-      padding: 10px 4px;
+      padding: 8px 14px;
       -webkit-tap-highlight-color: transparent;
+      min-width: 72px;
     }
     .mobile-nav-btn:active { opacity: 0.6; }
     .mobile-nav-btn .nav-icon svg { width: 24px; height: 24px; }
