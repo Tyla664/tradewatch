@@ -2377,7 +2377,7 @@ async function createSetupAlert() {
   const entryReason    = document.getElementById('setup-entry-reason').value.trim();
   const htfContext     = document.getElementById('setup-htf-context').value.trim();
   const emotionBefore  = document.getElementById('setup-emotion-before').value;
-  const screenshot     = document.getElementById('setup-screenshot').value.trim();
+
 
   if (isNaN(entry) || entry <= 0) return showToast('Missing Entry', 'Enter a valid entry price.', 'error');
   if (isNaN(sl)    || sl    <= 0) return showToast('Missing SL', 'Enter a valid stop loss.', 'error');
@@ -2404,8 +2404,7 @@ async function createSetupAlert() {
     entryReason:     entryReason    || null,
     htfContext:      htfContext     || null,
     emotionBefore:   emotionBefore  || null,
-    screenshotBefore: screenshotUrlBefore || null,
-    screenshotAfter:  screenshotUrlAfter  || null,
+
     tradeStatus:     'watching',
   };
 
@@ -2442,8 +2441,7 @@ async function createSetupAlert() {
     sendTelegram(tgSetupCreatedMessage(selectedAsset.symbol, setupDirection, entry, sl, tp1, tp2, tp3, timeframe, journal));
   }
 
-  // Reset screenshots and form
-  resetScreenshotUploads();
+  // Reset form
   ['setup-entry','setup-sl','setup-tp1','setup-tp2','setup-tp3','setup-entry-reason','setup-htf-context'].forEach(id => {
     const el = document.getElementById(id);
     if (el) { el.value = ''; delete el.dataset.userEdited; }
@@ -2512,7 +2510,7 @@ function renderSetupCard(alert, div) {
     j.entryReason  ? `<span style="opacity:0.6">Reason:</span> ${j.entryReason}` : null,
     j.htfContext   ? `<span style="opacity:0.6">HTF:</span> ${j.htfContext}` : null,
     j.emotionBefore ? `<span style="opacity:0.6">Emotion:</span> ${j.emotionBefore}` : null,
-    j.screenshot   ? `<a href="${j.screenshot}" target="_blank" style="color:var(--accent);font-size:0.7rem">Screenshot</a>` : null,
+
   ].filter(Boolean).join('<br>');
 
   const isFinalState = ['full_tp','sl_hit'].includes(j.tradeStatus || '');
