@@ -6,20 +6,13 @@
 // ALERTS
 // ═══════════════════════════════════════════════
 // ── Toggle zone vs single price UI ───────────────
-function onConditionChange() {
-  const condition = document.getElementById('alert-condition').value;
-  const isZone = condition === 'zone';
-  const isTap  = condition === 'tap';
-  document.getElementById('alert-single-row').style.display = isZone ? 'none' : '';
-  document.getElementById('alert-zone-row').style.display   = isZone ? '' : 'none';
-  document.getElementById('alert-tap-row').style.display    = isTap  ? '' : 'none';
-  // Re-fill with current price for the newly selected condition type
-  refreshSelectedAssetPanel();
-}
+// onConditionChange: see setup alert section below
 
 async function createAlert() {
-  userTypingInForm = false; // clear flag on submit
+  userTypingInForm = false;
   if (editingAlertId) return saveEditedAlert();
+  // Route setup condition to its own handler
+  if (document.getElementById('alert-condition').value === 'setup') return createSetupAlert();
 
   if (!selectedAsset) return showToast('No Asset', 'Tap any asset from the Hot List or Watchlist first.', 'error');
 
@@ -284,6 +277,14 @@ function renderAlerts() {
   container.innerHTML = '';
   [...alerts].reverse().forEach(alert => {
     const div = document.createElement('div');
+
+    // Setup/trade alerts get their own card renderer
+    if (alert.condition === 'setup') {
+      renderSetupCard(alert, div);
+      container.appendChild(div);
+      return;
+    }
+
     const isTriggered = alert.status === 'triggered';
     const dir = alert.triggeredDirection || alert.condition;
 
@@ -671,3 +672,767 @@ function checkAlerts() {
 
 // ═══════════════════════════════════════════════
 // SOUND ENGINE (Web Audio API — no external files)
+
+// ═══════════════════════════════════════════════
+// TRADE SETUP ALERT — Entry/SL/TP1/TP2/TP3
+// A single "setup" alert tracks the full trade lifecycle
+// ═══════════════════════════════════════════════
+
+let setupDirection  = 'long';
+let setupTp2Notify  = true;
+
+function setSetupDirection(dir) {
+  setupDirection = dir;
+  document.getElementById('setup-long-btn').classList.toggle('active', dir === 'long');
+  document.getElementById('setup-short-btn').classList.toggle('active', dir === 'short');
+}
+
+function setTp2Notify(val) {
+  setupTp2Notify = val;
+  document.getElementById('setup-tp2notify-yes').classList.toggle('active', val);
+  document.getElementById('setup-tp2notify-no').classList.toggle('active', !val);
+}
+
+function onConditionChange() {
+  const condition = document.getElementById('alert-condition').value;
+  const isZone    = condition === 'zone';
+  const isTap     = condition === 'tap';
+  const isSetup   = condition === 'setup';
+  document.getElementById('alert-single-row').style.display = (isZone || isSetup) ? 'none' : '';
+  document.getElementById('alert-zone-row').style.display   = isZone  ? '' : 'none';
+  document.getElementById('alert-tap-row').style.display    = isTap   ? '' : 'none';
+  document.getElementById('alert-setup-row').style.display  = isSetup ? '' : 'none';
+  // Hide timeframe + sound rows when setup (has its own timeframe)
+  const row3 = document.querySelector('.alert-form .form-row:has(#alert-timeframe)');
+  if (row3) row3.style.display = isSetup ? 'none' : '';
+}
+
+async function createSetupAlert() {
+  if (!selectedAsset) return showToast('No Asset', 'Select an asset first.', 'error');
+
+  const entry     = parseFloat(document.getElementById('setup-entry').value);
+  const sl        = parseFloat(document.getElementById('setup-sl').value);
+  const tp1       = parseFloat(document.getElementById('setup-tp1').value);
+  const tp2       = parseFloat(document.getElementById('setup-tp2').value) || null;
+  const tp3       = parseFloat(document.getElementById('setup-tp3').value) || null;
+  const timeframe = document.getElementById('setup-timeframe').value;
+  const setupType = document.getElementById('setup-type').value;
+  const entryReason    = document.getElementById('setup-entry-reason').value.trim();
+  const htfContext     = document.getElementById('setup-htf-context').value.trim();
+  const emotionBefore  = document.getElementById('setup-emotion-before').value;
+  const screenshot     = document.getElementById('setup-screenshot').value.trim();
+
+  if (isNaN(entry) || entry <= 0) return showToast('Missing Entry', 'Enter a valid entry price.', 'error');
+  if (isNaN(sl)    || sl    <= 0) return showToast('Missing SL', 'Enter a valid stop loss.', 'error');
+  if (isNaN(tp1)   || tp1   <= 0) return showToast('Missing TP1', 'Enter at least TP1.', 'error');
+
+  // Validate direction logic
+  if (setupDirection === 'long') {
+    if (sl >= entry) return showToast('Invalid SL', 'For a long, SL must be below entry.', 'error');
+    if (tp1 <= entry) return showToast('Invalid TP1', 'For a long, TP1 must be above entry.', 'error');
+  } else {
+    if (sl <= entry) return showToast('Invalid SL', 'For a short, SL must be above entry.', 'error');
+    if (tp1 >= entry) return showToast('Invalid TP1', 'For a short, TP1 must be below entry.', 'error');
+  }
+
+  // Pack all journal + trade data into the note field as JSON
+  const journal = {
+    direction:       setupDirection,
+    sl,
+    tp1,
+    tp2:             tp2 || null,
+    tp3:             tp3 || null,
+    tp2Notify:       setupTp2Notify,
+    setupType:       setupType || null,
+    entryReason:     entryReason    || null,
+    htfContext:      htfContext     || null,
+    emotionBefore:   emotionBefore  || null,
+    screenshotBefore: screenshotUrlBefore || null,
+    screenshotAfter:  screenshotUrlAfter  || null,
+    tradeStatus:     'watching',
+  };
+
+  const newAlert = {
+    id:           'temp_' + alertIdCounter++,
+    assetId:      selectedAsset.id,
+    symbol:       selectedAsset.symbol,
+    name:         selectedAsset.name,
+    condition:    'setup',
+    targetPrice:  entry,   // entry price
+    zoneLow:      Math.min(entry, sl),
+    zoneHigh:     Math.max(entry, sl),
+    tapTolerance: null,
+    timeframe:    timeframe || null,
+    repeatInterval: 0,
+    note:         JSON.stringify(journal),
+    sound:        selectedAlertSound,
+    status:       'active',
+    createdAt:    new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
+  };
+
+  alerts.push(newAlert);
+
+  try {
+    const saved = await saveAlert(newAlert);
+    const idx = alerts.findIndex(a => a.id === newAlert.id);
+    if (idx !== -1 && saved?.id) alerts[idx].id = saved.id;
+  } catch(e) {
+    console.warn('createSetupAlert: DB save failed', e);
+  }
+
+  // Send Telegram setup confirmation
+  if (telegramEnabled && telegramChatId) {
+    sendTelegram(tgSetupCreatedMessage(selectedAsset.symbol, setupDirection, entry, sl, tp1, tp2, tp3, timeframe, journal));
+  }
+
+  // Reset screenshots and form
+  resetScreenshotUploads();
+  ['setup-entry','setup-sl','setup-tp1','setup-tp2','setup-tp3','setup-entry-reason','setup-htf-context'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.value = ''; delete el.dataset.userEdited; }
+  });
+  ['setup-type','setup-timeframe','setup-emotion-before'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.selectedIndex = 0;
+  });
+
+  renderAlerts();
+  showToast('Trade Setup Created', `${selectedAsset.symbol} setup alert active — watching for entry at ${formatPrice(entry, selectedAsset.id)}.`, 'success');
+  if (isMobileLayout()) { switchAlertTab('active'); mobileTab('alerts'); }
+}
+
+// ── Parse journal from alert.note ─────────────────────────────────────────
+function getJournal(alert) {
+  try { return JSON.parse(alert.note || '{}'); } catch(e) { return {}; }
+}
+
+// ── Trade status badge info ────────────────────────────────────────────────
+function getSetupBadge(alert) {
+  const j = getJournal(alert);
+  const status = j.tradeStatus || 'watching';
+  switch (status) {
+    case 'watching':  return { cls: 'badge-watching', label: '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><ellipse cx="5" cy="5" rx="4" ry="2.5" stroke="currentColor" stroke-width="1.4"/><circle cx="5" cy="5" r="1.2" fill="currentColor"/></svg> WATCHING' };
+    case 'entry_hit': return { cls: 'badge-running',  label: '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><polygon points="2,1.5 9,5 2,8.5" fill="currentColor"/></svg> ENTRY HIT' };
+    case 'running':   return { cls: 'badge-running',  label: '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><polygon points="2,1.5 9,5 2,8.5" fill="currentColor"/></svg> RUNNING' };
+    case 'tp1_hit':   return { cls: 'badge-tp1-hit',  label: '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><polyline points="1,5 3.5,7.5 9,2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> TP1 HIT' };
+    case 'tp2_hit':   return { cls: 'badge-tp2-hit',  label: '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><polyline points="1,5 3.5,7.5 9,2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> TP2 HIT' };
+    case 'full_tp':   return { cls: 'badge-full-tp',  label: '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><polygon points="5,1 6.2,3.8 9.3,3.8 6.8,5.8 7.7,8.8 5,7 2.3,8.8 3.2,5.8 0.7,3.8 3.8,3.8" fill="currentColor"/></svg> FULL TP' };
+    case 'sl_hit':    return { cls: 'badge-sl-hit',   label: '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="1.5" y="1.5" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.5"/><line x1="3.2" y1="3.2" x2="6.8" y2="6.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="6.8" y1="3.2" x2="3.2" y2="6.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> SL HIT' };
+    default:          return { cls: 'badge-watching',  label: '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><ellipse cx="5" cy="5" rx="4" ry="2.5" stroke="currentColor" stroke-width="1.4"/><circle cx="5" cy="5" r="1.2" fill="currentColor"/></svg> WATCHING' };
+  }
+}
+
+// ── Render setup alert card ────────────────────────────────────────────────
+function renderSetupCard(alert, div) {
+  const j   = getJournal(alert);
+  const dir = j.direction === 'long' ? '▲ LONG' : '▼ SHORT';
+  const dirColor = j.direction === 'long' ? 'var(--green)' : 'var(--red)';
+  const badge = getSetupBadge(alert);
+
+  const rrRaw = j.tp1 && j.sl && alert.targetPrice
+    ? Math.abs(j.tp1 - alert.targetPrice) / Math.abs(alert.targetPrice - j.sl)
+    : null;
+  const rr = rrRaw ? ` · RR ${rrRaw.toFixed(1)}:1` : '';
+
+  const statusClass = {
+    watching:  'trade-watching', entry_hit: 'trade-running', running: 'trade-running',
+    tp1_hit: 'trade-running', tp2_hit: 'trade-running',
+    full_tp: 'trade-full-tp', sl_hit: 'trade-sl-hit',
+  }[j.tradeStatus || 'watching'] || 'trade-watching';
+
+  div.className = `alert-item ${statusClass}`;
+
+  const levels = [
+    `<span style="color:var(--muted);font-size:0.72rem">Entry</span> <b>${formatPrice(alert.targetPrice, alert.assetId)}</b>`,
+    `<span style="color:var(--red);font-size:0.72rem">SL</span> <b>${formatPrice(j.sl, alert.assetId)}</b>`,
+    `<span style="color:var(--green);font-size:0.72rem">TP1</span> <b>${formatPrice(j.tp1, alert.assetId)}</b>`,
+    j.tp2 ? `<span style="color:var(--green);font-size:0.72rem">TP2</span> <b>${formatPrice(j.tp2, alert.assetId)}</b>` : null,
+    j.tp3 ? `<span style="color:var(--green);font-size:0.72rem">TP3</span> <b>${formatPrice(j.tp3, alert.assetId)}</b>` : null,
+  ].filter(Boolean).join('  ');
+
+  const journalLines = [
+    j.setupType    ? `<span style="opacity:0.6">Setup:</span> ${j.setupType}` : null,
+    j.entryReason  ? `<span style="opacity:0.6">Reason:</span> ${j.entryReason}` : null,
+    j.htfContext   ? `<span style="opacity:0.6">HTF:</span> ${j.htfContext}` : null,
+    j.emotionBefore ? `<span style="opacity:0.6">Emotion:</span> ${j.emotionBefore}` : null,
+    j.screenshot   ? `<a href="${j.screenshot}" target="_blank" style="color:var(--accent);font-size:0.7rem">Screenshot</a>` : null,
+  ].filter(Boolean).join('<br>');
+
+  const isFinalState = ['full_tp','sl_hit'].includes(j.tradeStatus || '');
+  const btnLog    = `<button class="alert-action-btn dismiss" onclick="logTradeFromAlert('${alert.id}')">LOG TRADE</button>`;
+  const btnClose  = `<button class="alert-action-btn toggle"  onclick="dismissSetupAlert('${alert.id}')">CLOSE</button>`;
+  const btnDelete = `<button class="alert-action-btn delete"  onclick="deleteAlert('${alert.id}')">DELETE</button>`;
+  const btnDismiss = isFinalState ? btnLog : btnClose;
+
+  div.innerHTML = `
+    <div class="alert-header-row">
+      <div class="alert-symbol">${alert.symbol} <span style="color:${dirColor};font-size:0.65rem;font-weight:700">${dir}</span>${rr ? `<span style="color:var(--muted);font-size:0.62rem"> ${rr}</span>` : ''}</div>
+      <div class="alert-badge ${badge.cls}">${badge.label}</div>
+    </div>
+    <div class="alert-detail" style="font-size:0.75rem;line-height:1.9">
+      ${levels}
+      ${alert.timeframe ? `<br><span style="opacity:0.5;font-size:0.68rem">· ${alert.timeframe}</span>` : ''}
+      ${journalLines ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-size:0.72rem;line-height:1.7">${journalLines}</div>` : ''}
+    </div>
+    <div class="alert-actions">${btnDismiss}${btnDelete}</div>`;
+}
+
+function dismissSetupAlert(id) {
+  const alert = alerts.find(a => a.id === id);
+  if (!alert) return;
+  showManualCloseForm(alert, getJournal(alert));
+}
+
+function showManualCloseForm(alert, journal) {
+  const currentPrice = priceData[alert.assetId]?.price || '';
+  const emotions = ['Calm','Confident','Satisfied','Frustrated','Disappointed','Relieved','Neutral','Anxious'];
+  showConfirm(
+    'Close Trade',
+    `<div style="font-size:0.72rem;color:var(--muted);margin-bottom:14px;font-family:var(--mono)">Record how and why you closed this trade early</div>
+     <div style="display:flex;flex-direction:column;gap:10px">
+       <div>
+         <label style="font-family:var(--mono);font-size:0.6rem;letter-spacing:0.1em;color:var(--muted);display:block;margin-bottom:4px">EXIT PRICE</label>
+         <input id="manual-close-price" type="number" step="any" value="${currentPrice}"
+           style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:0.8rem;padding:8px 10px;border-radius:7px;box-sizing:border-box">
+       </div>
+       <div>
+         <label style="font-family:var(--mono);font-size:0.6rem;letter-spacing:0.1em;color:var(--muted);display:block;margin-bottom:4px">REASON FOR CLOSING</label>
+         <select id="manual-close-reason"
+           style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:0.75rem;padding:8px 10px;border-radius:7px;box-sizing:border-box">
+           <option value="Secured TP1">Secured TP1 — letting rest run</option>
+           <option value="Partial profit">Took partial profit</option>
+           <option value="Moved SL to BE">Moved SL to breakeven</option>
+           <option value="Reversal signal">Saw reversal signal</option>
+           <option value="News event">News event — exiting early</option>
+           <option value="End of session">End of trading session</option>
+           <option value="Changed bias">Changed market bias</option>
+           <option value="Risk management">Risk management</option>
+           <option value="Fear / anxiety">Fear / anxiety</option>
+           <option value="Target reached">Target reached</option>
+           <option value="Manual decision">Manual decision</option>
+           <option value="Other">Other</option>
+         </select>
+       </div>
+       <div>
+         <label style="font-family:var(--mono);font-size:0.6rem;letter-spacing:0.1em;color:var(--muted);display:block;margin-bottom:6px">EMOTION AFTER</label>
+         <div style="display:flex;flex-wrap:wrap;gap:6px">
+           ${emotions.map(e => `<button onclick="setManualCloseEmotion('${e}',this)"
+             data-emotion="${e}"
+             style="background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--muted);padding:5px 10px;border-radius:6px;cursor:pointer;font-size:0.72rem;font-family:var(--mono);transition:all 0.15s">${e}</button>`).join('')}
+         </div>
+       </div>
+       <button onclick="confirmManualClose('${alert.id}')"
+         style="width:100%;background:var(--accent);color:#000;font-family:var(--mono);font-weight:700;font-size:0.78rem;letter-spacing:0.08em;padding:12px;border:none;border-radius:8px;cursor:pointer;margin-top:4px">
+         CLOSE TRADE
+       </button>
+     </div>`,
+    null
+  );
+}
+
+let _manualCloseEmotion = '';
+function setManualCloseEmotion(emotion, btn) {
+  _manualCloseEmotion = emotion;
+  btn.closest('div').querySelectorAll('[data-emotion]').forEach(b => {
+    b.style.background = 'rgba(255,255,255,0.05)';
+    b.style.color = 'var(--muted)';
+    b.style.borderColor = 'var(--border)';
+  });
+  btn.style.background = 'rgba(0,212,255,0.12)';
+  btn.style.color = 'var(--accent)';
+  btn.style.borderColor = 'var(--accent)';
+}
+
+async function confirmManualClose(alertId) {
+  const modal = document.getElementById('confirm-modal');
+  if (modal) modal.style.display = 'none';
+
+  const exitPrice    = parseFloat(document.getElementById('manual-close-price')?.value) || null;
+  const reason       = document.getElementById('manual-close-reason')?.value || 'Manual decision';
+  const emotionAfter = _manualCloseEmotion || null;
+  _manualCloseEmotion = '';
+
+  const alert = alerts.find(a => a.id === alertId);
+  if (!alert) return;
+  const j = getJournal(alert);
+  j.emotionAfter = emotionAfter;
+  j.closeReason  = reason;
+  j.exitPrice    = exitPrice;
+  j.tradeStatus  = j.tradeStatus === 'watching' ? 'cancelled' : 'manual_exit';
+
+  saveAlertToHistory({ ...alert, note: JSON.stringify(j) });
+  alertHistory.unshift({
+    id: Date.now() + Math.random(),
+    symbol: alert.symbol, assetId: alert.assetId,
+    condition: 'setup', targetPrice: alert.targetPrice,
+    triggeredAt: Date.now(), triggeredPrice: exitPrice,
+    note: JSON.stringify(j),
+  });
+  saveAlertHistory();
+  deleteAlertFromDB(alertId);
+  alerts = alerts.filter(a => a.id !== alertId);
+  renderAlerts();
+  renderWatchlist();
+
+  // Open journal form pre-filled — user lands there to add screenshots + lessons
+  openJournalEntryForm({
+    symbol:        alert.symbol,
+    direction:     j.direction,
+    entry:         alert.targetPrice,
+    sl:            j.sl,
+    tp1:           j.tp1,
+    tp2:           j.tp2,
+    tp3:           j.tp3,
+    outcome:       'manual_exit',
+    timeframe:     alert.timeframe,
+    setupType:     j.setupType,
+    entryReason:   j.entryReason,
+    htfContext:    j.htfContext,
+    emotionBefore: j.emotionBefore,
+    emotionAfter,
+    exitPrice,
+    closeReason:   reason,
+  });
+}
+
+// ── Telegram messages for setup alerts ────────────────────────────────────
+function tgSetupCreatedMessage(symbol, direction, entry, sl, tp1, tp2, tp3, timeframe, journal) {
+  const dir     = direction === 'long' ? '▲ LONG' : '▼ SHORT';
+  const emoji   = direction === 'long' ? '' : '';
+  const rrRaw   = tp1 && sl ? Math.abs(tp1 - entry) / Math.abs(entry - sl) : null;
+  const rows = [
+    tgRow('Direction', `<b>${emoji} ${dir}</b>`),
+    tgRow('Entry',     `<b>${entry}</b>`),
+    tgRow('Stop Loss', `<b>${sl}</b>`),
+    tgRow('TP1',       `<b>${tp1}</b>`),
+    tp2 ? tgRow('TP2', `<b>${tp2}</b>`) : null,
+    tp3 ? tgRow('TP3', `<b>${tp3}</b>`) : null,
+    rrRaw ? tgRow('Risk:Reward', `<b>${rrRaw.toFixed(1)}:1</b>`) : null,
+    timeframe ? tgRow('Timeframe', `<b>${timeframe}</b>`) : null,
+    journal.setupType    ? tgRow('Setup',     `<i>${journal.setupType}</i>`) : null,
+    journal.entryReason  ? tgRow('Reason',    `<i>${journal.entryReason}</i>`) : null,
+    journal.htfContext   ? tgRow('HTF',       `<i>${journal.htfContext}</i>`) : null,
+  ].filter(Boolean);
+  return [
+    `[SETUP] <b>TRADE SETUP ACTIVE — ${symbol}</b>`,
+    ``,
+    `Your trade is queued. Alerts will fire at each level.`,
+    ``,
+    ...rows,
+    ``,
+    `<i>Open your trading platform and place your orders.</i>`,
+    ``,
+    `<a href="https://t.me/tradewatchalert_bot/assistant">Open TradeWatch →</a>`,
+  ].join('\n');
+}
+
+function tgSetupLevelMessage(symbol, level, price, assetId, journal) {
+  const templates = {
+    entry_hit: {
+      header: `[ENTRY TRIGGERED] <b>ENTRY — ${symbol}</b>`,
+      body:   `Price has hit your entry level. <b>Your trade may now be active.</b>`,
+      action: `Open your trading platform and confirm your position is filled. Manage your SL and monitor TP levels.`,
+    },
+    sl_hit: {
+      header: `[SL HIT] <b>STOP LOSS — ${symbol}</b>`,
+      body:   `Price reached your stop loss level. Trade is likely closed.`,
+      action: `Review your trading platform. Log your emotion and lessons in TradeWatch.`,
+    },
+    tp1_approaching: {
+      header: `[APPROACHING] <b>TP1 NEAR — ${symbol}</b>`,
+      body:   `Price is getting close to your first take profit.`,
+      action: `Consider securing partial profits at TP1. Move SL to breakeven if your plan allows.`,
+    },
+    tp1_hit: {
+      header: `[TP1 HIT] <b>TAKE PROFIT 1 — ${symbol}</b>`,
+      body:   `Price reached your first take profit target.`,
+      action: `Consider banking partial profits. Manage your SL to protect remaining position.`,
+    },
+    tp2_approaching: {
+      header: `[APPROACHING] <b>TP2 NEAR — ${symbol}</b>`,
+      body:   `Price is approaching your second take profit.`,
+      action: `Decide whether to secure profits at TP2 or let it run to TP3.`,
+    },
+    tp2_hit: {
+      header: `[TP2 HIT] <b>TAKE PROFIT 2 — ${symbol}</b>`,
+      body:   `Price reached your second take profit.`,
+      action: `Excellent! Consider protecting remaining position or letting it run to TP3.`,
+    },
+    full_tp: {
+      header: `[FULL TP] <b>ALL TARGETS HIT — ${symbol}</b>`,
+      body:   `Price reached your final take profit. Trade fully complete.`,
+      action: `Amazing execution! Close your position and log this trade in your journal.`,
+    },
+  };
+  const t = templates[level] || templates['entry_hit'];
+  const rows = [
+    tgRow('Price', `<b>${price}</b>`),
+    journal.direction ? tgRow('Direction', `<b>${journal.direction === 'long' ? '▲ LONG' : '▼ SHORT'}</b>`) : null,
+  ].filter(Boolean);
+  return [
+    t.header, ``, t.body, ``, ...rows, ``, `<i>${t.action}</i>`, ``,
+    `<a href="https://t.me/tradewatchalert_bot/assistant">Open TradeWatch →</a>`,
+  ].join('\n');
+}
+// ═══════════════════════════════════════════════
+// TRADE JOURNAL — dedicated page
+// Shows completed setup alerts from alertHistory
+// Supports image upload via Supabase Storage
+// ═══════════════════════════════════════════════
+
+// ── Screenshot upload via Supabase Storage ────────────────────────────────
+let screenshotUrlBefore = null;
+let screenshotUrlAfter  = null;
+
+async function handleScreenshotUpload(input, slot) {
+  const file = input.files[0];
+  if (!file) return;
+  const labelId = slot === 'before' ? 'screenshot-label' : 'screenshot-label-after';
+  const areaId  = slot === 'before' ? 'screenshot-upload-area' : 'screenshot-upload-area-after';
+  document.getElementById(labelId).textContent = '⏳ Uploading…';
+
+  try {
+    // Convert file to base64 for Supabase Storage REST upload
+    const arrayBuf = await file.arrayBuffer();
+    const uint8    = new Uint8Array(arrayBuf);
+    const ext      = file.name.split('.').pop() || 'jpg';
+    const path     = `${currentTelegramId}/${Date.now()}_${slot}.${ext}`;
+
+    const res = await fetch(
+      `${SUPABASE_URL}/storage/v1/object/journal-screenshots/${path}`,
+      {
+        method:  'POST',
+        headers: {
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type':  file.type || 'image/jpeg',
+          'x-upsert':      'true',
+        },
+        body: uint8,
+      }
+    );
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(err);
+    }
+
+    const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/journal-screenshots/${path}`;
+    if (slot === 'before') screenshotUrlBefore = publicUrl;
+    else                   screenshotUrlAfter  = publicUrl;
+
+    // Show thumbnail preview
+    const area = document.getElementById(areaId);
+    area.innerHTML = `<img src="${publicUrl}" style="width:100%;max-height:80px;object-fit:cover;border-radius:6px;"> <span style="font-size:0.62rem;color:var(--green)"> Uploaded</span>`;
+    area.onclick = null;
+
+  } catch(e) {
+    console.warn('Screenshot upload failed:', e);
+    document.getElementById(labelId).textContent = 'Upload failed — tap to retry';
+    showToast('Upload Failed', 'Could not upload screenshot. Check your connection.', 'error');
+  }
+}
+
+function resetScreenshotUploads() {
+  screenshotUrlBefore = null;
+  screenshotUrlAfter  = null;
+  const before = document.getElementById('screenshot-upload-area');
+  const after  = document.getElementById('screenshot-upload-area-after');
+  if (before) before.innerHTML = `<span id="screenshot-label">Tap to upload before</span>`;
+  if (after)  after.innerHTML  = `<span id="screenshot-label-after">Tap to upload after</span>`;
+  if (before) before.onclick = () => document.getElementById('setup-screenshot-file').click();
+  if (after)  after.onclick  = () => document.getElementById('setup-screenshot-file-after').click();
+  const fi1 = document.getElementById('setup-screenshot-file');
+  const fi2 = document.getElementById('setup-screenshot-file-after');
+  if (fi1) fi1.value = '';
+  if (fi2) fi2.value = '';
+}
+
+// ── Log Trade modal — prompts for emotion after + outcome note ─────────────
+function promptLogTrade(alertId) {
+  const alert = alerts.find(a => a.id === alertId);
+  if (!alert) return;
+  const j = getJournal(alert);
+
+  // Build outcome badge based on final tradeStatus
+  const outcomeMap = {
+    full_tp: 'Full TP', tp2_hit: 'TP2 Hit', tp1_hit: 'TP1 Hit',
+    sl_hit: 'SL Hit', running: 'Partial', watching: 'Cancelled',
+  };
+  const outcome = outcomeMap[j.tradeStatus] || 'Manual Close';
+
+  const emotions = ['Calm','Confident','Satisfied','Anxious','Frustrated','Disappointed','Neutral'];
+
+  showConfirm(
+    'Log This Trade',
+    `<div style="font-size:0.78rem;color:var(--muted);margin-bottom:14px">
+       Outcome: <b style="color:var(--text)">${outcome}</b>
+     </div>
+     <div style="font-size:0.72rem;color:var(--muted);margin-bottom:8px;letter-spacing:0.08em">EMOTION AFTER</div>
+     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">
+       ${emotions.map(e =>
+         `<button onclick="selectEmotionAfter(this,'${e}')" class="emotion-btn"
+            style="background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--muted);
+                   padding:6px 10px;border-radius:7px;cursor:pointer;font-size:0.74rem;transition:all 0.15s">${e}</button>`
+       ).join('')}
+     </div>
+     <div style="font-size:0.72rem;color:var(--muted);margin-bottom:6px;letter-spacing:0.08em">LESSONS LEARNED <span style="opacity:0.5">(optional)</span></div>
+     <textarea id="log-lessons" rows="3" placeholder="What did you learn from this trade?"
+       style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);
+              border-radius:8px;padding:8px 10px;font-family:var(--mono);font-size:0.75rem;
+              resize:vertical;box-sizing:border-box"></textarea>
+     <div style="margin-top:12px">
+       <button onclick="confirmLogTrade('${alertId}')"
+         style="width:100%;background:var(--accent);color:#000;font-weight:700;
+                font-size:0.8rem;letter-spacing:0.08em;padding:12px;border:none;
+                border-radius:10px;cursor:pointer;font-family:var(--mono)">
+          LOG &amp; MOVE TO JOURNAL
+       </button>
+     </div>`,
+    null
+  );
+
+  // Store pending alert id
+  window._pendingLogAlertId = alertId;
+}
+
+let _selectedEmotionAfter = null;
+function selectEmotionAfter(btn, emotion) {
+  _selectedEmotionAfter = emotion;
+  document.querySelectorAll('.emotion-btn').forEach(b => {
+    b.style.background = 'rgba(255,255,255,0.05)';
+    b.style.borderColor = 'var(--border)';
+    b.style.color = 'var(--muted)';
+  });
+  btn.style.background   = 'rgba(0,212,255,0.12)';
+  btn.style.borderColor  = 'var(--accent)';
+  btn.style.color        = 'var(--accent)';
+}
+
+async function confirmLogTrade(alertId) {
+  const modal = document.getElementById('confirm-modal');
+  if (modal) modal.style.display = 'none';
+
+  const alert = alerts.find(a => a.id === alertId);
+  if (!alert) return;
+
+  const j        = getJournal(alert);
+  const lessons  = document.getElementById('log-lessons')?.value?.trim() || null;
+  const emotionAfter = _selectedEmotionAfter;
+  _selectedEmotionAfter = null;
+
+  // Final journal entry with all data
+  j.emotionAfter      = emotionAfter;
+  j.lessons           = lessons;
+  j.screenshotBefore  = screenshotUrlBefore || j.screenshotBefore || null;
+  j.screenshotAfter   = screenshotUrlAfter  || j.screenshotAfter  || null;
+  j.closedAt          = Date.now();
+
+  // Determine outcome label
+  const outcomeMap = {
+    full_tp: 'full_tp', tp2_hit: 'tp2_hit', tp1_hit: 'tp1_hit',
+    sl_hit: 'sl_hit', running: 'partial', watching: 'cancelled',
+  };
+  j.outcome = outcomeMap[j.tradeStatus] || 'manual';
+
+  const historyEntry = {
+    id:            Date.now() + Math.random(),
+    symbol:        alert.symbol,
+    assetId:       alert.assetId,
+    condition:     'setup',
+    targetPrice:   alert.targetPrice,
+    triggeredAt:   Date.now(),
+    triggeredPrice: alert.triggeredPrice || null,
+    note:          JSON.stringify(j),
+  };
+
+  alertHistory.unshift(historyEntry);
+  await saveAlertHistory();
+
+  // Persist to DB alert_history with full journal
+  try {
+    await supabaseRequest('POST', '/rest/v1/alert_history', {
+      user_id:         currentTelegramId,
+      asset_id:        alert.assetId,
+      symbol:          alert.symbol,
+      condition:       'setup',
+      target_price:    alert.targetPrice,
+      triggered_price: alert.triggeredPrice || null,
+      triggered_at:    Date.now(),
+      note:            JSON.stringify(j),
+    });
+  } catch(e) { console.warn('Journal save to DB:', e); }
+
+  deleteAlertFromDB(alertId);
+  alerts = alerts.filter(a => a.id !== alertId);
+  resetScreenshotUploads();
+
+  renderAlerts();
+  renderJournal();
+
+  showToast('Trade Logged!', `${alert.symbol} moved to your Journal.`, 'success');
+
+  // Navigate to journal
+  if (isMobileLayout()) mobileTab('journal');
+}
+
+// ── Journal rendering ──────────────────────────────────────────────────────
+function renderJournal() {
+  const list       = document.getElementById('journal-list');
+  const statsEl    = document.getElementById('journal-stats');
+  const filterDays = parseInt(document.getElementById('journal-filter')?.value) || 0;
+  if (!list) return;
+
+  // Filter entries to setup trades only
+  const cutoff  = filterDays ? Date.now() - filterDays * 86400000 : 0;
+  const entries = alertHistory
+    .filter(h => h.condition === 'setup' && (!cutoff || h.triggeredAt >= cutoff))
+    .sort((a, b) => b.triggeredAt - a.triggeredAt);
+
+  // ── Stats ────────────────────────────────────────────────────────────────
+  if (statsEl) {
+    const total  = entries.length;
+    const wins   = entries.filter(e => { const j = safeJson(e.note); return ['full_tp','tp2_hit','tp1_hit'].includes(j.outcome); }).length;
+    const losses = entries.filter(e => safeJson(e.note).outcome === 'sl_hit').length;
+    const wr     = total ? Math.round(wins / total * 100) : 0;
+    statsEl.innerHTML = `
+      <div class="journal-stat"><div class="journal-stat-val">${total}</div><div class="journal-stat-lbl">TRADES</div></div>
+      <div class="journal-stat"><div class="journal-stat-val" style="color:var(--green)">${wins}</div><div class="journal-stat-lbl">WINS</div></div>
+      <div class="journal-stat"><div class="journal-stat-val" style="color:var(--red)">${losses}</div><div class="journal-stat-lbl">LOSSES</div></div>
+      <div class="journal-stat"><div class="journal-stat-val" style="color:${wr>=50?'var(--green)':'var(--red)'}">${wr}%</div><div class="journal-stat-lbl">WIN RATE</div></div>`;
+  }
+
+  if (!entries.length) {
+    list.innerHTML = `<div style="text-align:center;color:var(--muted);font-size:0.8rem;padding:40px 20px;font-family:var(--mono)">
+       No journal entries yet.<br><span style="opacity:0.6;font-size:0.72rem">Completed trade setups will appear here.</span></div>`;
+    return;
+  }
+
+  // ── Group by month ────────────────────────────────────────────────────────
+  const months = {};
+  entries.forEach(e => {
+    const d   = new Date(e.triggeredAt);
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}`;
+    const lbl = d.toLocaleDateString('en-US', {month:'long', year:'numeric', timeZone:'UTC'});
+    if (!months[key]) months[key] = { label: lbl, entries: [] };
+    months[key].entries.push(e);
+  });
+
+  list.innerHTML = '';
+  Object.values(months).forEach(month => {
+    const hdr = document.createElement('div');
+    hdr.className = 'journal-month-header';
+    hdr.textContent = month.label.toUpperCase();
+    list.appendChild(hdr);
+
+    month.entries.forEach(entry => {
+      list.appendChild(buildJournalCard(entry));
+    });
+  });
+}
+
+function safeJson(str) {
+  try { return JSON.parse(str || '{}'); } catch(e) { return {}; }
+}
+
+function buildJournalCard(entry) {
+  const j       = safeJson(entry.note);
+  const card    = document.createElement('div');
+  card.className = 'journal-card';
+
+  const dir     = j.direction === 'long' ? '▲ LONG' : '▼ SHORT';
+  const dirColor = j.direction === 'long' ? 'var(--green)' : 'var(--red)';
+
+  const outcomeLabels = {
+    full_tp:'Full TP', tp2_hit:'TP2 Hit', tp1_hit:'TP1 Hit',
+    sl_hit:'SL Hit', partial:'Partial', cancelled:'Cancelled', manual:'Manual',
+  };
+  const outcomeClasses = {
+    full_tp:'outcome-full-tp', tp2_hit:'outcome-partial', tp1_hit:'outcome-partial',
+    sl_hit:'outcome-sl-hit', partial:'outcome-partial',
+  };
+  const outcomeLabel = outcomeLabels[j.outcome] || j.outcome || '—';
+  const outcomeCls   = outcomeClasses[j.outcome] || '';
+
+  const date = new Date(entry.triggeredAt).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+
+  const rrRaw = j.tp1 && j.sl && entry.targetPrice
+    ? Math.abs(j.tp1 - entry.targetPrice) / Math.abs(entry.targetPrice - j.sl)
+    : null;
+
+  card.innerHTML = `
+    <div class="journal-card-header" onclick="toggleJournalCard(this)">
+      <div>
+        <span class="journal-card-symbol">${entry.symbol}</span>
+        <span style="color:${dirColor};font-size:0.65rem;font-weight:700;margin-left:6px">${dir}</span>
+        ${rrRaw ? `<span style="color:var(--muted);font-size:0.6rem;margin-left:6px">RR ${rrRaw.toFixed(1)}:1</span>` : ''}
+      </div>
+      <div style="text-align:right">
+        <div class="journal-stat-lbl" style="font-size:0.58rem">${date}</div>
+        <div style="font-size:0.72rem;font-weight:700" class="${outcomeCls}">${outcomeLabel}</div>
+      </div>
+    </div>
+    <div class="journal-card-body" style="display:none">
+      ${buildJournalCardBody(entry, j)}
+    </div>`;
+
+  return card;
+}
+
+function toggleJournalCard(header) {
+  const body = header.nextElementSibling;
+  if (!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display = isOpen ? 'none' : 'block';
+}
+
+function buildJournalCardBody(entry, j) {
+  const fmt = n => n ? formatPrice(n, entry.assetId) : '—';
+  const levels = [
+    `<span style="color:var(--muted);font-size:0.7rem">Entry</span> <b>${fmt(entry.targetPrice)}</b>`,
+    `<span style="color:var(--red);font-size:0.7rem">SL</span> <b>${fmt(j.sl)}</b>`,
+    `<span style="color:var(--green);font-size:0.7rem">TP1</span> <b>${fmt(j.tp1)}</b>`,
+    j.tp2 ? `<span style="color:var(--green);font-size:0.7rem">TP2</span> <b>${fmt(j.tp2)}</b>` : null,
+    j.tp3 ? `<span style="color:var(--green);font-size:0.7rem">TP3</span> <b>${fmt(j.tp3)}</b>` : null,
+  ].filter(Boolean).join('  ');
+
+  const rows = [
+    ['Setup Type',    j.setupType],
+    ['Timeframe',     j.timeframe],
+    ['Entry Reason',  j.entryReason],
+    ['HTF Context',   j.htfContext],
+    ['Emotion Before',j.emotionBefore],
+    ['Emotion After', j.emotionAfter],
+    ['Lessons',       j.lessons],
+  ].filter(([,v]) => v).map(([k,v]) =>
+    `<div style="margin-top:5px"><span style="color:var(--muted);font-size:0.67rem">${k}:</span> <span style="font-size:0.75rem">${v}</span></div>`
+  ).join('');
+
+  const screenshots = [j.screenshotBefore, j.screenshotAfter].filter(Boolean);
+  const imgHtml = screenshots.length
+    ? `<div class="journal-screenshots">
+        ${screenshots.map((url,i) => `
+          <div style="flex:1;text-align:center">
+            <div style="font-size:0.58rem;color:var(--muted);margin-bottom:4px">${i===0?'BEFORE':'AFTER'}</div>
+            <img src="${url}" class="journal-screenshot-img" onclick="openImageFullscreen('${url}')" alt="${i===0?'Before':'After'} screenshot">
+          </div>`).join('')}
+       </div>`
+    : '';
+
+  return `<div style="padding-top:10px;font-family:var(--mono)">
+    <div style="margin-bottom:8px;font-size:0.75rem;line-height:2">${levels}</div>
+    ${rows}
+    ${imgHtml}
+  </div>`;
+}
+
+function openImageFullscreen(url) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:99999;display:flex;align-items:center;justify-content:center;cursor:pointer';
+  overlay.innerHTML = `<img src="${url}" style="max-width:95vw;max-height:90vh;border-radius:8px;object-fit:contain">
+    <div style="position:absolute;top:16px;right:16px;color:#fff;font-size:1.5rem;cursor:pointer"></div>`;
+  overlay.onclick = () => overlay.remove();
+  document.body.appendChild(overlay);
+}
+
+// ── Wire journal into mobileTab ────────────────────────────────────────────
+// (patched below in the mobileTab override)
