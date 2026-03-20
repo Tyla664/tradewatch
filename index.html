@@ -86,7 +86,7 @@
       <!-- Auto-detected Telegram identity -->
       <div class="tg-section" id="tg-identity-section">
         <div id="tg-detected-box" style="display:none;">
-          <div class="tg-step">✅ Telegram Account Detected</div>
+          <div class="tg-step">Telegram Account Detected</div>
           <div class="tg-instructions" id="tg-detected-name" style="margin-top:6px;"></div>
         </div>
         <div id="tg-not-detected-box" style="display:none;">
@@ -279,6 +279,7 @@
             <option value="below">Price falls BELOW</option>
             <option value="zone">Price enters ZONE</option>
             <option value="tap">Price TAPS level</option>
+            <option value="setup">Trade SETUP (Entry / SL / TP)</option>
           </select>
         </div>
       </div>
@@ -346,6 +347,135 @@
         </div>
       </div>
 
+
+      <!-- SETUP ALERT FORM (trade journal) -->
+      <div id="alert-setup-row" style="display:none;">
+        <div style="font-size:0.65rem;letter-spacing:0.1em;color:var(--accent);margin-bottom:12px;padding:8px 12px;background:rgba(0,212,255,0.06);border-radius:8px;border:1px solid rgba(0,212,255,0.15)">
+          TRADE SETUP — Entry · SL · TP1 · TP2 · TP3
+        </div>
+
+        <!-- Direction -->
+        <div class="form-row">
+          <div class="form-group">
+            <label>DIRECTION</label>
+            <div style="display:flex;gap:8px;">
+              <button id="setup-long-btn" class="setup-dir-btn active" onclick="setSetupDirection('long')">▲ LONG</button>
+              <button id="setup-short-btn" class="setup-dir-btn" onclick="setSetupDirection('short')">▼ SHORT</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>TIMEFRAME</label>
+            <select id="setup-timeframe">
+              <option value="">— Any —</option>
+              <option value="1m">1 Minute</option>
+              <option value="5m">5 Minutes</option>
+              <option value="15m">15 Minutes</option>
+              <option value="30m">30 Minutes</option>
+              <option value="1h">1 Hour</option>
+              <option value="4h">4 Hours</option>
+              <option value="1D">Daily</option>
+              <option value="1W">Weekly</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Entry + SL -->
+        <div class="form-row">
+          <div class="form-group">
+            <label>ENTRY PRICE</label>
+            <input type="number" id="setup-entry" placeholder="e.g. 1.08500" step="any" oninput="this.dataset.userEdited='1'">
+          </div>
+          <div class="form-group">
+            <label>STOP LOSS</label>
+            <input type="number" id="setup-sl" placeholder="e.g. 1.08200" step="any">
+          </div>
+        </div>
+
+        <!-- TP1, TP2, TP3 -->
+        <div class="form-row">
+          <div class="form-group">
+            <label>TP 1 <span style="color:var(--green);font-size:0.6rem">REQUIRED</span></label>
+            <input type="number" id="setup-tp1" placeholder="e.g. 1.08900" step="any">
+          </div>
+          <div class="form-group">
+            <label>TP 2 <span style="color:var(--muted);font-size:0.6rem">OPTIONAL</span></label>
+            <input type="number" id="setup-tp2" placeholder="e.g. 1.09200" step="any">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>TP 3 <span style="color:var(--muted);font-size:0.6rem">OPTIONAL</span></label>
+            <input type="number" id="setup-tp3" placeholder="e.g. 1.09600" step="any">
+          </div>
+          <div class="form-group">
+            <label>NOTIFY ON TP2?</label>
+            <div style="display:flex;gap:8px;margin-top:4px;">
+              <button id="setup-tp2notify-yes" class="setup-dir-btn active" onclick="setTp2Notify(true)">YES</button>
+              <button id="setup-tp2notify-no" class="setup-dir-btn" onclick="setTp2Notify(false)">NO</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Journal section -->
+        <div style="font-size:0.62rem;letter-spacing:0.1em;color:var(--muted);margin:14px 0 8px;padding-top:10px;border-top:1px solid var(--border);">
+          TRADE JOURNAL
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>SETUP TYPE</label>
+            <select id="setup-type">
+              <option value="">— Select —</option>
+              <option value="Breakout">Breakout</option>
+              <option value="Pullback">Pullback</option>
+              <option value="Reversal">Reversal</option>
+              <option value="Range">Range Play</option>
+              <option value="Trend Follow">Trend Follow</option>
+              <option value="News Trade">News Trade</option>
+              <option value="ICT">ICT / SMC</option>
+              <option value="Supply Demand">Supply & Demand</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>EMOTION BEFORE</label>
+            <select id="setup-emotion-before">
+              <option value="">— Select —</option>
+              <option value="Calm">Calm</option>
+              <option value="Confident">Confident</option>
+              <option value="Excited">Excited</option>
+              <option value="Anxious">Anxious</option>
+              <option value="FOMO">FOMO</option>
+              <option value="Doubtful">Doubtful</option>
+              <option value="Neutral">Neutral</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:1">
+            <label>ENTRY REASON</label>
+            <input type="text" id="setup-entry-reason" placeholder="e.g. FVG fill at OB with BOS">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:1">
+            <label>HTF CONTEXT</label>
+            <input type="text" id="setup-htf-context" placeholder="e.g. HTF bullish, in premium, D1 OB respected">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group" style="flex:1">
+            <label>CHART SCREENSHOT <span style="color:var(--muted);font-size:0.6rem">(OPTIONAL)</span></label>
+            <div id="screenshot-upload-area" style="border:1px dashed var(--border);border-radius:8px;padding:10px 14px;cursor:pointer;text-align:center;color:var(--muted);font-size:0.72rem" onclick="document.getElementById('setup-screenshot-file').click()">
+              <span id="screenshot-label">Tap to upload before</span>
+            </div>
+            <input type="file" id="setup-screenshot-file" accept="image/*" style="display:none" onchange="handleScreenshotUpload(this,'before')">
+            <div id="screenshot-upload-area-after" style="border:1px dashed var(--border);border-radius:8px;padding:10px 14px;cursor:pointer;text-align:center;color:var(--muted);font-size:0.72rem;margin-top:6px" onclick="document.getElementById('setup-screenshot-file-after').click()">
+              <span id="screenshot-label-after">Tap to upload after</span>
+            </div>
+            <input type="file" id="setup-screenshot-file-after" accept="image/*" style="display:none" onchange="handleScreenshotUpload(this,'after')">
+          </div>
+        </div>
+      </div>
 
       <!-- Row 3: Timeframe -->
       <div class="form-row">
@@ -431,6 +561,197 @@
   </div><!-- /panels-wrap -->
 </div>
 
+<!-- Journal Panel -->
+<div class="panel journal-panel" id="panel-journal">
+  <div class="panel-title" style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+    <span>TRADE JOURNAL</span>
+    <div style="display:flex;gap:8px;align-items:center">
+      <select id="journal-filter" onchange="renderJournal()" style="background:var(--surface);border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:0.6rem;padding:3px 6px;border-radius:5px;letter-spacing:0.06em">
+        <option value="all">ALL TIME</option>
+        <option value="7">7 DAYS</option>
+        <option value="30">30 DAYS</option>
+        <option value="90">3 MONTHS</option>
+      </select>
+      <button onclick="openJournalEntryForm()" style="background:var(--accent);color:#000;font-family:var(--mono);font-size:0.6rem;font-weight:700;letter-spacing:0.08em;padding:4px 10px;border:none;border-radius:6px;cursor:pointer">+ LOG TRADE</button>
+    </div>
+  </div>
+
+  <!-- Stats strip -->
+  <div id="journal-stats" style="display:flex;border-bottom:1px solid var(--border);flex-shrink:0"></div>
+
+  <!-- Entries list -->
+  <div id="journal-list" style="overflow-y:auto;flex:1;padding:14px"></div>
+</div>
+
+<!-- Journal Entry Modal (Log Trade form) -->
+<div id="journal-modal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,0.7);overflow-y:auto">
+  <div style="min-height:100%;display:flex;align-items:flex-start;justify-content:center;padding:20px 12px">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;width:100%;max-width:480px;padding:20px">
+    <div style="font-family:var(--mono);font-size:0.75rem;font-weight:700;letter-spacing:0.12em;color:var(--text);margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">
+      <span>LOG TRADE</span>
+      <button onclick="closeJournalModal()" style="background:none;border:none;color:var(--muted);font-size:1rem;cursor:pointer">&#x2715;</button>
+    </div>
+
+    <!-- Hidden field for linking to a setup alert -->
+    <input type="hidden" id="jnl-alert-id">
+
+    <!-- Row 1: Asset + Direction -->
+    <div class="form-row">
+      <div class="form-group">
+        <label>ASSET</label>
+        <input type="text" id="jnl-symbol" placeholder="e.g. EUR/USD" style="text-transform:uppercase">
+      </div>
+      <div class="form-group">
+        <label>DIRECTION</label>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <button id="jnl-long-btn" class="setup-dir-btn active" onclick="setJnlDir('long')">▲ LONG</button>
+          <button id="jnl-short-btn" class="setup-dir-btn" onclick="setJnlDir('short')">▼ SHORT</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 2: Entry + Exit -->
+    <div class="form-row">
+      <div class="form-group"><label>ENTRY PRICE</label><input type="number" id="jnl-entry" step="any"></div>
+      <div class="form-group"><label>EXIT PRICE</label><input type="number" id="jnl-exit" step="any"></div>
+    </div>
+
+    <!-- Row 3: SL + TP1 -->
+    <div class="form-row">
+      <div class="form-group"><label>STOP LOSS</label><input type="number" id="jnl-sl" step="any"></div>
+      <div class="form-group"><label>TP1</label><input type="number" id="jnl-tp1" step="any"></div>
+    </div>
+
+    <!-- Row 4: TP2, TP3, Outcome -->
+    <div class="form-row">
+      <div class="form-group"><label>TP2 <span style="color:var(--muted);font-size:0.6rem">OPT</span></label><input type="number" id="jnl-tp2" step="any"></div>
+      <div class="form-group"><label>TP3 <span style="color:var(--muted);font-size:0.6rem">OPT</span></label><input type="number" id="jnl-tp3" step="any"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>OUTCOME</label>
+        <select id="jnl-outcome">
+          <option value="full_tp">Full TP Hit</option>
+          <option value="tp2_hit">TP2 Hit</option>
+          <option value="tp1_hit">TP1 Hit</option>
+          <option value="breakeven">Breakeven</option>
+          <option value="sl_hit">SL Hit</option>
+          <option value="manual_exit">Manual Exit</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>P&L % <span style="color:var(--muted);font-size:0.6rem">OPT</span></label>
+        <input type="number" id="jnl-pnl" step="0.01" placeholder="e.g. 2.5">
+      </div>
+    </div>
+
+    <!-- Timeframe + Setup type -->
+    <div class="form-row">
+      <div class="form-group">
+        <label>TIMEFRAME</label>
+        <select id="jnl-timeframe">
+          <option value="">— Any —</option>
+          <option value="1m">1m</option><option value="5m">5m</option>
+          <option value="15m">15m</option><option value="30m">30m</option>
+          <option value="1h">1H</option><option value="4h">4H</option>
+          <option value="1D">Daily</option><option value="1W">Weekly</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>SETUP TYPE</label>
+        <select id="jnl-setup-type">
+          <option value="">— Select —</option>
+          <option value="Breakout">Breakout</option>
+          <option value="Pullback">Pullback</option>
+          <option value="Reversal">Reversal</option>
+          <option value="Range">Range Play</option>
+          <option value="Trend Follow">Trend Follow</option>
+          <option value="News Trade">News Trade</option>
+          <option value="ICT">ICT / SMC</option>
+          <option value="Supply Demand">Supply & Demand</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Entry reason + HTF -->
+    <div class="form-group" style="margin-bottom:10px">
+      <label>ENTRY REASON</label>
+      <input type="text" id="jnl-entry-reason" placeholder="e.g. FVG fill at OB with BOS">
+    </div>
+    <div class="form-group" style="margin-bottom:10px">
+      <label>HTF CONTEXT</label>
+      <input type="text" id="jnl-htf" placeholder="e.g. D1 OB respected, bullish bias">
+    </div>
+
+    <!-- Emotions -->
+    <div class="form-row">
+      <div class="form-group">
+        <label>EMOTION BEFORE</label>
+        <select id="jnl-emotion-before">
+          <option value="">— Select —</option>
+          <option value="Calm">Calm</option>
+          <option value="Confident">Confident</option>
+          <option value="Excited">Excited</option>
+          <option value="Anxious">Anxious</option>
+          <option value="FOMO">FOMO</option>
+          <option value="Doubtful">Doubtful</option>
+          <option value="Neutral">Neutral</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>EMOTION AFTER</label>
+        <select id="jnl-emotion-after">
+          <option value="">— Select —</option>
+          <option value="Satisfied">Satisfied</option>
+          <option value="Calm">Calm</option>
+          <option value="Excited">Excited</option>
+          <option value="Frustrated">Frustrated</option>
+          <option value="Disappointed">Disappointed</option>
+          <option value="Relieved">Relieved</option>
+          <option value="Neutral">Neutral</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Lessons -->
+    <div class="form-group" style="margin-bottom:12px">
+      <label>LESSONS LEARNED</label>
+      <textarea id="jnl-lessons" rows="3" placeholder="What did this trade teach you?" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:0.75rem;padding:8px 10px;border-radius:8px;resize:vertical;box-sizing:border-box"></textarea>
+    </div>
+
+    <!-- Screenshots -->
+    <div style="font-size:0.62rem;letter-spacing:0.1em;color:var(--muted);margin-bottom:8px">SCREENSHOTS</div>
+    <div class="form-row" style="align-items:flex-start">
+      <div class="form-group">
+        <label>BEFORE TRADE</label>
+        <div class="screenshot-upload-area" id="jnl-before-area" onclick="document.getElementById('jnl-before-input').click()">
+          <input type="file" id="jnl-before-input" accept="image/*" style="display:none" onchange="handleScreenshotUpload('before',this)">
+          <div id="jnl-before-preview" class="screenshot-preview-empty">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.4" fill="none" opacity="0.4"/><circle cx="8.5" cy="9.5" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none" opacity="0.6"/><path d="M3 17l5-5 3 3 3-3 5 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.5"/></svg>
+            <span>Tap to upload</span>
+          </div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>AFTER TRADE</label>
+        <div class="screenshot-upload-area" id="jnl-after-area" onclick="document.getElementById('jnl-after-input').click()">
+          <input type="file" id="jnl-after-input" accept="image/*" style="display:none" onchange="handleScreenshotUpload('after',this)">
+          <div id="jnl-after-preview" class="screenshot-preview-empty">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.4" fill="none" opacity="0.4"/><circle cx="8.5" cy="9.5" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none" opacity="0.6"/><path d="M3 17l5-5 3 3 3-3 5 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.5"/></svg>
+            <span>Tap to upload</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <button onclick="saveJournalEntry()" style="width:100%;background:var(--accent);color:#000;font-family:var(--mono);font-weight:700;font-size:0.8rem;letter-spacing:0.1em;padding:14px;border:none;border-radius:10px;cursor:pointer;margin-top:8px">
+      SAVE TO JOURNAL
+    </button>
+  </div>
+  </div>
+</div>
+
 <!-- Toast notifications -->
 <div class="toast-container" id="toasts"></div>
 
@@ -469,6 +790,20 @@
       </svg>
     </span>
     Chart
+  </button>
+  <button class="mobile-nav-btn" id="mnav-journal" onclick="mobileTab('journal')">
+    <span class="nav-icon">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <rect x="4" y="2" width="14" height="18" rx="2" stroke="currentColor" stroke-width="1.4" fill="none" opacity="0.5"/>
+        <line x1="7" y1="7" x2="15" y2="7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        <line x1="7" y1="10.5" x2="15" y2="10.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        <line x1="7" y1="14" x2="11" y2="14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        <circle cx="16" cy="16" r="4" fill="var(--bg)" stroke="currentColor" stroke-width="1.2"/>
+        <line x1="14.5" y1="16" x2="17.5" y2="16" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+        <line x1="16" y1="14.5" x2="16" y2="17.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </span>
+    Journal
   </button>
   <button class="mobile-nav-btn" id="mnav-alerts" onclick="mobileTab('alerts')">
     <span class="nav-icon">
@@ -529,6 +864,7 @@
 <script src="app-watchlist.js"></script>
 <script src="app-chart.js"></script>
 <script src="app-alerts.js"></script>
+<script src="app-journal.js"></script>
 <script src="app-ui.js"></script>
 </body>
 </html>
