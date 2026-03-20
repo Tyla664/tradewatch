@@ -103,6 +103,7 @@
     padding: 0 20px 20px;
   }
   .panel:last-child { border-right: none; border-left: 1px solid var(--border); }
+  .journal-panel { flex-direction: column; }
   .panel-title {
     font-size: 0.65rem;
     font-family: var(--mono);
@@ -796,25 +797,14 @@
     backdrop-filter: blur(20px);
     border-top: 1px solid var(--border);
     height: 60px;
-    /* Scrollable horizontal nav — TradingView style */
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scroll-snap-type: x mandatory;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
     padding: 0;
   }
-  .mobile-nav::-webkit-scrollbar { display: none; }
   .mobile-nav-btn {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 3px; background: transparent; border: none; color: var(--muted);
     font-size: 0.55rem; font-family: var(--mono); letter-spacing: 0.5px;
-    cursor: pointer; transition: color 0.15s; padding: 8px 12px;
+    cursor: pointer; transition: color 0.15s; padding: 8px 4px;
     text-transform: uppercase; position: relative;
-    flex: 0 0 auto;           /* don't shrink — keep full size */
-    min-width: 68px;          /* consistent tap target */
-    scroll-snap-align: start;
   }
   .mobile-nav-btn .nav-icon { font-size: 1.15rem; line-height: 1; display: flex; align-items: center; justify-content: center; }
   .mobile-nav-btn .nav-icon svg { transition: transform 0.2s; }
@@ -944,6 +934,7 @@
     }
     .panel.mobile-active,
     .main-panel.mobile-active { display: block; }
+    .journal-panel.mobile-active { display: flex !important; flex-direction: column; }
 
     /* ── Watchlist panel ── */
     .watchlist-panel {
@@ -1109,7 +1100,7 @@
     .empty-state .icon { font-size: 3rem; }
     .empty-state p { font-size: 0.78rem; }
 
-    /* ── Bottom nav — scrollable horizontal like TradingView ── */
+    /* ── Bottom nav — evenly spaced across device width ── */
     .mobile-nav {
       display: flex;
       height: calc(60px + env(safe-area-inset-bottom));
@@ -1117,11 +1108,12 @@
       align-items: stretch;
     }
     .mobile-nav-btn {
+      flex: 1;                /* equal width — fills screen perfectly */
       font-size: 0.55rem;
       gap: 4px;
-      padding: 8px 14px;
+      padding: 8px 2px;
       -webkit-tap-highlight-color: transparent;
-      min-width: 72px;
+      min-width: 0;           /* allow shrinking on narrow screens */
     }
     .mobile-nav-btn:active { opacity: 0.6; }
     .mobile-nav-btn .nav-icon svg { width: 24px; height: 24px; }
@@ -1279,10 +1271,10 @@
 
 /* ── Journal Panel ─────────────────────────────── */
 .journal-panel {
-  display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  /* display controlled by mobile-active on mobile, flex on desktop */
 }
 #journal-stats {
   display: grid;
@@ -1371,7 +1363,6 @@
 
 /* ── Trade Journal Page ─────────────────────────────────────────────── */
 .journal-panel {
-  display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
