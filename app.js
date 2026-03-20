@@ -469,8 +469,8 @@ let navigateToChartOnSelect = false;
 // ═══════════════════════════════════════════════
 const HOT_LIST_SEED = {
   forex:      ['EUR/USD','GBP/USD','USD/JPY','AUD/USD','USD/CAD','USD/CHF'],
-  synthetics: ['R_75','R_100','BOOM500','BOOM1000','CRASH500','CRASH1000',
-               '1HZ75V','1HZ100V','JD10','JD25','JD50','JD75','JD100'],
+  crypto:     ['bitcoin','ethereum','solana','BNB','ripple'],
+  synthetics: ['R_75','R_100','BOOM500','CRASH500','1HZ75V','1HZ100V'],
 };
 let HOT_LIST = { ...HOT_LIST_SEED };
 
@@ -1026,6 +1026,11 @@ function selectAsset(asset) {
   // Reset price input so it pre-fills with new asset's price
   const priceInput = document.getElementById('alert-price');
   if (priceInput) { priceInput.value = ''; delete priceInput.dataset.userEdited; }
+
+  // Update setup form placeholders with live price context
+  if (typeof updateSetupPricePlaceholders === 'function') {
+    updateSetupPricePlaceholders(setupDirection || 'long');
+  }
 
   // Update panel content via shared function
   refreshSelectedAssetPanel();
@@ -2342,6 +2347,26 @@ function setSetupDirection(dir) {
   setupDirection = dir;
   document.getElementById('setup-long-btn').classList.toggle('active', dir === 'long');
   document.getElementById('setup-short-btn').classList.toggle('active', dir === 'short');
+  updateSetupPricePlaceholders(dir);
+}
+
+function updateSetupPricePlaceholders(dir) {
+  const price = selectedAsset ? (priceData[selectedAsset.id]?.price || '') : '';
+  const p = price ? parseFloat(price) : null;
+
+  if (dir === 'long') {
+    document.getElementById('setup-entry').placeholder = p ? `Entry e.g. ${p.toPrecision(5)}` : 'Entry — current or limit price';
+    document.getElementById('setup-sl').placeholder    = p ? `SL below e.g. ${(p * 0.995).toPrecision(5)}` : 'SL — below entry';
+    document.getElementById('setup-tp1').placeholder   = p ? `TP1 above e.g. ${(p * 1.01).toPrecision(5)}` : 'TP1 — above entry';
+    document.getElementById('setup-tp2').placeholder   = p ? `TP2 e.g. ${(p * 1.02).toPrecision(5)}` : 'TP2 — optional';
+    document.getElementById('setup-tp3').placeholder   = p ? `TP3 e.g. ${(p * 1.03).toPrecision(5)}` : 'TP3 — optional';
+  } else {
+    document.getElementById('setup-entry').placeholder = p ? `Entry e.g. ${p.toPrecision(5)}` : 'Entry — current or limit price';
+    document.getElementById('setup-sl').placeholder    = p ? `SL above e.g. ${(p * 1.005).toPrecision(5)}` : 'SL — above entry';
+    document.getElementById('setup-tp1').placeholder   = p ? `TP1 below e.g. ${(p * 0.99).toPrecision(5)}` : 'TP1 — below entry';
+    document.getElementById('setup-tp2').placeholder   = p ? `TP2 e.g. ${(p * 0.98).toPrecision(5)}` : 'TP2 — optional';
+    document.getElementById('setup-tp3').placeholder   = p ? `TP3 e.g. ${(p * 0.97).toPrecision(5)}` : 'TP3 — optional';
+  }
 }
 
 function setTp2Notify(val) {
@@ -2653,7 +2678,7 @@ async function confirmManualClose(alertId) {
 // ── Telegram messages for setup alerts ────────────────────────────────────
 function tgSetupCreatedMessage(symbol, direction, entry, sl, tp1, tp2, tp3, timeframe, journal) {
   const dir     = direction === 'long' ? '▲ LONG' : '▼ SHORT';
-  const emoji   = direction === 'long' ? '' : '';
+  const emoji   = direction === 'long' ? '🟢' : '🔴';
   const rrRaw   = tp1 && sl ? Math.abs(tp1 - entry) / Math.abs(entry - sl) : null;
   const rows = [
     tgRow('Direction', `<b>${emoji} ${dir}</b>`),
@@ -2669,13 +2694,13 @@ function tgSetupCreatedMessage(symbol, direction, entry, sl, tp1, tp2, tp3, time
     journal.htfContext   ? tgRow('HTF',       `<i>${journal.htfContext}</i>`) : null,
   ].filter(Boolean);
   return [
-    `[SETUP] <b>TRADE SETUP ACTIVE — ${symbol}</b>`,
+    `📋 <b>TRADE SETUP ACTIVE — ${symbol}</b>`,
     ``,
     `Your trade is queued. Alerts will fire at each level.`,
     ``,
     ...rows,
     ``,
-    `<i>Open your trading platform and place your orders.</i>`,
+    `<i>🖥 Open your trading platform and place your orders.</i>`,
     ``,
     `<a href="https://t.me/tradewatchalert_bot/assistant">Open TradeWatch →</a>`,
   ].join('\n');
@@ -2684,37 +2709,37 @@ function tgSetupCreatedMessage(symbol, direction, entry, sl, tp1, tp2, tp3, time
 function tgSetupLevelMessage(symbol, level, price, assetId, journal) {
   const templates = {
     entry_hit: {
-      header: `[ENTRY TRIGGERED] <b>ENTRY — ${symbol}</b>`,
+      header: `🚀 <b>ENTRY TRIGGERED — ${symbol}</b>`,
       body:   `Price has hit your entry level. <b>Your trade may now be active.</b>`,
       action: `Open your trading platform and confirm your position is filled. Manage your SL and monitor TP levels.`,
     },
     sl_hit: {
-      header: `[SL HIT] <b>STOP LOSS — ${symbol}</b>`,
+      header: `🛑 <b>STOP LOSS HIT — ${symbol}</b>`,
       body:   `Price reached your stop loss level. Trade is likely closed.`,
       action: `Review your trading platform. Log your emotion and lessons in TradeWatch.`,
     },
     tp1_approaching: {
-      header: `[APPROACHING] <b>TP1 NEAR — ${symbol}</b>`,
+      header: `👀 <b>TP1 APPROACHING — ${symbol}</b>`,
       body:   `Price is getting close to your first take profit.`,
       action: `Consider securing partial profits at TP1. Move SL to breakeven if your plan allows.`,
     },
     tp1_hit: {
-      header: `[TP1 HIT] <b>TAKE PROFIT 1 — ${symbol}</b>`,
+      header: `✅ <b>TP1 HIT — ${symbol}</b>`,
       body:   `Price reached your first take profit target.`,
       action: `Consider banking partial profits. Manage your SL to protect remaining position.`,
     },
     tp2_approaching: {
-      header: `[APPROACHING] <b>TP2 NEAR — ${symbol}</b>`,
+      header: `👀 <b>TP2 APPROACHING — ${symbol}</b>`,
       body:   `Price is approaching your second take profit.`,
       action: `Decide whether to secure profits at TP2 or let it run to TP3.`,
     },
     tp2_hit: {
-      header: `[TP2 HIT] <b>TAKE PROFIT 2 — ${symbol}</b>`,
+      header: `✅ <b>TP2 HIT — ${symbol}</b>`,
       body:   `Price reached your second take profit.`,
       action: `Excellent! Consider protecting remaining position or letting it run to TP3.`,
     },
     full_tp: {
-      header: `[FULL TP] <b>ALL TARGETS HIT — ${symbol}</b>`,
+      header: `🏆 <b>FULL TP HIT — ${symbol}</b>`,
       body:   `Price reached your final take profit. Trade fully complete.`,
       action: `Amazing execution! Close your position and log this trade in your journal.`,
     },
@@ -3242,6 +3267,29 @@ function toggleSound() {
   if (soundEnabled) playAlertSound(selectedAlertSound);
 }
 
+function toggleTheme() {
+  const root = document.documentElement;
+  const isLight = root.classList.toggle('light-mode');
+  localStorage.setItem('tw_theme', isLight ? 'light' : 'dark');
+  const btn = document.getElementById('theme-btn');
+  if (btn) btn.title = isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode';
+  const moon = document.getElementById('theme-moon');
+  const sun  = document.getElementById('theme-sun');
+  if (moon) moon.style.display = isLight ? 'none' : 'block';
+  if (sun)  sun.style.display  = isLight ? 'block' : 'none';
+}
+
+function initTheme() {
+  const saved = localStorage.getItem('tw_theme');
+  if (saved === 'light') {
+    document.documentElement.classList.add('light-mode');
+    const moon = document.getElementById('theme-moon');
+    const sun  = document.getElementById('theme-sun');
+    if (moon) moon.style.display = 'none';
+    if (sun)  sun.style.display  = 'block';
+  }
+}
+
 function selectSound(type, btn) {
   selectedAlertSound = type;
   document.querySelectorAll('.sound-opt').forEach(b => b.classList.remove('active'));
@@ -3360,7 +3408,7 @@ function toggleTelegram() {
   updateTgModalState();
   updateTgBtn();
   if (telegramEnabled) {
-    sendTelegram('<b>TRADEWATCH CONNECTED</b>\n\nYour alerts are live. You\'ll get notified here the moment a price target is hit.\n\n<i>Stay sharp. </i>');
+    sendTelegram('🔔 <b>TradeWatch Connected!</b>\n\nYour alerts are live. You\'ll get notified here the moment a price target is hit.\n\n<i>Stay sharp. </i>');
   }
 }
 
@@ -3386,7 +3434,7 @@ async function testTelegram() {
     return;
   }
   setTgStatus('Sending…', '');
-  const ok = await sendTelegram('<b>TEST SUCCESSFUL</b>\n\nTradeWatch is connected and ready to fire alerts.\n\n<i>You\'re all set. </i>');
+  const ok = await sendTelegram('✅ <b>Test Successful!</b>\n\nTradeWatch is connected and ready to fire alerts.\n\n<i>You\'re all set. </i>');
   if (ok) {
     setTgStatus('Message sent! Check your Telegram.', 'ok');
   } else {
@@ -3430,21 +3478,21 @@ function tgAlertMessage(type, symbol, condition, targetPrice, currentPrice, asse
   let header, subtitle, rows = [];
 
   if (isZone) {
-    header   = `[ZONE] <b>ZONE ALERT — ${symbol}</b>`;
+    header   = `📍 <b>ZONE ALERT — ${symbol}</b>`;
     subtitle = `Price has entered your zone`;
     rows.push(tgRow('Zone',          `<b>${formatPrice(zoneLow, assetId)} – ${formatPrice(zoneHigh, assetId)}</b>`));
     rows.push(tgRow('Current price', `<b>${formatPrice(currentPrice, assetId)}</b>`));
     if (timeframe)                            rows.push(tgRow('Timeframe', `<b>${timeframe}</b>`));
     if (repeatInterval && repeatInterval > 0) rows.push(tgRow('Repeat',   `<b>Every ${repeatInterval} min</b>`));
   } else if (isTap) {
-    header   = `[TAP] <b>TAP ALERT — ${symbol}</b>`;
+    header   = `🎯 <b>TAP ALERT — ${symbol}</b>`;
     subtitle = `Price touched your level`;
     rows.push(tgRow('Level',         `<b>${formatPrice(targetPrice, assetId)}</b>`));
     rows.push(tgRow('Current price', `<b>${formatPrice(currentPrice, assetId)}</b>`));
     rows.push(tgRow('Tolerance',     `<b>±${tapTolerance}%</b>`));
     if (timeframe) rows.push(tgRow('Timeframe', `<b>${timeframe}</b>`));
   } else {
-    const emoji   = isAbove ? '[UP]' : '[DOWN]';
+    const emoji   = isAbove ? '🚀' : '📉';
     const dirWord = isAbove ? 'broke above' : 'dropped below';
     header   = `${emoji} <b>ALERT TRIGGERED — ${symbol}</b>`;
     subtitle = `Price ${dirWord} your target`;
@@ -3465,19 +3513,19 @@ function tgCreatedMessage(symbol, condition, targetPrice, assetId, note, timefra
   let header, subtitle, rows = [];
 
   if (isZone) {
-    header   = `[ZONE SET] <b>Zone Alert Set — ${symbol}</b>`;
+    header   = `📍 <b>Zone Alert Set — ${symbol}</b>`;
     subtitle = `You'll be notified when <b>${symbol}</b> enters the zone`;
     rows.push(tgRow('Zone',      `<b>${formatPrice(zoneLow, assetId)} – ${formatPrice(zoneHigh, assetId)}</b>`));
     if (timeframe)                            rows.push(tgRow('Timeframe', `<b>${timeframe}</b>`));
     if (repeatInterval && repeatInterval > 0) rows.push(tgRow('Repeat',   `<b>Every ${repeatInterval} min</b>`));
   } else if (isTap) {
-    header   = `[TAP SET] <b>Tap Alert Set — ${symbol}</b>`;
+    header   = `🎯 <b>Tap Alert Set — ${symbol}</b>`;
     subtitle = `You'll be notified when <b>${symbol}</b> touches your level`;
     rows.push(tgRow('Level',     `<b>${formatPrice(targetPrice, assetId)}</b>`));
     rows.push(tgRow('Tolerance', `<b>±${tapTolerance}%</b>`));
     if (timeframe) rows.push(tgRow('Timeframe', `<b>${timeframe}</b>`));
   } else {
-    const emoji   = isAbove ? '' : '';
+    const emoji   = isAbove ? '🟢' : '🔴';
     const dirWord = isAbove ? 'rises above' : 'falls below';
     header   = `${emoji} <b>Alert Set — ${symbol}</b>`;
     subtitle = `You'll be notified when <b>${symbol}</b> ${dirWord}`;
@@ -3486,7 +3534,7 @@ function tgCreatedMessage(symbol, condition, targetPrice, assetId, note, timefra
   }
 
   if (note) rows.push(tgRow('Note', `<i>${note}</i>`));
-  return [header, ``, subtitle, ``, ...rows, ``, `<i>Watching the markets for you.</i>`].join('\n');
+  return [header, ``, subtitle, ``, ...rows, ``, `<i>👀 Watching the markets for you.</i>`].join('\n');
 }
 
 // ── Telegram message for edited alerts ────────────────────────────────────
@@ -3498,21 +3546,21 @@ function tgEditedMessage(symbol, condition, targetPrice, assetId, note, timefram
   let header, subtitle, rows = [];
 
   if (isZone) {
-    header   = `[UPDATED] <b>Alert Updated — ${symbol}</b>`;
+    header   = `✏️ <b>Alert Updated — ${symbol}</b>`;
     subtitle = `Your zone alert has been updated`;
     rows.push(tgRow('Zone',      `<b>${formatPrice(zoneLow, assetId)} – ${formatPrice(zoneHigh, assetId)}</b>`));
     if (timeframe)                            rows.push(tgRow('Timeframe', `<b>${timeframe}</b>`));
     if (repeatInterval && repeatInterval > 0) rows.push(tgRow('Repeat',   `<b>Every ${repeatInterval} min</b>`));
   } else if (isTap) {
-    header   = `[UPDATED] <b>Alert Updated — ${symbol}</b>`;
+    header   = `✏️ <b>Alert Updated — ${symbol}</b>`;
     subtitle = `Your tap alert has been updated`;
     rows.push(tgRow('Level',     `<b>${formatPrice(targetPrice, assetId)}</b>`));
     rows.push(tgRow('Tolerance', `<b>±${tapTolerance}%</b>`));
     if (timeframe) rows.push(tgRow('Timeframe', `<b>${timeframe}</b>`));
   } else {
-    const emoji   = isAbove ? '' : '';
+    const emoji   = isAbove ? '🟢' : '🔴';
     const dirWord = isAbove ? 'rises above' : 'falls below';
-    header   = `[UPDATED] <b>Alert Updated — ${symbol}</b>`;
+    header   = `✏️ <b>Alert Updated — ${symbol}</b>`;
     subtitle = `Now watching for <b>${symbol}</b> to ${dirWord}`;
     rows.push(tgRow('New target', `<b>${formatPrice(targetPrice, assetId)}</b>`));
     if (timeframe) rows.push(tgRow('Timeframe', `<b>${timeframe}</b>`));
@@ -3790,6 +3838,9 @@ setInterval(() => {
 // INIT
 // ═══════════════════════════════════════════════
 async function init() {
+  // Apply saved theme before anything renders
+  initTheme();
+
   // Push initial history state so Android back button is interceptable from the start
   window.history.replaceState({ twTab: 'watchlist' }, '', '');
 
