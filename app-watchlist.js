@@ -1,4 +1,4 @@
-// TradeWatch — Watchlist & Hot List
+// TradeWatch — Watchlist & Hotlist
 // renderWatchlist, renderHotList, selectAsset, navigation
 
 // ═══════════════════════════════════════════════
@@ -118,7 +118,7 @@ function renderWatchlist() {
 }
 
 // ═══════════════════════════════════════════════
-// HOT LIST RENDERING
+// HOTLIST RENDERING
 // ═══════════════════════════════════════════════
 function renderHotList() {
   Object.entries(HOT_LIST).forEach(([cat, assetIds]) => {
@@ -202,7 +202,7 @@ function selectAsset(asset) {
 
   selectedAsset = asset;
 
-  // Track click for dynamic Hot List rankings (non-blocking)
+  // Track click for dynamic Hotlist rankings (non-blocking)
   const cat = Object.entries(ASSETS).find(([, list]) => list.some(a => a.id === asset.id))?.[0]
            || Object.entries(HOT_LIST_SEED).find(([, ids]) => ids.includes(asset.id))?.[0];
   if (cat) trackAssetClick(asset.id, cat);
