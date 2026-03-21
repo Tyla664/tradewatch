@@ -1,3 +1,4 @@
+// v1774128904
 // TradeWatch — Config, Asset Catalogue, Global State
 // Loaded first — all other files depend on these globals
 
