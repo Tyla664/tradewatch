@@ -997,11 +997,10 @@
       top: 0 !important;
     }
 
-    /* Asset header inside chart panel — NOT sticky to avoid overlap */
+    /* Asset header inside chart panel — static, no sticky */
     .asset-header {
-      position: relative;
+      position: static;
       background: var(--bg);
-      z-index: 1;
       flex-direction: row;
       align-items: center;
       justify-content: space-between;
@@ -1085,7 +1084,7 @@
       font-size: 0.6rem;
       flex-shrink: 0;
     }
-    #alerts-list { padding: 12px 16px 0; }
+    #alerts-list { padding: 12px 16px 0; display: block; }
     .alert-item {
       padding: 14px;
       border-radius: 10px;
