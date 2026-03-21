@@ -1943,11 +1943,11 @@ function renderAlerts() {
   if (activeCountEl)  activeCountEl.textContent  = active;
   if (triggeredCountEl) triggeredCountEl.textContent = triggeredToday;
 
-  // ── DEBUG: Show alert count prominently ──
-  // This will be removed once alerts display is confirmed working
+  // DEBUG banner — shows live state when alerts tab opens
   const debugBanner = document.getElementById('alert-debug-banner');
   if (debugBanner) {
-    debugBanner.textContent = `renderAlerts called: ${alerts.length} alerts in array`;
+    const containerDisplay = container ? window.getComputedStyle(container).display : 'no-container';
+    debugBanner.textContent = `alerts:${alerts.length} | container:${container?'ok':'null'} | display:${containerDisplay}`;
     debugBanner.style.display = 'block';
   }
 
