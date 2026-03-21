@@ -1660,11 +1660,6 @@ function drawAlertLines(assetId) {
 }
 
 // ── Compat stubs for old call sites ───────────────────────────────────────
-function loadTVChart(asset)   { loadLWChart(asset); }
-function getTVSymbol()        { return ''; }
-function generateChartData()  {}
-function drawChart()          {}
-function setTF()              {}
 
 
 // TradeWatch — Alerts
@@ -1798,6 +1793,7 @@ async function createAlert() {
   }
 
   renderAlerts();
+  switchAlertTab('active');
   renderWatchlist();
   if (isMobileLayout()) {
     switchAlertTab('active');
@@ -2092,7 +2088,7 @@ let currentAlertTab = 'active';
 function switchAlertTab(tab) {
   currentAlertTab = tab;
   document.getElementById('alerts-list').style.display    = tab === 'active'  ? 'block' : 'none';
-  document.getElementById('alerts-history').style.display = tab === 'history' ? '' : 'none';
+  document.getElementById('alerts-history').style.display = tab === 'history' ? 'block' : 'none';
   document.getElementById('atab-active').classList.toggle('active',  tab === 'active');
   document.getElementById('atab-history').classList.toggle('active', tab === 'history');
   if (tab === 'history') renderHistory();
@@ -3412,16 +3408,7 @@ function previewSound() {
 
 // Register the service worker as soon as the page loads.
 // Requires the app to be served over HTTPS or localhost — not file://.
-async function registerServiceWorker() {
-  if (!('serviceWorker' in navigator)) return;
-  try {
-    swRegistration = await navigator.serviceWorker.register('./sw.js');
-  } catch (e) {
-    // SW registration fails silently on file:// — fallback to Notification API
-    swRegistration = null;
-  }
-}
-registerServiceWorker();
+
 
 
 
