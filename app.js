@@ -1943,6 +1943,14 @@ function renderAlerts() {
   if (activeCountEl)  activeCountEl.textContent  = active;
   if (triggeredCountEl) triggeredCountEl.textContent = triggeredToday;
 
+  // ── DEBUG: Show alert count prominently ──
+  // This will be removed once alerts display is confirmed working
+  const debugBanner = document.getElementById('alert-debug-banner');
+  if (debugBanner) {
+    debugBanner.textContent = `renderAlerts called: ${alerts.length} alerts in array`;
+    debugBanner.style.display = 'block';
+  }
+
   // No alerts at all
   if (alerts.length === 0) {
     container.innerHTML = '<div class="empty-state"><div class="icon"><svg width="48" height="48" viewBox="0 0 48 48" fill="none"><path d="M24 6C16.27 6 10 12.27 10 20v13L6 37h36l-4-4V20C38 12.27 31.73 6 24 6z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" fill="none" opacity="0.4"/><path d="M19 38c0 2.76 2.24 5 5 5s5-2.24 5-5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.4"/></svg></div><p>No alerts yet.<br>Select an asset and set a<br>price target to get started.</p></div>';
@@ -2098,7 +2106,7 @@ function clearAlertHistory() {
 let currentAlertTab = 'active';
 function switchAlertTab(tab) {
   currentAlertTab = tab;
-  document.getElementById('alerts-list').style.display    = tab === 'active'  ? '' : 'none';
+  document.getElementById('alerts-list').style.display    = tab === 'active'  ? 'block' : 'none';
   document.getElementById('alerts-history').style.display = tab === 'history' ? '' : 'none';
   document.getElementById('atab-active').classList.toggle('active',  tab === 'active');
   document.getElementById('atab-history').classList.toggle('active', tab === 'history');
@@ -4044,6 +4052,7 @@ async function init() {
   renderHotList();
   renderWatchlist();
   renderAlerts();
+  switchAlertTab('active'); // ensure alerts-list is visible on init
   document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
 
   // Connect Deriv WebSocket — connects and subscribes to all watchlist + hot list assets
