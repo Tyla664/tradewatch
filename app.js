@@ -1943,14 +1943,6 @@ function renderAlerts() {
   if (activeCountEl)  activeCountEl.textContent  = active;
   if (triggeredCountEl) triggeredCountEl.textContent = triggeredToday;
 
-  // DEBUG banner — shows live state when alerts tab opens
-  const debugBanner = document.getElementById('alert-debug-banner');
-  if (debugBanner) {
-    const containerDisplay = container ? window.getComputedStyle(container).display : 'no-container';
-    debugBanner.textContent = `alerts:${alerts.length} | container:${container?'ok':'null'} | display:${containerDisplay}`;
-    debugBanner.style.display = 'block';
-  }
-
   // No alerts at all
   if (alerts.length === 0) {
     container.innerHTML = '<div class="empty-state"><div class="icon"><svg width="48" height="48" viewBox="0 0 48 48" fill="none"><path d="M24 6C16.27 6 10 12.27 10 20v13L6 37h36l-4-4V20C38 12.27 31.73 6 24 6z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" fill="none" opacity="0.4"/><path d="M19 38c0 2.76 2.24 5 5 5s5-2.24 5-5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.4"/></svg></div><p>No alerts yet.<br>Select an asset and set a<br>price target to get started.</p></div>';
@@ -1959,99 +1951,92 @@ function renderAlerts() {
     return;
   }
 
-  // Build all cards, then assign innerHTML once (atomic — no flicker)
-  const fragment = document.createDocumentFragment();
+  // Build HTML string directly — most reliable cross-browser approach
+  let html = '';
+  const setupDivs = [];
 
   [...alerts].reverse().forEach(alert => {
-    const div = document.createElement('div');
-
-    // Setup/trade alerts get their own card renderer
+    // Setup alerts need DOM manipulation for their card, handle separately
     if (alert.condition === 'setup') {
-      renderSetupCard(alert, div);
-      fragment.appendChild(div);
+      setupDivs.push(alert);
       return;
     }
 
     const isTriggered = alert.status === 'triggered';
     const dir = alert.triggeredDirection || alert.condition;
+    const cls = isTriggered ? `alert-item triggered-${dir}` : 'alert-item active-alert';
 
-    if (isTriggered) {
-      div.className = `alert-item triggered-${dir}`;
-    } else {
-      div.className = 'alert-item active-alert';
-    }
-
-    let badgeClass, badgeLabel;
-    const isRepeatingZone  = alert.condition === 'zone' && (alert.repeatInterval || 0) > 0;
-    const zoneInProgress   = isRepeatingZone && alert.zoneTriggeredOnce;
-    const currentLivePrice = priceData[alert.assetId]?.price || 0;
+    const isRepeatingZone   = alert.condition === 'zone' && (alert.repeatInterval || 0) > 0;
+    const zoneInProgress    = isRepeatingZone && alert.zoneTriggeredOnce;
+    const currentLivePrice  = priceData[alert.assetId]?.price || 0;
     const isCurrentlyInZone = alert.condition === 'zone' && currentLivePrice > 0
       && currentLivePrice >= alert.zoneLow && currentLivePrice <= alert.zoneHigh;
 
+    let badgeClass, badgeLabel;
     if (isTriggered) {
-      if (alert.condition === 'zone')     { badgeClass = 'badge-triggered-below'; badgeLabel = `${ALERT_ICONS.zone}TRIGGERED`; }
-      else if (alert.condition === 'tap') { badgeClass = 'badge-triggered-above'; badgeLabel = `${ALERT_ICONS.triggered}TAPPED`; }
-      else                                { badgeClass = `badge-triggered-${dir}`; badgeLabel = dir === 'above' ? `${ALERT_ICONS.above}TRIGGERED` : `${ALERT_ICONS.below}TRIGGERED`; }
-    } else if (zoneInProgress && isCurrentlyInZone) {
-      badgeClass = 'badge-zone-active'; badgeLabel = `${ALERT_ICONS.inzone}IN ZONE`;
-    } else if (zoneInProgress && !isCurrentlyInZone) {
-      badgeClass = 'badge-zone-exited'; badgeLabel = `${ALERT_ICONS.zone}EXITED`;
-    } else if (alert.status === 'paused') {
-      badgeClass = 'badge-inactive'; badgeLabel = `${ALERT_ICONS.paused}PAUSED`;
-    } else {
-      badgeClass = 'badge-active'; badgeLabel = `${ALERT_ICONS.active}ACTIVE`;
-    }
+      if (alert.condition === 'zone')     { badgeClass = 'badge-triggered-below'; badgeLabel = ALERT_ICONS.zone + 'TRIGGERED'; }
+      else if (alert.condition === 'tap') { badgeClass = 'badge-triggered-above'; badgeLabel = ALERT_ICONS.triggered + 'TAPPED'; }
+      else { badgeClass = 'badge-triggered-' + dir; badgeLabel = dir === 'above' ? ALERT_ICONS.above + 'TRIGGERED' : ALERT_ICONS.below + 'TRIGGERED'; }
+    } else if (zoneInProgress && isCurrentlyInZone)  { badgeClass = 'badge-zone-active';  badgeLabel = ALERT_ICONS.inzone + 'IN ZONE'; }
+    else if (zoneInProgress && !isCurrentlyInZone)   { badgeClass = 'badge-zone-exited';  badgeLabel = ALERT_ICONS.zone + 'EXITED'; }
+    else if (alert.status === 'paused')              { badgeClass = 'badge-inactive';     badgeLabel = ALERT_ICONS.paused + 'PAUSED'; }
+    else                                             { badgeClass = 'badge-active';       badgeLabel = ALERT_ICONS.active + 'ACTIVE'; }
 
     const triggeredLine = isTriggered
-      ? `<span style="color:${dir === 'above' || alert.condition === 'tap' ? 'var(--green)' : 'var(--red)'}">Hit ${formatPrice(alert.triggeredPrice, alert.assetId)} at ${formatTriggeredAt(alert.triggeredAt)}</span><br>`
-      : (zoneInProgress && isCurrentlyInZone)
-        ? `<span style="color:var(--accent);font-size:0.78rem;">Price inside zone · alerting every ${alert.repeatInterval}m</span><br>`
-      : (zoneInProgress && !isCurrentlyInZone)
-        ? `<span style="color:var(--red);font-size:0.78rem;">Price exited zone · watching for re-entry</span><br>`
+      ? '<span style="color:' + (dir==='above'||alert.condition==='tap'?'var(--green)':'var(--red)') + '">Hit ' + formatPrice(alert.triggeredPrice, alert.assetId) + ' at ' + formatTriggeredAt(alert.triggeredAt) + '</span><br>'
+      : zoneInProgress && isCurrentlyInZone
+        ? '<span style="color:var(--accent);font-size:0.78rem;">Price inside zone · alerting every ' + alert.repeatInterval + 'm</span><br>'
+      : zoneInProgress && !isCurrentlyInZone
+        ? '<span style="color:var(--red);font-size:0.78rem;">Price exited zone · watching for re-entry</span><br>'
       : '';
 
     let detailLine;
     if (alert.condition === 'zone') {
-      detailLine = `<strong>${ALERT_ICONS.zone}ZONE</strong> ${formatPrice(alert.zoneLow, alert.assetId)} – ${formatPrice(alert.zoneHigh, alert.assetId)}${alert.timeframe ? ` <span style="opacity:0.6;font-size:0.75em">· ${alert.timeframe}</span>` : ''}${alert.repeatInterval ? ` <span style="opacity:0.6;font-size:0.75em">· every ${alert.repeatInterval}m</span>` : ''}`;
+      detailLine = '<strong>' + ALERT_ICONS.zone + 'ZONE</strong> ' + formatPrice(alert.zoneLow, alert.assetId) + ' – ' + formatPrice(alert.zoneHigh, alert.assetId)
+        + (alert.timeframe ? ' <span style="opacity:0.6;font-size:0.75em">· ' + alert.timeframe + '</span>' : '')
+        + (alert.repeatInterval ? ' <span style="opacity:0.6;font-size:0.75em">· every ' + alert.repeatInterval + 'm</span>' : '');
     } else if (alert.condition === 'tap') {
-      detailLine = `<strong>${ALERT_ICONS.tap}TAP LEVEL</strong> ${formatPrice(alert.targetPrice, alert.assetId)} <span style="opacity:0.6;font-size:0.75em">· ±${alert.tapTolerance}% tolerance</span>${alert.timeframe ? ` <span style="opacity:0.6;font-size:0.75em">· ${alert.timeframe}</span>` : ''}`;
+      detailLine = '<strong>' + ALERT_ICONS.tap + 'TAP LEVEL</strong> ' + formatPrice(alert.targetPrice, alert.assetId)
+        + ' <span style="opacity:0.6;font-size:0.75em">· ±' + alert.tapTolerance + '% tolerance</span>'
+        + (alert.timeframe ? ' <span style="opacity:0.6;font-size:0.75em">· ' + alert.timeframe + '</span>' : '');
     } else {
-      detailLine = `<strong>${alert.condition === 'above' ? ALERT_ICONS.above + 'ABOVE' : ALERT_ICONS.below + 'BELOW'}</strong> ${formatPrice(alert.targetPrice, alert.assetId)}${alert.timeframe ? ` <span style="opacity:0.6;font-size:0.75em">· ${alert.timeframe}</span>` : ''}`;
+      detailLine = '<strong>' + (alert.condition==='above' ? ALERT_ICONS.above+'ABOVE' : ALERT_ICONS.below+'BELOW') + '</strong> '
+        + formatPrice(alert.targetPrice, alert.assetId)
+        + (alert.timeframe ? ' <span style="opacity:0.6;font-size:0.75em">· ' + alert.timeframe + '</span>' : '');
     }
 
-    const isRepeat     = (alert.condition === 'zone' || alert.condition === 'tap') && (alert.repeatInterval || 0) > 0;
-    const hasEverFired = !!alert.zoneTriggeredOnce || !!alert.tapTriggeredOnce || alert.status === 'triggered';
-    const SVG_EDIT     = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:4px"><path d="M1 7.5L2.5 9 8 3.5 6.5 2 1 7.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="none"/><line x1="5.5" y1="2.5" x2="7.5" y2="4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
-    const btnDelete    = `<button class="alert-action-btn delete" onclick="deleteAlert('${alert.id}')">${SVG_DELETE}DELETE</button>`;
-    const btnDismiss   = `<button class="alert-action-btn dismiss" onclick="dismissAlert('${alert.id}')">${SVG_DISMISS}DISMISS</button>`;
-    const btnEdit      = `<button class="alert-action-btn toggle" onclick="editAlert('${alert.id}')">${SVG_EDIT}EDIT</button>`;
-    const btnPause     = alert.status === 'paused'
-      ? `<button class="alert-action-btn toggle" onclick="toggleAlert('${alert.id}')">${SVG_RESUME}RESUME</button>`
-      : `<button class="alert-action-btn toggle" onclick="toggleAlert('${alert.id}')">${SVG_PAUSE}PAUSE</button>`;
+    const isRepeat     = (alert.condition==='zone'||alert.condition==='tap') && (alert.repeatInterval||0) > 0;
+    const hasEverFired = !!alert.zoneTriggeredOnce || !!alert.tapTriggeredOnce || alert.status==='triggered';
+    const SVG_EDIT_S   = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:4px"><path d="M1 7.5L2.5 9 8 3.5 6.5 2 1 7.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="none"/><line x1="5.5" y1="2.5" x2="7.5" y2="4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
 
-    const actions = isTriggered || (isRepeat && hasEverFired)
-      ? btnDismiss + btnDelete
-      : btnEdit + btnPause + btnDelete;
+    const aid = alert.id;
+    const btnDel = `<button class="alert-action-btn delete" onclick="deleteAlert('${aid}')">${SVG_DELETE}DELETE</button>`;
+    const btnDis = `<button class="alert-action-btn dismiss" onclick="dismissAlert('${aid}')">${SVG_DISMISS}DISMISS</button>`;
+    const btnEdt = `<button class="alert-action-btn toggle" onclick="editAlert('${aid}')">${SVG_EDIT_S}EDIT</button>`;
+    const btnPse = alert.status === 'paused'
+      ? `<button class="alert-action-btn toggle" onclick="toggleAlert('${aid}')">${SVG_RESUME}RESUME</button>`
+      : `<button class="alert-action-btn toggle" onclick="toggleAlert('${aid}')">${SVG_PAUSE}PAUSE</button>`;
+    const actions = isTriggered||(isRepeat&&hasEverFired) ? btnDis+btnDel : btnEdt+btnPse+btnDel;
 
-    div.innerHTML = `
-      <div class="alert-header-row">
-        <div class="alert-symbol">${alert.symbol}</div>
-        <div class="alert-badge ${badgeClass}">${badgeLabel}</div>
-      </div>
-      <div class="alert-detail">
-        ${detailLine}<br>
-        ${triggeredLine}
-        ${alert.note ? `<em style="color:var(--muted)">"${alert.note}"</em><br>` : ''}
-        Set at ${alert.createdAt}
-      </div>
-      <div class="alert-actions">${actions}</div>`;
-
-    fragment.appendChild(div);
+    html += '<div class="' + cls + '">'
+      + '<div class="alert-header-row"><div class="alert-symbol">' + alert.symbol + '</div>'
+      + '<div class="alert-badge ' + badgeClass + '">' + badgeLabel + '</div></div>'
+      + '<div class="alert-detail">' + detailLine + '<br>' + triggeredLine
+      + (alert.note ? '<em style="color:var(--muted)">"' + alert.note + '"</em><br>' : '')
+      + 'Set at ' + alert.createdAt + '</div>'
+      + '<div class="alert-actions">' + actions + '</div>'
+      + '</div>';
   });
 
-  // Atomic DOM update — replaces empty-state and all old cards in one operation
-  container.innerHTML = '';
-  container.appendChild(fragment);
+  // Set innerHTML in one shot (guaranteed to work in all browsers)
+  container.innerHTML = html;
+
+  // Now append setup alert cards (need DOM methods for their complexity)
+  setupDivs.forEach(alert => {
+    const div = document.createElement('div');
+    renderSetupCard(alert, div);
+    container.appendChild(div);
+  });
 
   // Mobile alert badge dot
   const dot = document.getElementById('alert-dot');
