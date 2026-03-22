@@ -119,6 +119,79 @@
     -webkit-overflow-scrolling: touch;
     padding: 14px;
   }
+
+  /* ── Journal stats strip ── */
+  .journal-stat {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 10px 4px;
+    border-right: 1px solid var(--border);
+  }
+  .journal-stat:last-child { border-right: none; }
+  .journal-stat-value {
+    font-family: var(--mono); font-size: 0.9rem; font-weight: 700;
+    color: var(--text); line-height: 1;
+  }
+  .journal-stat-label {
+    font-family: var(--mono); font-size: 0.48rem; letter-spacing: 0.08em;
+    color: var(--muted); text-transform: uppercase; margin-top: 4px;
+  }
+
+  /* ── Journal cards ── */
+  .journal-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 10px;
+    overflow: hidden;
+    transition: border-color 0.15s;
+  }
+  .journal-card:hover { border-color: rgba(0,212,255,0.3); }
+  .journal-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px; cursor: pointer; gap: 8px;
+  }
+  .journal-card-symbol {
+    font-weight: 700; font-size: 0.9rem; letter-spacing: 0.5px;
+  }
+  .journal-card-dir {
+    font-size: 0.65rem; font-family: var(--mono); font-weight: 700;
+    letter-spacing: 0.06em; margin-left: 6px;
+  }
+  .journal-card-outcome {
+    font-family: var(--mono); font-size: 0.58rem; padding: 3px 8px;
+    border-radius: 4px; letter-spacing: 0.5px; margin-left: auto;
+    display: flex; align-items: center; gap: 3px;
+  }
+  .joutcome-full-tp    { background: rgba(0,230,118,0.12); color: var(--green);  border: 1px solid rgba(0,230,118,0.3); }
+  .joutcome-tp2-hit    { background: rgba(0,230,118,0.08); color: var(--green);  border: 1px solid rgba(0,230,118,0.2); }
+  .joutcome-tp1-hit    { background: rgba(0,212,255,0.08); color: var(--accent); border: 1px solid rgba(0,212,255,0.2); }
+  .joutcome-breakeven  { background: rgba(74,106,128,0.15); color: var(--muted); border: 1px solid var(--border); }
+  .joutcome-sl-hit     { background: rgba(255,61,90,0.10); color: var(--red);    border: 1px solid rgba(255,61,90,0.3); }
+  .joutcome-manual-exit{ background: rgba(255,214,0,0.08); color: var(--gold);   border: 1px solid rgba(255,214,0,0.2); }
+  .journal-card-body { padding: 0 14px 14px; }
+  .journal-levels {
+    display: flex; flex-wrap: wrap; gap: 8px 14px;
+    padding: 10px 0; border-top: 1px solid var(--border);
+  }
+  .journal-level-item { display: flex; flex-direction: column; gap: 1px; }
+  .journal-level-label {
+    font-family: var(--mono); font-size: 0.52rem; letter-spacing: 0.08em;
+    color: var(--muted); text-transform: uppercase;
+  }
+  .journal-level-value {
+    font-family: var(--mono); font-size: 0.78rem; font-weight: 700; color: var(--text);
+  }
+  .journal-notes {
+    font-size: 0.72rem; color: var(--muted); line-height: 1.5;
+    padding: 8px 0; border-top: 1px solid var(--border); font-style: italic;
+  }
+  .journal-card-meta {
+    font-family: var(--mono); font-size: 0.58rem; color: var(--muted);
+    padding-top: 8px; border-top: 1px solid var(--border);
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+  }
+  .journal-card-meta span { display: flex; align-items: center; gap: 3px; }
+
   .panel-title {
     font-size: 0.65rem;
     font-family: var(--mono);
@@ -987,7 +1060,11 @@
       margin-bottom: 0;
     }
     #journal-list {
-      padding-bottom: calc(72px + env(safe-area-inset-bottom) + 16px);
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 14px 14px calc(72px + env(safe-area-inset-bottom) + 16px);
     }
 
     /* ── Watchlist panel ── */
@@ -1137,4 +1214,111 @@
     #alerts-list {
       padding: 12px 16px 0;
     }
-    
+
+
+/* ══════════════════════════════════════════════════
+   LIGHT THEME  (data-theme="light")
+   ══════════════════════════════════════════════════ */
+[data-theme="light"] {
+  --bg:      #f0f4f8;
+  --surface: #ffffff;
+  --surface2:#e8f0f7;
+  --border:  #c8d8e8;
+  --text:    #0d1a26;
+  --muted:   #5a7a99;
+}
+
+/* Body + grid background */
+[data-theme="light"] body { background: var(--bg); color: var(--text); }
+[data-theme="light"] body::before {
+  background-image:
+    linear-gradient(rgba(0,100,160,0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,100,160,0.06) 1px, transparent 1px);
+}
+
+/* Header */
+[data-theme="light"] header {
+  background: rgba(240,244,248,0.95);
+  border-bottom-color: var(--border);
+}
+[data-theme="light"] .logo-icon-bar { filter: none; }
+
+/* Panels */
+[data-theme="light"] .panel,
+[data-theme="light"] .main-panel,
+[data-theme="light"] .watchlist-panel,
+[data-theme="light"] .alerts-panel,
+[data-theme="light"] .journal-panel  { background: var(--surface); }
+
+/* Summary bar */
+[data-theme="light"] .summary-bar { background: #ffffff; border-bottom-color: var(--border); }
+
+/* Panel titles */
+[data-theme="light"] .panel-title { background: #ffffff; color: var(--text); border-bottom-color: var(--border); }
+
+/* Asset cards */
+[data-theme="light"] .asset-card  { background: #f8fbff; border-color: var(--border); }
+[data-theme="light"] .asset-card:hover { border-color: var(--accent); background: #eef6ff; }
+[data-theme="light"] .asset-card.selected { background: rgba(0,212,255,0.06); }
+
+/* Alert items */
+[data-theme="light"] .alert-item  { background: #f8fbff; border-color: var(--border); }
+
+/* Alert tabs */
+[data-theme="light"] .alert-tabs  { border-bottom-color: var(--border); }
+
+/* Forms */
+[data-theme="light"] .alert-form  { background: #ffffff; border-color: var(--border); }
+[data-theme="light"] .form-group input,
+[data-theme="light"] .form-group select { background: #f0f4f8; border-color: var(--border); color: var(--text); }
+
+/* Chart area */
+[data-theme="light"] .main-panel  { background: var(--bg); }
+[data-theme="light"] .asset-header { background: var(--bg); }
+[data-theme="light"] .tv-container { background: #f8fbff; border-color: var(--border); }
+[data-theme="light"] .chart-toolbar-label { color: var(--muted); }
+[data-theme="light"] .chart-tf-btn { color: var(--muted); border-color: var(--border); }
+[data-theme="light"] .chart-tf-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(0,212,255,0.08); }
+
+/* Mobile nav */
+[data-theme="light"] .mobile-nav  { background: rgba(240,244,248,0.97); border-top-color: var(--border); }
+
+/* Journal */
+[data-theme="light"] .journal-panel  { background: var(--surface); }
+[data-theme="light"] .journal-panel .panel-title { background: #ffffff; border-bottom-color: var(--border); }
+[data-theme="light"] #journal-stats  { background: #ffffff; border-bottom-color: var(--border); }
+[data-theme="light"] .journal-card   { background: #ffffff; border-color: var(--border); }
+[data-theme="light"] .journal-card-header { color: var(--text); }
+[data-theme="light"] .journal-notes  { color: var(--muted); }
+[data-theme="light"] .journal-levels { border-top-color: var(--border); }
+[data-theme="light"] .journal-card-meta { border-top-color: var(--border); color: var(--muted); }
+[data-theme="light"] .journal-card-body { border-top-color: var(--border); }
+
+/* Modals */
+[data-theme="light"] .modal-overlay { background: rgba(200,216,232,0.6); }
+
+/* Toasts */
+[data-theme="light"] .toast { background: #ffffff; border-color: var(--border); }
+[data-theme="light"] .toast-body { color: var(--muted); }
+
+/* Market group labels */
+[data-theme="light"] .market-group-label { border-bottom-color: var(--border); color: var(--muted); }
+
+/* Scrollbar */
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: var(--border); }
+
+/* Hot list cards */
+[data-theme="light"] .hot-card { background: #f8fbff; border-color: var(--border); }
+[data-theme="light"] .hot-card:hover { border-color: var(--accent); }
+
+/* Watchlist panel */
+[data-theme="light"] .wl-tabs { border-bottom-color: var(--border); }
+[data-theme="light"] .wl-tab-btn.active { color: var(--accent); }
+
+/* Sound opts */
+[data-theme="light"] .sound-opt { background: #f0f4f8; border-color: var(--border); color: var(--muted); }
+[data-theme="light"] .sound-opt.active { background: rgba(0,212,255,0.08); border-color: var(--accent); color: var(--accent); }
+
+/* Setup dir btns */
+[data-theme="light"] .setup-dir-btn { background: #f0f4f8; border-color: var(--border); color: var(--muted); }
+
