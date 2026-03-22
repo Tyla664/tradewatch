@@ -4525,18 +4525,23 @@ function showTgToast(msg) {
     }
 
     // Stricter threshold: 80px horizontal, must be much more horizontal than vertical
-    if (Math.abs(dx) < 80 || Math.abs(dx) < Math.abs(dy) * 2.5) return;
-
-    if (dx > 0) {
-      goBack();
-    } else {
-      if (current === 'watchlist' && selectedAsset) {
-        mobileTab('chart');
-      } else if (current === 'chart') {
-        mobileTab('alerts');
-      }
+  if (Math.abs(dx) < 80 || Math.abs(dx) < Math.abs(dy) * 2.5) return;
+  if (dx > 0) {
+    goBack();
+  } else {
+    if (current === 'watchlist' && selectedAsset) {
+      mobileTab('chart');
+    } else if (current === 'chart') {
+      mobileTab('alerts');
     }
-  }, { passive: true });
-})();
+  }
+}, { passive: true });
+
+// Force-refresh all panels after init (fixes blank pages)
+setTimeout(() => {
+  renderAlerts();           // Show your 12 active alerts
+  renderJournal();          // Show journal stats + empty state
+  if (selectedAsset) loadLWChart(selectedAsset);  // Reload chart if any asset was selected
+}, 800);
 
 init();
