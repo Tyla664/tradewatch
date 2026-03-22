@@ -1,4 +1,3 @@
-// v1774128904
 // TradeWatch — Config, Asset Catalogue, Global State
 // Loaded first — all other files depend on these globals
 
@@ -1026,19 +1025,13 @@ function selectAsset(asset) {
 
   // Reset price input so it pre-fills with new asset's price
   const priceInput = document.getElementById('alert-price');
-  if (priceInput) { 
-    priceInput.value = ''; 
-    delete priceInput.dataset.userEdited; 
-  }
+  if (priceInput) { priceInput.value = ''; delete priceInput.dataset.userEdited; }
 
   // Clear setup form user-edited flags and refill with new asset's price
   if (!editingAlertId) {
     ['setup-entry','setup-sl','setup-tp1','setup-tp2','setup-tp3'].forEach(id => {
       const el = document.getElementById(id);
-      if (el) { 
-        el.value = ''; 
-        delete el.dataset.userEdited; 
-      }
+      if (el) { el.value = ''; delete el.dataset.userEdited; }
     });
   }
   updateSetupPricePlaceholders(setupDirection || 'long');
@@ -1046,14 +1039,15 @@ function selectAsset(asset) {
   // Update panel content via shared function
   refreshSelectedAssetPanel();
 
-  // Update the alert form's asset display to show the selected asset name
+  // Update the alert form's asset display to show the selected asset name.
   const display = document.getElementById('alert-asset-display');
   if (display) {
     display.textContent = `${asset.symbol} — ${asset.name}`;
     display.classList.remove('placeholder');
   }
 
-  // Update selection highlight & navigation
+  // Update selection highlight — lightweight on mobile (no full re-render),
+  // full re-render on desktop to also refresh prices on all cards
   if (isMobileLayout()) {
     updateWatchlistSelection();
     if (navigateToChartOnSelect) {
@@ -1063,8 +1057,7 @@ function selectAsset(asset) {
   } else {
     renderHotList();
     renderWatchlist();
-    // Load the Lightweight Chart (replaces the old broken loadTVChart call)
-    setTimeout(() => loadLWChart(asset), 50);
+    setTimeout(() => loadTVChart(asset), 50);
   }
 }
 
@@ -1137,9 +1130,6 @@ function mobileTab(tab, pushState = true) {
     panel.classList.add('mobile-active');
     panel.scrollTop = 0;
     document.getElementById('mnav-alerts').classList.add('active');
-    // Always re-render so alerts are fresh when tab opens
-    renderAlerts();
-    switchAlertTab('active');
   }
 }
 
@@ -1305,82 +1295,61 @@ function setChartLoading(on) {
   if (el) el.classList.toggle('visible', on);
 }
 
+// ── Main chart loader ──────────────────────────────────────────────────────
 async function loadLWChart(asset) {
   if (!asset) return;
-
-  // Don't reload while user is typing in alert form (prevents scroll jump)
+  // Don't reload chart while user is actively filling the alert form
+  // It causes the page to scroll back up mid-input
   if (userTypingInForm) return;
-
   lwCurrentAsset = asset;
 
-  // Clean up old chart instance to force re-measure
+  // Destroy stale chart so it remeasures correctly
   if (lwChart) {
-    try { lwChart.remove(); } catch (e) {}
-    lwChart = null;
-    lwSeries = null;
-    lwAlertLines = [];
+    try { lwChart.remove(); } catch(e) {}
+    lwChart = null; lwSeries = null; lwAlertLines = [];
   }
-
-  // Create or ensure chart exists
-  if (!ensureLWChart()) {
-    showChartMsg('Chart container not found. Please refresh.');
-    return;
-  }
-
-  // Show loading
+  if (!ensureLWChart()) return;
   setChartLoading(true);
-  hideChartMsg(); // clear any previous error message
 
-  let candles = null;
-  try {
-    candles = await fetchOHLC(asset, lwCurrentTF);
-  } catch (err) {
-    console.error('fetchOHLC failed:', err);
-  }
+  const candles = await fetchOHLC(asset, lwCurrentTF);
 
-  // Always hide loading — even on error
   setChartLoading(false);
-
   if (!candles || candles.length === 0) {
-    showChartMsg(`No chart data available for ${asset.symbol}. Try another timeframe or asset.`);
+    showChartMsg('No chart data available for ' + asset.symbol);
     return;
   }
 
+  hideChartMsg();
   try {
-    // Set data
     lwSeries.setData(candles);
-
-    // Auto-fit and zoom to show recent action
+    // Show last ~80 candles on screen by default, but allow scrolling back
     const ts = lwChart.timeScale();
     ts.fitContent();
-
-    // Zoom in to last ~80 candles for better visibility
+    // After fitContent, zoom in to show last 80 bars so chart isn't squished
     if (candles.length > 80) {
       const last80 = candles.slice(-80);
       ts.setVisibleRange({
         from: last80[0].time,
-        to: candles[candles.length - 1].time,
+        to:   candles[candles.length - 1].time,
       });
     }
-
-    // Nice scrolling behavior
+    // Allow scrolling past the right edge and back into history
     lwChart.applyOptions({
       timeScale: {
-        rightOffset: 5,
-        barSpacing: 8,
-        fixLeftEdge: false,
-        fixRightEdge: false,
+        rightOffset:   5,
+        barSpacing:    8,
+        fixLeftEdge:   false,
+        fixRightEdge:  false,
         lockVisibleTimeRangeOnResize: false,
       },
     });
-
-    // Draw alert price lines
-    drawAlertLines(asset.id);
-  } catch (e) {
-    console.warn('Lightweight Charts setData error:', e);
-    showChartMsg('Error rendering chart. Please try again.');
+  } catch(e) {
+    console.warn('LW setData error:', e);
   }
+
+  drawAlertLines(asset.id);
 }
+
 // ── OHLC routing ──────────────────────────────────────────────────────────
 async function fetchOHLC(asset, tf) {
   const cfg = TF_CONFIG[tf] || TF_CONFIG['1D'];
@@ -1688,6 +1657,11 @@ function drawAlertLines(assetId) {
 }
 
 // ── Compat stubs for old call sites ───────────────────────────────────────
+function loadTVChart(asset)   { loadLWChart(asset); }
+function getTVSymbol()        { return ''; }
+function generateChartData()  {}
+function drawChart()          {}
+function setTF()              {}
 
 
 // TradeWatch — Alerts
@@ -1821,7 +1795,6 @@ async function createAlert() {
   }
 
   renderAlerts();
-  switchAlertTab('active');
   renderWatchlist();
   if (isMobileLayout()) {
     switchAlertTab('active');
@@ -1959,114 +1932,125 @@ function renderAlerts() {
   const container = document.getElementById('alerts-list');
   if (!container) return;
 
-  const active = alerts.filter(a => a.status === 'active').length;
-  const alertCountEl = document.getElementById('alert-count');
-  const activeCountEl = document.getElementById('activeCount');
-  const triggeredCountEl = document.getElementById('triggeredCount');
-  if (alertCountEl)   alertCountEl.textContent   = alerts.length;
-  if (activeCountEl)  activeCountEl.textContent  = active;
-  if (triggeredCountEl) triggeredCountEl.textContent = triggeredToday;
+  // Always show the list, always show the active tab
+  container.style.removeProperty('display');
+  currentAlertTab = 'active';
+  const _hist = document.getElementById('alerts-history');
+  if (_hist) _hist.style.display = 'none';
+  document.getElementById('atab-active')?.classList.add('active');
+  document.getElementById('atab-history')?.classList.remove('active');
 
-  // No alerts at all
+  const active = alerts.filter(a => a.status === 'active').length;
+  document.getElementById('alert-count').textContent = alerts.length;
+  document.getElementById('activeCount').textContent = active;
+  document.getElementById('triggeredCount').textContent = triggeredToday;
+
   if (alerts.length === 0) {
-    container.innerHTML = '<div class="empty-state"><div class="icon"><svg width="48" height="48" viewBox="0 0 48 48" fill="none"><path d="M24 6C16.27 6 10 12.27 10 20v13L6 37h36l-4-4V20C38 12.27 31.73 6 24 6z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" fill="none" opacity="0.4"/><path d="M19 38c0 2.76 2.24 5 5 5s5-2.24 5-5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.4"/></svg></div><p>No alerts yet.<br>Select an asset and set a<br>price target to get started.</p></div>';
-    const dot = document.getElementById('alert-dot');
-    if (dot) dot.classList.remove('show');
+    container.innerHTML = `<div class="empty-state"><div class="icon"><svg width="48" height="48" viewBox="0 0 48 48" fill="none"><path d="M24 6C16.27 6 10 12.27 10 20v13L6 37h36l-4-4V20C38 12.27 31.73 6 24 6z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round" fill="none" opacity="0.4"/><path d="M19 38c0 2.76 2.24 5 5 5s5-2.24 5-5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.4"/></svg></div><p>No alerts yet.<br>Select an asset and set a<br>price target to get started.</p></div>`;
     return;
   }
 
-  // Build HTML string directly — most reliable cross-browser approach
-  let html = '';
-  const setupDivs = [];
-
+  container.innerHTML = '';
   [...alerts].reverse().forEach(alert => {
-    // Setup alerts need DOM manipulation for their card, handle separately
+    const div = document.createElement('div');
+
+    // Setup/trade alerts get their own card renderer
     if (alert.condition === 'setup') {
-      setupDivs.push(alert);
+      renderSetupCard(alert, div);
+      container.appendChild(div);
       return;
     }
 
     const isTriggered = alert.status === 'triggered';
     const dir = alert.triggeredDirection || alert.condition;
-    const cls = isTriggered ? `alert-item triggered-${dir}` : 'alert-item active-alert';
 
-    const isRepeatingZone   = alert.condition === 'zone' && (alert.repeatInterval || 0) > 0;
-    const zoneInProgress    = isRepeatingZone && alert.zoneTriggeredOnce;
-    const currentLivePrice  = priceData[alert.assetId]?.price || 0;
+    if (isTriggered) {
+      div.className = `alert-item triggered-${dir}`;
+    } else {
+      div.className = `alert-item active-alert`;
+    }
+
+    let badgeClass, badgeLabel;
+    const isRepeatingZone  = alert.condition === 'zone' && (alert.repeatInterval || 0) > 0;
+    const zoneInProgress   = isRepeatingZone && alert.zoneTriggeredOnce;
+    // Check if price is currently inside the zone (live data)
+    const currentLivePrice = priceData[alert.assetId]?.price || 0;
     const isCurrentlyInZone = alert.condition === 'zone' && currentLivePrice > 0
       && currentLivePrice >= alert.zoneLow && currentLivePrice <= alert.zoneHigh;
 
-    let badgeClass, badgeLabel;
     if (isTriggered) {
-      if (alert.condition === 'zone')     { badgeClass = 'badge-triggered-below'; badgeLabel = ALERT_ICONS.zone + 'TRIGGERED'; }
-      else if (alert.condition === 'tap') { badgeClass = 'badge-triggered-above'; badgeLabel = ALERT_ICONS.triggered + 'TAPPED'; }
-      else { badgeClass = 'badge-triggered-' + dir; badgeLabel = dir === 'above' ? ALERT_ICONS.above + 'TRIGGERED' : ALERT_ICONS.below + 'TRIGGERED'; }
-    } else if (zoneInProgress && isCurrentlyInZone)  { badgeClass = 'badge-zone-active';  badgeLabel = ALERT_ICONS.inzone + 'IN ZONE'; }
-    else if (zoneInProgress && !isCurrentlyInZone)   { badgeClass = 'badge-zone-exited';  badgeLabel = ALERT_ICONS.zone + 'EXITED'; }
-    else if (alert.status === 'paused')              { badgeClass = 'badge-inactive';     badgeLabel = ALERT_ICONS.paused + 'PAUSED'; }
-    else                                             { badgeClass = 'badge-active';       badgeLabel = ALERT_ICONS.active + 'ACTIVE'; }
-
-    const triggeredLine = isTriggered
-      ? '<span style="color:' + (dir==='above'||alert.condition==='tap'?'var(--green)':'var(--red)') + '">Hit ' + formatPrice(alert.triggeredPrice, alert.assetId) + ' at ' + formatTriggeredAt(alert.triggeredAt) + '</span><br>'
-      : zoneInProgress && isCurrentlyInZone
-        ? '<span style="color:var(--accent);font-size:0.78rem;">Price inside zone · alerting every ' + alert.repeatInterval + 'm</span><br>'
-      : zoneInProgress && !isCurrentlyInZone
-        ? '<span style="color:var(--red);font-size:0.78rem;">Price exited zone · watching for re-entry</span><br>'
-      : '';
-
-    let detailLine;
-    if (alert.condition === 'zone') {
-      detailLine = '<strong>' + ALERT_ICONS.zone + 'ZONE</strong> ' + formatPrice(alert.zoneLow, alert.assetId) + ' – ' + formatPrice(alert.zoneHigh, alert.assetId)
-        + (alert.timeframe ? ' <span style="opacity:0.6;font-size:0.75em">· ' + alert.timeframe + '</span>' : '')
-        + (alert.repeatInterval ? ' <span style="opacity:0.6;font-size:0.75em">· every ' + alert.repeatInterval + 'm</span>' : '');
-    } else if (alert.condition === 'tap') {
-      detailLine = '<strong>' + ALERT_ICONS.tap + 'TAP LEVEL</strong> ' + formatPrice(alert.targetPrice, alert.assetId)
-        + ' <span style="opacity:0.6;font-size:0.75em">· ±' + alert.tapTolerance + '% tolerance</span>'
-        + (alert.timeframe ? ' <span style="opacity:0.6;font-size:0.75em">· ' + alert.timeframe + '</span>' : '');
+      if (alert.condition === 'zone')      { badgeClass = 'badge-triggered-below'; badgeLabel = `${ALERT_ICONS.zone}TRIGGERED`; }
+      else if (alert.condition === 'tap')  { badgeClass = 'badge-triggered-above'; badgeLabel = `${ALERT_ICONS.triggered}TAPPED`; }
+      else                                 { badgeClass = `badge-triggered-${dir}`; badgeLabel = dir === 'above' ? `${ALERT_ICONS.above}TRIGGERED` : `${ALERT_ICONS.below}TRIGGERED`; }
+    } else if (zoneInProgress && isCurrentlyInZone) {
+      // Has fired before AND price is still inside
+      badgeClass = 'badge-zone-active'; badgeLabel = `${ALERT_ICONS.inzone}IN ZONE`;
+    } else if (zoneInProgress && !isCurrentlyInZone) {
+      // Has fired before BUT price has since left — waiting for re-entry
+      badgeClass = 'badge-zone-exited'; badgeLabel = `${ALERT_ICONS.zone}EXITED`;
+    } else if (alert.status === 'paused') {
+      badgeClass = 'badge-inactive'; badgeLabel = `${ALERT_ICONS.paused}PAUSED`;
     } else {
-      detailLine = '<strong>' + (alert.condition==='above' ? ALERT_ICONS.above+'ABOVE' : ALERT_ICONS.below+'BELOW') + '</strong> '
-        + formatPrice(alert.targetPrice, alert.assetId)
-        + (alert.timeframe ? ' <span style="opacity:0.6;font-size:0.75em">· ' + alert.timeframe + '</span>' : '');
+      badgeClass = 'badge-active'; badgeLabel = `${ALERT_ICONS.active}ACTIVE`;
     }
 
-    const isRepeat     = (alert.condition==='zone'||alert.condition==='tap') && (alert.repeatInterval||0) > 0;
-    const hasEverFired = !!alert.zoneTriggeredOnce || !!alert.tapTriggeredOnce || alert.status==='triggered';
-    const SVG_EDIT_S   = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:4px"><path d="M1 7.5L2.5 9 8 3.5 6.5 2 1 7.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="none"/><line x1="5.5" y1="2.5" x2="7.5" y2="4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+    const triggeredLine = isTriggered
+      ? `<span style="color:${dir === 'above' || alert.condition === 'tap' ? 'var(--green)' : 'var(--red)'}">
+           Hit ${formatPrice(alert.triggeredPrice, alert.assetId)} at ${formatTriggeredAt(alert.triggeredAt)}
+         </span><br>`
+      : (zoneInProgress && isCurrentlyInZone)
+        ? `<span style="color:var(--accent);font-size:0.78rem;">Price inside zone · alerting every ${alert.repeatInterval}m</span><br>`
+      : (zoneInProgress && !isCurrentlyInZone)
+        ? `<span style="color:var(--red);font-size:0.78rem;">Price exited zone · watching for re-entry</span><br>`
+      : '';
 
-    const aid = alert.id;
-    const btnDel = `<button class="alert-action-btn delete" onclick="deleteAlert('${aid}')">${SVG_DELETE}DELETE</button>`;
-    const btnDis = `<button class="alert-action-btn dismiss" onclick="dismissAlert('${aid}')">${SVG_DISMISS}DISMISS</button>`;
-    const btnEdt = `<button class="alert-action-btn toggle" onclick="editAlert('${aid}')">${SVG_EDIT_S}EDIT</button>`;
-    const btnPse = alert.status === 'paused'
-      ? `<button class="alert-action-btn toggle" onclick="toggleAlert('${aid}')">${SVG_RESUME}RESUME</button>`
-      : `<button class="alert-action-btn toggle" onclick="toggleAlert('${aid}')">${SVG_PAUSE}PAUSE</button>`;
-    const actions = isTriggered||(isRepeat&&hasEverFired) ? btnDis+btnDel : btnEdt+btnPse+btnDel;
+    // Detail line — all condition types
+    let detailLine;
+    if (alert.condition === 'zone') {
+      detailLine = `<strong>${ALERT_ICONS.zone}ZONE</strong> ${formatPrice(alert.zoneLow, alert.assetId)} – ${formatPrice(alert.zoneHigh, alert.assetId)}${alert.timeframe ? ` <span style="opacity:0.6;font-size:0.75em">· ${alert.timeframe}</span>` : ''}${alert.repeatInterval ? ` <span style="opacity:0.6;font-size:0.75em">· every ${alert.repeatInterval}m</span>` : ''}`;
+    } else if (alert.condition === 'tap') {
+      detailLine = `<strong>${ALERT_ICONS.tap}TAP LEVEL</strong> ${formatPrice(alert.targetPrice, alert.assetId)} <span style="opacity:0.6;font-size:0.75em">· ±${alert.tapTolerance}% tolerance</span>${alert.timeframe ? ` <span style="opacity:0.6;font-size:0.75em">· ${alert.timeframe}</span>` : ''}`;
 
-    html += '<div class="' + cls + '">'
-      + '<div class="alert-header-row"><div class="alert-symbol">' + alert.symbol + '</div>'
-      + '<div class="alert-badge ' + badgeClass + '">' + badgeLabel + '</div></div>'
-      + '<div class="alert-detail">' + detailLine + '<br>' + triggeredLine
-      + (alert.note ? '<em style="color:var(--muted)">"' + alert.note + '"</em><br>' : '')
-      + 'Set at ' + alert.createdAt + '</div>'
-      + '<div class="alert-actions">' + actions + '</div>'
-      + '</div>';
-  });
+    } else {
+      detailLine = `<strong>${alert.condition === 'above' ? ALERT_ICONS.above + 'ABOVE' : ALERT_ICONS.below + 'BELOW'}</strong> ${formatPrice(alert.targetPrice, alert.assetId)}${alert.timeframe ? ` <span style="opacity:0.6;font-size:0.75em">· ${alert.timeframe}</span>` : ''}`;
+    }
 
-  // Set innerHTML in one shot (guaranteed to work in all browsers)
-  container.innerHTML = html;
+    const isRepeat      = (alert.condition === 'zone' || alert.condition === 'tap') && (alert.repeatInterval || 0) > 0;
+    const hasEverFired  = !!alert.zoneTriggeredOnce || !!alert.tapTriggeredOnce || alert.status === 'triggered';
+    const SVG_EDIT    = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:4px"><path d="M1 7.5L2.5 9 8 3.5 6.5 2 1 7.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="none"/><line x1="5.5" y1="2.5" x2="7.5" y2="4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+    const btnDelete     = `<button class="alert-action-btn delete" onclick="deleteAlert('${alert.id}')">${SVG_DELETE}DELETE</button>`;
+    const btnDismiss    = `<button class="alert-action-btn dismiss" onclick="dismissAlert('${alert.id}')">${SVG_DISMISS}DISMISS</button>`;
+    const btnEdit       = `<button class="alert-action-btn toggle" onclick="editAlert('${alert.id}')" title="Edit alert">${SVG_EDIT}EDIT</button>`;
+    const btnPause      = alert.status === 'paused'
+      ? `<button class="alert-action-btn toggle" onclick="toggleAlert('${alert.id}')">${SVG_RESUME}RESUME</button>`
+      : `<button class="alert-action-btn toggle" onclick="toggleAlert('${alert.id}')">${SVG_PAUSE}PAUSE</button>`;
 
-  // Now append setup alert cards (need DOM methods for their complexity)
-  setupDivs.forEach(alert => {
-    const div = document.createElement('div');
-    renderSetupCard(alert, div);
+    // Triggered/repeating-fired: DISMISS + DELETE only
+    // Active/paused: EDIT + PAUSE/RESUME + DELETE
+    const actions = isTriggered || (isRepeat && hasEverFired)
+      ? btnDismiss + btnDelete
+      : btnEdit + btnPause + btnDelete;
+
+        div.innerHTML = `
+      <div class="alert-header-row">
+        <div class="alert-symbol">${alert.symbol}</div>
+        <div class="alert-badge ${badgeClass}">${badgeLabel}</div>
+      </div>
+      <div class="alert-detail">
+        ${detailLine}<br>
+        ${triggeredLine}
+        ${alert.note ? `<em style="color:var(--muted)">"${alert.note}"</em><br>` : ''}
+        Set at ${alert.createdAt}
+      </div>
+      <div class="alert-actions">${actions}</div>`;
     container.appendChild(div);
   });
 
-  // Mobile alert badge dot
+  // Update mobile alert badge dot — only for active (waiting) alerts
   const dot = document.getElementById('alert-dot');
   if (dot) dot.classList.toggle('show', alerts.some(a => a.status === 'active'));
 
-  // Refresh alert lines on chart
+  // Refresh alert lines on the chart for the currently viewed asset
   if (lwCurrentAsset) drawAlertLines(lwCurrentAsset.id);
 }
 
@@ -2114,18 +2098,22 @@ function clearAlertHistory() {
 
 let currentAlertTab = 'active';
 function switchAlertTab(tab) {
-  document.getElementById('alerts-list').style.display = tab === 'active' ? 'block' : 'none';
-  document.getElementById('alerts-history').style.display = tab === 'history' ? 'block' : 'none';
-  
-  document.getElementById('atab-active').classList.toggle('active', tab === 'active');
-  document.getElementById('atab-history').classList.toggle('active', tab === 'history');
-
+  currentAlertTab = tab;
+  const _list = document.getElementById('alerts-list');
+  const _hist = document.getElementById('alerts-history');
   if (tab === 'active') {
-    renderAlerts();        // ← this was the missing call
+    if (_list) _list.style.removeProperty('display');
+    if (_hist) _hist.style.display = 'none';
+    renderAlerts();
   } else {
+    if (_list) _list.style.display = 'none';
+    if (_hist) _hist.style.removeProperty('display');
     renderHistory();
   }
+  document.getElementById('atab-active')?.classList.toggle('active',  tab === 'active');
+  document.getElementById('atab-history')?.classList.toggle('active', tab === 'history');
 }
+
 function setHistoryFilter(f) {
   alertHistoryFilter = f;
   ['7d','30d','3m','custom'].forEach(k => {
@@ -3156,121 +3144,122 @@ function logTradeFromAlert(alertId) {
 
 // ── Render journal page ────────────────────────────────────────────────────
 async function renderJournal() {
-  const listEl = document.getElementById('journal-list');
+  const listEl  = document.getElementById('journal-list');
   const statsEl = document.getElementById('journal-stats');
-  if (!listEl || !statsEl) return;
+  if (!listEl) return;
 
-  // Show loading state
-  listEl.innerHTML = `
-    <div style="text-align:center;color:var(--muted);font-size:0.72rem;padding:60px 20px;font-family:var(--mono)">
-      Loading journal…
-    </div>
-  `;
+  listEl.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:0.72rem;padding:40px 0;font-family:var(--mono)">Loading journal…</div>';
 
-  // Load from DB if we don't have entries yet
+  // Load from DB if empty
   if (!journalEntries.length) {
-    journalEntries = await loadJournalFromDB() || [];
+    journalEntries = await loadJournalFromDB();
   }
 
-  // Get current filter
+  // Apply time filter
   const filter = document.getElementById('journal-filter')?.value || 'all';
-
-  // Calculate cutoff timestamp
-  let cutoff = 0;
-  if (filter !== 'all') {
-    const days = parseInt(filter);
-    if (!isNaN(days)) {
-      cutoff = Date.now() - days * 86400000;
-    }
-  }
-
-  // Filter entries
+  const cutoff = filter === 'all' ? 0 : Date.now() - parseInt(filter) * 86400000;
   const filtered = journalEntries.filter(e => {
     const ts = new Date(e.trade_date || e.created_at).getTime();
     return ts >= cutoff;
   });
 
-  // ── Calculate stats ──────────────────────────────────────────────────────
-  const total = filtered.length;
-  const wins = filtered.filter(e => ['full_tp', 'tp2_hit', 'tp1_hit'].includes(e.outcome)).length;
-  const losses = filtered.filter(e => e.outcome === 'sl_hit').length;
-  const winRate = total ? Math.round((wins / total) * 100) : 0;
-  const pnlValues = filtered
-    .filter(e => e.pnl_pct != null && !isNaN(e.pnl_pct))
-    .map(e => e.pnl_pct);
-  const avgPnl = pnlValues.length
-    ? (pnlValues.reduce((sum, val) => sum + val, 0) / pnlValues.length).toFixed(1)
+  // ── Stats strip ──────────────────────────────────────────────────────────
+  const total    = filtered.length;
+  const wins     = filtered.filter(e => ['full_tp','tp2_hit','tp1_hit'].includes(e.outcome)).length;
+  const losses   = filtered.filter(e => e.outcome === 'sl_hit').length;
+  const winRate  = total ? Math.round((wins / total) * 100) : 0;
+  const avgPnl   = filtered.filter(e => e.pnl_pct).length
+    ? (filtered.reduce((s,e) => s + (e.pnl_pct || 0), 0) / filtered.filter(e => e.pnl_pct).length).toFixed(1)
     : '—';
 
-  // ── Render stats strip ───────────────────────────────────────────────────
-  statsEl.innerHTML = `
-    <div><span style="color:var(--text)">${total}</span><br>TRADES</div>
-    <div><span style="color:var(--green)">${wins}</span><br>WINS</div>
-    <div><span style="color:var(--red)">${losses}</span><br>LOSSES</div>
-    <div><span style="color:${winRate >= 50 ? 'var(--green)' : 'var(--red)'}">${winRate}%</span><br>WIN RATE</div>
-    <div><span style="color:${parseFloat(avgPnl) >= 0 ? 'var(--green)' : 'var(--red)'}">${avgPnl !== '—' ? avgPnl + '%' : '—'}</span><br>AVG P&L</div>
-  `;
+  if (statsEl) statsEl.innerHTML = `
+    <div class="journal-stat"><span class="journal-stat-value">${total}</span><span class="journal-stat-label">TRADES</span></div>
+    <div class="journal-stat"><span class="journal-stat-value" style="color:var(--green)">${wins}</span><span class="journal-stat-label">WINS</span></div>
+    <div class="journal-stat"><span class="journal-stat-value" style="color:var(--red)">${losses}</span><span class="journal-stat-label">LOSSES</span></div>
+    <div class="journal-stat"><span class="journal-stat-value" style="color:${winRate >= 50 ? 'var(--green)' : 'var(--red)'}">${winRate}%</span><span class="journal-stat-label">WIN RATE</span></div>
+    <div class="journal-stat"><span class="journal-stat-value" style="color:${parseFloat(avgPnl) >= 0 ? 'var(--green)' : 'var(--red)'}">${avgPnl !== '—' ? avgPnl + '%' : '—'}</span><span class="journal-stat-label">AVG P&L</span></div>`;
 
-  // ── Render entries or empty state ────────────────────────────────────────
-  if (filtered.length === 0) {
-    listEl.innerHTML = `
-      <div style="text-align:center;padding:80px 20px;color:var(--muted);font-family:var(--mono);line-height:1.7">
-        No trades logged yet.<br>
-        Complete a trade setup and tap<br>
-        <span style="color:var(--accent);font-weight:700">LOG TRADE</span> to record it here.
-      </div>
-    `;
+  // ── Entry cards ─────────────────────────────────────────────────────────
+  if (!filtered.length) {
+    listEl.innerHTML = `<div class="empty-state" style="padding:40px 0">
+            <p style="font-family:var(--mono);font-size:0.75rem;color:var(--muted);text-align:center">No trades logged yet.<br>Complete a trade setup and tap<br><b style="color:var(--text)">LOG TRADE</b> to record it here.</p>
+    </div>`;
     return;
   }
 
-  // Clear previous content and render actual entries
-  listEl.innerHTML = '';
+  const outcomeMeta = {
+    full_tp:     { label: '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><polygon points="5,1 6.2,3.8 9.3,3.8 6.8,5.8 7.7,8.8 5,7 2.3,8.8 3.2,5.8 0.7,3.8 3.8,3.8" fill="currentColor"/></svg> FULL TP',     cls: 'joutcome-full-tp' },
+    tp2_hit:     { label: '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><polyline points="1,5 3.5,7.5 9,2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> TP2 HIT',     cls: 'joutcome-tp2-hit' },
+    tp1_hit:     { label: '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><polyline points="1,5 3.5,7.5 9,2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg> TP1 HIT',     cls: 'joutcome-tp1-hit' },
+    breakeven:   { label: 'BREAKEVEN',   cls: 'joutcome-breakeven' },
+    sl_hit:      { label: '<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><rect x="1.5" y="1.5" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.5"/><line x1="3.2" y1="3.2" x2="6.8" y2="6.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="6.8" y1="3.2" x2="3.2" y2="6.8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> SL HIT',      cls: 'joutcome-sl-hit' },
+    manual_exit: { label: 'MANUAL EXIT', cls: 'joutcome-manual-exit' },
+  };
 
+  listEl.innerHTML = '';
   filtered.forEach(entry => {
     const card = document.createElement('div');
     card.className = 'journal-card';
-    
-    const date = new Date(entry.trade_date || entry.created_at).toLocaleDateString([], {
-      day: 'numeric',
-      month: 'short',
-      year: '2-digit'
-    });
-    
-    const outcome = entry.outcome || 'manual_exit';
-    const outcomeText = {
-      full_tp: 'FULL TP',
-      tp2_hit: 'TP2 HIT',
-      tp1_hit: 'TP1 HIT',
-      breakeven: 'BREAKEVEN',
-      sl_hit: 'SL HIT',
-      manual_exit: 'MANUAL EXIT'
-    }[outcome] || 'UNKNOWN';
 
-    const pnlColor = entry.pnl_pct >= 0 ? 'var(--green)' : 'var(--red)';
-    const pnlStr = entry.pnl_pct != null ? `<span style="color:${pnlColor}">${entry.pnl_pct >= 0 ? '+' : ''}${entry.pnl_pct}%</span>` : '';
+    const om  = outcomeMeta[entry.outcome] || outcomeMeta['manual_exit'];
+    const dir = entry.direction === 'long' ? '▲ LONG' : '▼ SHORT';
+    const dirColor = entry.direction === 'long' ? 'var(--green)' : 'var(--red)';
+    const date = new Date(entry.trade_date || entry.created_at).toLocaleDateString([], {day:'numeric',month:'short',year:'2-digit'});
+    const f = (n) => n ? parseFloat(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:6}) : '—';
+
+    // Levels row
+    const levels = [
+      `<div class="journal-level-item"><span class="journal-level-label">ENTRY</span><span class="journal-level-value">${f(entry.entry_price)}</span></div>`,
+      `<div class="journal-level-item"><span class="journal-level-label">EXIT</span><span class="journal-level-value">${f(entry.exit_price)}</span></div>`,
+      `<div class="journal-level-item"><span class="journal-level-label" style="color:var(--red)">SL</span><span class="journal-level-value" style="color:var(--red)">${f(entry.sl_price)}</span></div>`,
+      `<div class="journal-level-item"><span class="journal-level-label" style="color:var(--green)">TP1</span><span class="journal-level-value" style="color:var(--green)">${f(entry.tp1_price)}</span></div>`,
+      entry.tp2_price ? `<div class="journal-level-item"><span class="journal-level-label" style="color:var(--green)">TP2</span><span class="journal-level-value" style="color:var(--green)">${f(entry.tp2_price)}</span></div>` : '',
+      entry.tp3_price ? `<div class="journal-level-item"><span class="journal-level-label" style="color:var(--green)">TP3</span><span class="journal-level-value" style="color:var(--green)">${f(entry.tp3_price)}</span></div>` : '',
+    ].join('');
+
+    // Notes
+    const notes = [
+      entry.setup_type    ? `<b>Setup:</b> ${entry.setup_type}` : null,
+      entry.entry_reason  ? `<b>Reason:</b> ${entry.entry_reason}` : null,
+      entry.htf_context   ? `<b>HTF:</b> ${entry.htf_context}` : null,
+      entry.emotion_before && entry.emotion_after
+        ? `<b>Emotions:</b> ${entry.emotion_before} → ${entry.emotion_after}` : null,
+      entry.lessons       ? `<b>Lessons:</b> ${entry.lessons}` : null,
+    ].filter(Boolean).join('<br>');
+
+    // Screenshots
+    const shots = (entry.screenshot_before || entry.screenshot_after) ? `
+      <div class="journal-screenshots">
+        ${entry.screenshot_before ? `<img src="${entry.screenshot_before}" class="journal-screenshot-thumb" onclick="openImageFullscreen('${entry.screenshot_before}')" alt="Before">` : ''}
+        ${entry.screenshot_after  ? `<img src="${entry.screenshot_after}"  class="journal-screenshot-thumb" onclick="openImageFullscreen('${entry.screenshot_after}')"  alt="After">` : ''}
+      </div>` : '';
+
+    const pnlStr = entry.pnl_pct != null
+      ? `<span style="color:${entry.pnl_pct >= 0 ? 'var(--green)' : 'var(--red)'};font-weight:700">${entry.pnl_pct >= 0 ? '+' : ''}${entry.pnl_pct}%</span>`
+      : '';
 
     card.innerHTML = `
       <div class="journal-card-header" onclick="toggleJournalCard('${entry.id}')">
         <div>
           <span class="journal-card-symbol">${entry.symbol}</span>
-          <span class="journal-card-dir" style="color:${entry.direction === 'long' ? 'var(--green)' : 'var(--red)'}">
-            ${entry.direction === 'long' ? '▲ LONG' : '▼ SHORT'}
-          </span>
-          ${entry.timeframe ? `<span style="font-family:var(--mono);font-size:0.58rem;color:var(--muted);margin-left:6px">${entry.timeframe}</span>` : ''}
+          <span class="journal-card-dir" style="color:${dirColor}">${dir}</span>
+          ${entry.timeframe ? `<span style="font-family:var(--mono);font-size:0.58rem;color:var(--muted);margin-left:4px">${entry.timeframe}</span>` : ''}
         </div>
-        <div style="display:flex;align-items:center;gap:12px">
+        <div style="display:flex;align-items:center;gap:8px">
           ${pnlStr}
-          <span class="journal-card-outcome">${outcomeText}</span>
+          <span class="journal-card-outcome ${om.cls}">${om.label}</span>
           <span style="color:var(--muted);font-size:0.75rem">›</span>
         </div>
       </div>
-      <div class="journal-card-body" id="jcard-${entry.id}" style="display:none">
-        <!-- You can add more details here later (levels, reason, etc.) -->
-        <div style="color:var(--muted);font-size:0.72rem">
-          Trade on ${date}
+      <div class="journal-card-body" id="jcard-${entry.id}">
+        <div class="journal-levels">${levels}</div>
+        ${notes ? `<div class="journal-notes">${notes}</div>` : ''}
+        ${shots}
+        <div class="journal-card-meta">
+          <span>${date}</span>
+          <button onclick="deleteJournalEntry('${entry.id}')" style="background:none;border:none;color:var(--muted);font-family:var(--mono);font-size:0.6rem;cursor:pointer;letter-spacing:0.06em">DELETE</button>
         </div>
-      </div>
-    `;
+      </div>`;
 
     listEl.appendChild(card);
   });
@@ -3402,20 +3391,22 @@ function toggleTheme() {
   localStorage.setItem('tw_theme', isLight ? 'light' : 'dark');
   const moon = document.getElementById('theme-moon');
   const sun  = document.getElementById('theme-sun');
-  if (moon) moon.style.display = isLight ? 'none' : '';
-  if (sun)  sun.style.display  = isLight ? ''     : 'none';
+  if (moon) moon.style.display = isLight ? 'none'  : '';
+  if (sun)  sun.style.display  = isLight ? ''      : 'none';
   const btn = document.getElementById('theme-btn');
   if (btn) btn.title = isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode';
 }
 
 function initTheme() {
-  const saved = localStorage.getItem('tw_theme') || 'dark';
-  document.documentElement.setAttribute('data-theme', saved);
+  const saved = localStorage.getItem('tw_theme');
   if (saved === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
     const moon = document.getElementById('theme-moon');
     const sun  = document.getElementById('theme-sun');
     if (moon) moon.style.display = 'none';
     if (sun)  sun.style.display  = '';
+  } else {
+    document.documentElement.setAttribute('data-theme', 'dark');
   }
 }
 
@@ -3439,7 +3430,16 @@ function previewSound() {
 
 // Register the service worker as soon as the page loads.
 // Requires the app to be served over HTTPS or localhost — not file://.
-
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    swRegistration = await navigator.serviceWorker.register('./sw.js');
+  } catch (e) {
+    // SW registration fails silently on file:// — fallback to Notification API
+    swRegistration = null;
+  }
+}
+registerServiceWorker();
 
 
 
@@ -3958,7 +3958,7 @@ setInterval(() => {
 // INIT
 // ═══════════════════════════════════════════════
 async function init() {
-  // Apply saved theme immediately before any rendering
+  // Apply saved theme before anything renders
   initTheme();
 
   // Push initial history state so Android back button is interceptable from the start
@@ -4055,7 +4055,6 @@ async function init() {
   renderHotList();
   renderWatchlist();
   renderAlerts();
-  switchAlertTab('active'); // ensure alerts-list is visible on init
   document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
 
   // Connect Deriv WebSocket — connects and subscribes to all watchlist + hot list assets
@@ -4499,8 +4498,8 @@ function showTgToast(msg) {
 
 // ── SWIPE GESTURES (mobile) ──────────────────────
 (function() {
-  let touchStartX = 0;
-  let touchStartY = 0;
+  let touchStartX = 0, touchStartY = 0;
+
   let touchStartedInChart = false;
 
   document.addEventListener('touchstart', e => {
@@ -4513,8 +4512,8 @@ function showTgToast(msg) {
 
   document.addEventListener('touchend', e => {
     if (!isMobileLayout()) return;
-    if (document.getElementById('add-modal')?.style.display !== 'none') return;
-    if (document.getElementById('tg-modal')?.style.display !== 'none') return;
+    if (document.getElementById('add-modal').style.display !== 'none') return;
+    if (document.getElementById('tg-modal').style.display !== 'none') return;
 
     const dx = e.changedTouches[0].clientX - touchStartX;
     const dy = e.changedTouches[0].clientY - touchStartY;
@@ -4523,6 +4522,7 @@ function showTgToast(msg) {
     // (left 30px of screen) — this lets chart pan/zoom work freely
     const current = navStack[navStack.length - 1];
     if (touchStartedInChart && current === 'chart') {
+      // Only trigger back if swipe started from left edge of screen
       if (touchStartX > 30) return;
     }
 
