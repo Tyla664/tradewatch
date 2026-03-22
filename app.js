@@ -2120,9 +2120,12 @@ function switchAlertTab(tab) {
   document.getElementById('atab-active').classList.toggle('active', tab === 'active');
   document.getElementById('atab-history').classList.toggle('active', tab === 'history');
 
-  if (tab === 'history') renderHistory();
+  if (tab === 'active') {
+    renderAlerts();        // ← this was the missing call
+  } else {
+    renderHistory();
+  }
 }
-
 function setHistoryFilter(f) {
   alertHistoryFilter = f;
   ['7d','30d','3m','custom'].forEach(k => {
