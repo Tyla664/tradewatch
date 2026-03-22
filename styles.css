@@ -961,6 +961,7 @@
     .journal-panel .panel-title {
       flex-shrink: 0;
       position: static;
+      margin-bottom: 0;
     }
     #journal-list {
       padding-bottom: calc(72px + env(safe-area-inset-bottom) + 16px);
