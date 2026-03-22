@@ -103,7 +103,7 @@
     padding: 0 20px 20px;
   }
   .panel:last-child { border-right: none; border-left: 1px solid var(--border); }
-  .journal-panel { flex-direction: column; }
+  .journal-panel { flex-direction: column; display: none; }
 
   /* ── Journal panel layout (shared desktop+mobile base) ─── */
   #journal-stats {
