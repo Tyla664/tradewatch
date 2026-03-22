@@ -4546,5 +4546,6 @@ setTimeout(() => {
   renderJournal();          // Show journal stats + empty state
   if (selectedAsset) loadLWChart(selectedAsset);  // Reload chart if any asset was selected
 }, 800);
+}
 
 init();
