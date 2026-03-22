@@ -1102,6 +1102,13 @@ function mobileTab(tab, pushState = true) {
   // Deactivate all nav buttons
   document.querySelectorAll('.mobile-nav-btn').forEach(b => b.classList.remove('active'));
 
+  // Hide summary bar on chart & journal (they have their own headers)
+  // Show it on watchlist & alerts
+  const summaryBar = document.querySelector('.summary-bar');
+  if (summaryBar) {
+    summaryBar.style.display = (tab === 'chart' || tab === 'journal') ? 'none' : '';
+  }
+
   // Hide FAB unless staying on watchlist tab
   const fab = document.getElementById('wl-fab');
 
@@ -1633,13 +1640,32 @@ function drawAlertLines(assetId) {
     .filter(a => a.assetId === assetId && a.status === 'active')
     .forEach(alert => {
       const green = '#00e676', red = '#ff3d5a', cyan = '#00d4ff', gold = '#f0b429';
+
+      // For setup alerts: note contains JSON — show clean trade setup lines instead
+      if (alert.condition === 'setup') {
+        const j = getJournal(alert);
+        const dir = j.direction === 'long' ? 'Long' : 'Short';
+        try { lwAlertLines.push(lwSeries.createPriceLine({ price: alert.targetPrice, color: cyan,  lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: `▶ ${dir} Entry` })); } catch(e) {}
+        if (j.sl)  { try { lwAlertLines.push(lwSeries.createPriceLine({ price: j.sl,  color: red,   lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'SL' })); } catch(e) {} }
+        if (j.tp1) { try { lwAlertLines.push(lwSeries.createPriceLine({ price: j.tp1, color: green, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'TP1' })); } catch(e) {} }
+        if (j.tp2) { try { lwAlertLines.push(lwSeries.createPriceLine({ price: j.tp2, color: green, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'TP2' })); } catch(e) {} }
+        if (j.tp3) { try { lwAlertLines.push(lwSeries.createPriceLine({ price: j.tp3, color: green, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: 'TP3' })); } catch(e) {} }
+        return;
+      }
+
+      // For zone alerts: use note only if it's not JSON
+      const safeNote = (note) => {
+        if (!note) return '';
+        try { JSON.parse(note); return ''; } catch(e) { return ' · ' + note; }
+      };
+
       if (alert.condition === 'zone') {
         [[alert.zoneLow, 'Zone Low'], [alert.zoneHigh, 'Zone High']].forEach(([price, lbl]) => {
           try {
             lwAlertLines.push(lwSeries.createPriceLine({
-              price, color: cyan, lineWidth: 1, lineStyle: 2, // 2 = Dashed
+              price, color: cyan, lineWidth: 1, lineStyle: 2,
               axisLabelVisible: true,
-              title: lbl + (alert.note ? ' · ' + alert.note : ''),
+              title: lbl + safeNote(alert.note),
             }));
           } catch(e) {}
         });
@@ -1650,7 +1676,7 @@ function drawAlertLines(assetId) {
           lwAlertLines.push(lwSeries.createPriceLine({
             price: alert.targetPrice, color, lineWidth: 1, lineStyle: 2,
             axisLabelVisible: true,
-            title: pfx + formatPrice(alert.targetPrice, assetId) + (alert.note ? ' · ' + alert.note : ''),
+            title: pfx + formatPrice(alert.targetPrice, assetId) + safeNote(alert.note),
           }));
         } catch(e) {}
       }
