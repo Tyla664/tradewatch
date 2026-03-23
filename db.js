@@ -248,14 +248,8 @@ async function loadAlertsFromDB() {
       status: r.status,
       sound: r.sound,
       note: r.note,
-      createdAt: new Date(r.created_at).toLocaleTimeString(),
-      // Convert ISO string or timestamp to a readable time for display
-      triggeredAt: r.triggered_at
-        ? (() => {
-            const d = new Date(r.triggered_at);
-            return isNaN(d) ? r.triggered_at : d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-          })()
-        : null,
+      createdAt: new Date(r.created_at).toLocaleDateString([], {day:'2-digit',month:'short',year:'numeric'}) + ' · ' + new Date(r.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+      triggeredAt: r.triggered_at,
       triggeredPrice: r.triggered_price ? parseFloat(r.triggered_price) : null,
       triggeredDirection: r.triggered_direction,
       lastTriggeredAt: r.last_triggered_at ? new Date(r.last_triggered_at).getTime() : 0,
