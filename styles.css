@@ -1,4 +1,4 @@
-  :root {
+:root {
     --bg: #080c12;
     --surface: #0d1520;
     --surface2: #111c2d;
@@ -560,6 +560,18 @@
     100% { box-shadow: 0 0 0 14px rgba(255,61,90,0); }
   }
   .alert-item.active-alert { border-color: var(--border); }
+
+  /* Zone card — whole card glows teal while price is inside the zone */
+  .alert-item.zone-in-zone {
+    border-color: rgba(0,212,255,0.6);
+    background: rgba(0,212,255,0.04);
+    box-shadow: 0 0 0 1px rgba(0,212,255,0.25), 0 0 18px 2px rgba(0,212,255,0.12);
+    animation: zoneCardPulse 2s ease-in-out infinite;
+  }
+  @keyframes zoneCardPulse {
+    0%, 100% { box-shadow: 0 0 0 1px rgba(0,212,255,0.25), 0 0 18px 2px rgba(0,212,255,0.12); }
+    50%       { box-shadow: 0 0 0 1px rgba(0,212,255,0.45), 0 0 26px 4px rgba(0,212,255,0.22); }
+  }
   .alert-header-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
   .alert-symbol { font-weight: 700; font-size: 0.85rem; }
   .alert-badge {
@@ -616,6 +628,28 @@
   .trade-running  { border-color: rgba(0,230,118,0.4); background: rgba(0,230,118,0.02); }
   .trade-full-tp  { border-color: rgba(0,230,118,0.6); background: rgba(0,230,118,0.04); }
   .trade-sl-hit   { border-color: rgba(255,61,90,0.4); background: rgba(255,61,90,0.03); }
+
+  /* Setup card — price-based live glow (overrides status colours while trade is live) */
+  .trade-price-profit {
+    border-color: rgba(0,230,118,0.55);
+    background: rgba(0,230,118,0.04);
+    box-shadow: 0 0 0 1px rgba(0,230,118,0.2), 0 0 16px 2px rgba(0,230,118,0.1);
+    animation: setupGlowGreen 2.2s ease-in-out infinite;
+  }
+  .trade-price-danger {
+    border-color: rgba(255,61,90,0.55);
+    background: rgba(255,61,90,0.04);
+    box-shadow: 0 0 0 1px rgba(255,61,90,0.2), 0 0 16px 2px rgba(255,61,90,0.1);
+    animation: setupGlowRed 2.2s ease-in-out infinite;
+  }
+  @keyframes setupGlowGreen {
+    0%, 100% { box-shadow: 0 0 0 1px rgba(0,230,118,0.2),  0 0 16px 2px rgba(0,230,118,0.10); }
+    50%       { box-shadow: 0 0 0 1px rgba(0,230,118,0.38), 0 0 24px 4px rgba(0,230,118,0.18); }
+  }
+  @keyframes setupGlowRed {
+    0%, 100% { box-shadow: 0 0 0 1px rgba(255,61,90,0.2),  0 0 16px 2px rgba(255,61,90,0.10); }
+    50%       { box-shadow: 0 0 0 1px rgba(255,61,90,0.38), 0 0 24px 4px rgba(255,61,90,0.18); }
+  }
 
   /* ── Alert panel tabs (Active / History) ── */
   .alert-tabs {
@@ -1438,6 +1472,40 @@
 /* Alert items */
 [data-theme="light"] .alert-item  { background: #f8fbff; border-color: var(--border); }
 
+/* Zone in-zone glow — light theme (same teal, softened for white bg) */
+[data-theme="light"] .alert-item.zone-in-zone {
+  background: rgba(0,120,168,0.04);
+  border-color: rgba(0,120,168,0.55);
+  box-shadow: 0 0 0 1px rgba(0,120,168,0.2), 0 0 18px 2px rgba(0,120,168,0.1);
+  animation: zoneCardPulseLight 2s ease-in-out infinite;
+}
+@keyframes zoneCardPulseLight {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(0,120,168,0.2),  0 0 18px 2px rgba(0,120,168,0.10); }
+  50%       { box-shadow: 0 0 0 1px rgba(0,120,168,0.38), 0 0 26px 4px rgba(0,120,168,0.18); }
+}
+
+/* Setup card live price — light theme */
+[data-theme="light"] .trade-price-profit {
+  background: rgba(0,135,90,0.04);
+  border-color: rgba(0,135,90,0.5);
+  box-shadow: 0 0 0 1px rgba(0,135,90,0.18), 0 0 16px 2px rgba(0,135,90,0.09);
+  animation: setupGlowGreenLight 2.2s ease-in-out infinite;
+}
+[data-theme="light"] .trade-price-danger {
+  background: rgba(200,40,60,0.04);
+  border-color: rgba(200,40,60,0.45);
+  box-shadow: 0 0 0 1px rgba(200,40,60,0.18), 0 0 16px 2px rgba(200,40,60,0.09);
+  animation: setupGlowRedLight 2.2s ease-in-out infinite;
+}
+@keyframes setupGlowGreenLight {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(0,135,90,0.18),  0 0 16px 2px rgba(0,135,90,0.09); }
+  50%       { box-shadow: 0 0 0 1px rgba(0,135,90,0.32),  0 0 22px 4px rgba(0,135,90,0.16); }
+}
+@keyframes setupGlowRedLight {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(200,40,60,0.18),  0 0 16px 2px rgba(200,40,60,0.09); }
+  50%       { box-shadow: 0 0 0 1px rgba(200,40,60,0.32),  0 0 22px 4px rgba(200,40,60,0.16); }
+}
+
 /* Alert tabs */
 [data-theme="light"] .alert-tabs  { border-bottom-color: var(--border); }
 
@@ -1495,4 +1563,3 @@
 
 /* Setup dir btns */
 [data-theme="light"] .setup-dir-btn { background: #f0f4f8; border-color: var(--border); color: var(--muted); }
-
