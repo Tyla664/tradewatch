@@ -3467,18 +3467,36 @@ function handleScreenshotUpload(slot, input) {
   const file = input.files?.[0];
   if (!file) return;
   const previewId = `jnl-${slot}-preview`;
-  const areaId    = `jnl-${slot}-area`;
-  const el        = document.getElementById(previewId);
+  const el = document.getElementById(previewId);
   if (!el) return;
 
   const reader = new FileReader();
   reader.onload = (e) => {
-    el.innerHTML = `<img src="${e.target.result}" class="screenshot-preview-img" alt="screenshot">`;
+    // Show as thumbnail with a remove (×) button — NOT full size
+    el.className = 'screenshot-preview-filled';
+    el.innerHTML = `
+      <img src="${e.target.result}" class="screenshot-preview-img" alt="screenshot">
+      <button class="screenshot-preview-remove" onclick="removeScreenshot('${slot}',event)" title="Remove">&#x2715;</button>`;
   };
   reader.readAsDataURL(file);
 
   if (slot === 'before') jnlBeforeFile = file;
   else                    jnlAfterFile  = file;
+}
+
+function removeScreenshot(slot, e) {
+  e.stopPropagation(); // don't re-open file picker
+  const previewId = `jnl-${slot}-preview`;
+  const inputId   = `jnl-${slot}-input`;
+  const el = document.getElementById(previewId);
+  const inp = document.getElementById(inputId);
+  if (el) {
+    el.className = 'screenshot-preview-empty';
+    el.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.4" fill="none" opacity="0.4"/><circle cx="8.5" cy="9.5" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none" opacity="0.6"/><path d="M3 17l5-5 3 3 3-3 5 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.5"/></svg><span>Tap to upload</span>`;
+  }
+  if (inp) inp.value = '';
+  if (slot === 'before') jnlBeforeFile = null;
+  else                    jnlAfterFile  = null;
 }
 
 // ── Journal direction toggle ───────────────────────────────────────────────
@@ -3504,8 +3522,14 @@ function openJournalEntryForm(prefill = null) {
   });
   ['jnl-before-preview','jnl-after-preview'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.4" fill="none" opacity="0.4"/><circle cx="8.5" cy="9.5" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none" opacity="0.6"/><path d="M3 17l5-5 3 3 3-3 5 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.5"/></svg><span>Tap to upload</span>`;
-    if (el) el.className = 'screenshot-preview-empty';
+    if (!el) return;
+    el.className = 'screenshot-preview-empty';
+    el.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" stroke-width="1.4" fill="none" opacity="0.4"/><circle cx="8.5" cy="9.5" r="1.5" stroke="currentColor" stroke-width="1.2" fill="none" opacity="0.6"/><path d="M3 17l5-5 3 3 3-3 5 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.5"/></svg><span>Tap to upload</span>`;
+  });
+  // Also clear the file inputs so re-selecting works
+  ['jnl-before-input','jnl-after-input'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
   });
   document.getElementById('jnl-alert-id').value = '';
 
@@ -3700,7 +3724,7 @@ async function saveJournalEntry() {
 
   // Step 3 — upload screenshots + save to DB in background
   const hasScreenshots = capturedFiles.before || capturedFiles.after;
-  if (hasScreenshots) showToast('Uploading…', 'Saving screenshots in background.', 'info');
+  // Screenshots upload silently in background
 
   const [beforeUrl, afterUrl] = await Promise.all([
     uploadScreenshot(capturedFiles.before, 'before'),
@@ -3715,7 +3739,7 @@ async function saveJournalEntry() {
     if (idx !== -1) journalEntries[idx] = saved;
     else journalEntries.unshift(saved);
     renderJournal();
-    if (hasScreenshots) showToast('Done', 'Screenshots uploaded.', 'success');
+    // Screenshots uploaded silently
   } else {
     // Remove temp entry and warn
     journalEntries = journalEntries.filter(e => e.id !== tempId);
@@ -4125,7 +4149,7 @@ function editJournalEntry(id) {
 
   // Show delete existing screenshots option if they exist
   if (entry.screenshot_before || entry.screenshot_after) {
-    showToast('Editing Trade', 'Upload new screenshots to replace existing ones, or leave blank to keep them.', 'info');
+    // No toast — form pre-fill is self-explanatory
   }
 
   // Navigate to journal/chart to show the form
