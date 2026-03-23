@@ -801,7 +801,7 @@ function formatTriggeredAt(val) {
   // ISO string or timestamp
   try {
     const d = new Date(typeof val === 'number' ? val : val);
-    if (!isNaN(d)) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (!isNaN(d)) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
   } catch(e) {}
   return String(val);
 }
@@ -1784,7 +1784,7 @@ async function createAlert() {
     note,
     sound:           selectedAlertSound,
     status:          'active',
-    createdAt:       new Date().toLocaleDateString([], {day:'2-digit',month:'short',year:'numeric'}) + ' · ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+    createdAt:       new Date().toLocaleDateString([], {day:'2-digit',month:'short',year:'numeric'}) + ' · ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',hour12:true}),
     currentPriceWhenCreated: currentPrice,
   };
 
@@ -1978,7 +1978,37 @@ function renderAlerts() {
   }
 
   container.innerHTML = '';
-  [...alerts].reverse().forEach(alert => {
+
+  // Sort so alerts needing attention always float to top
+  // Rank 0 — fired / in-zone / active trade (entry hit or beyond): needs action NOW
+  // Rank 1 — setup watching (entry not yet hit): noteworthy but calm
+  // Rank 2 — active / paused regular alerts: waiting
+  const sortedAlerts = [...alerts].sort((a, b) => {
+    const rank = al => {
+      // Regular alerts: triggered (above/below/tap fired, or one-shot zone fired)
+      if (al.status === 'triggered') return 0;
+      if (al.condition === 'setup') {
+        const st = (() => { try { return JSON.parse(al.note||'{}').tradeStatus||'watching'; } catch(e){ return 'watching'; } })();
+        // Final states: sl_hit, full_tp — needs LOG TRADE action
+        if (['full_tp','sl_hit'].includes(st)) return 0;
+        // Active trade: entry triggered, trade is live
+        if (['entry_hit','running','tp1_hit','tp2_hit'].includes(st)) return 0;
+        // Still watching for entry — below regular actives
+        return 1;
+      }
+      // Repeating zone that has fired (IN ZONE or EXITED) — still needs attention
+      const isRepeatingZone = al.condition === 'zone' && (al.repeatInterval || 0) > 0;
+      if (isRepeatingZone && al.zoneTriggeredOnce) return 0;
+      // Tap that has fired at least once (repeating tap)
+      if (al.condition === 'tap' && al.tapTriggeredOnce) return 0;
+      return 2;
+    };
+    const ra = rank(a), rb = rank(b);
+    if (ra !== rb) return ra - rb;
+    return 0; // preserve insertion order within same rank
+  });
+
+  sortedAlerts.forEach(alert => {
     const div = document.createElement('div');
 
     if (alert.condition === 'setup') {
@@ -2042,6 +2072,10 @@ function renderAlerts() {
       ? btnDismiss + btnDelete
       : btnEdit + btnPause + btnDelete;
 
+    const livePrice = priceData[alert.assetId]?.price;
+    const livePriceLine = livePrice
+      ? `<span style="opacity:0.55;font-size:0.72rem">Current price: <b style="opacity:0.9">${formatPrice(livePrice, alert.assetId)}</b></span><br>`
+      : '';
     div.innerHTML = `
       <div class="alert-header-row">
         <div class="alert-symbol">${alert.symbol}</div>
@@ -2049,6 +2083,7 @@ function renderAlerts() {
       </div>
       <div class="alert-detail">
         ${detailLine}<br>
+        ${livePriceLine}
         ${triggeredLine}
         ${alert.note ? `<em style="color:var(--muted)">"${alert.note}"</em><br>` : ''}
         Set at ${alert.createdAt}
@@ -2575,7 +2610,7 @@ function checkAlerts() {
     }
 
     alert.triggeredDirection = alert.condition;
-    alert.triggeredAt    = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    alert.triggeredAt    = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', hour12: true});
     alert.triggeredPrice = currentPrice;
     triggeredToday++;
 
@@ -2845,7 +2880,7 @@ async function createSetupAlert() {
     note:         JSON.stringify(journal),
     sound:        selectedAlertSound,
     status:       'active',
-    createdAt:    new Date().toLocaleDateString([], {day:'2-digit',month:'short',year:'numeric'}) + ' · ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
+    createdAt:    new Date().toLocaleDateString([], {day:'2-digit',month:'short',year:'numeric'}) + ' · ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',hour12:true}),
   };
 
   alerts.push(newAlert);
@@ -2950,6 +2985,7 @@ function renderSetupCard(alert, div) {
     </div>
     <div class="alert-detail" style="font-size:0.75rem;line-height:1.9">
       ${levels}
+      ${(() => { const lp = priceData[alert.assetId]?.price; return lp ? `<br><span style="opacity:0.55;font-size:0.72rem">Current price: <b style="opacity:0.9">${formatPrice(lp, alert.assetId)}</b></span>` : ''; })()}
       ${alert.timeframe ? `<br><span style="opacity:0.5;font-size:0.68rem">· ${alert.timeframe}</span>` : ''}
       ${journalLines ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-size:0.72rem;line-height:1.7">${journalLines}</div>` : ''}
       <div style="margin-top:6px;opacity:0.45;font-size:0.68rem">Set ${alert.createdAt}</div>
