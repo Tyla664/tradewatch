@@ -1077,10 +1077,13 @@ function isMobileLayout() {
 function mobileTab(tab, pushState = true) {
   if (!isMobileLayout()) return;
 
-  // Close journal modal whenever navigating away from journal tab
-  if (tab !== 'journal') {
+  // Close journal modal (LOG TRADE form) and journal detail overlay when
+  // navigating to watchlist or chart — it shouldn't float over other pages
+  if (tab === 'watchlist' || tab === 'chart') {
     const jm = document.getElementById('journal-modal');
     if (jm) jm.style.display = 'none';
+    const jd = document.getElementById('journal-detail-overlay');
+    if (jd) jd.remove();
   }
 
   const current = navStack[navStack.length - 1];
@@ -3322,6 +3325,7 @@ let journalEntries     = [];
 let jnlDirection       = 'long';
 let jnlBeforeFile      = null;
 let jnlAfterFile       = null;
+let editingJournalId   = null; // set when editing an existing journal entry
 let jnlBeforeUrl       = null;
 let jnlAfterUrl        = null;
 
@@ -3365,9 +3369,33 @@ async function deleteJournalEntryFromDB(id) {
 }
 
 // ── Supabase Storage: upload screenshot ────────────────────────────────────
+// ── Compress image to thumbnail before upload ─────────────────────────────
+function compressImage(file, maxDim = 1200, quality = 0.82) {
+  return new Promise((resolve) => {
+    if (!file) { resolve(null); return; }
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const w = Math.round(img.width  * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => resolve(blob ? new File([blob], file.name, { type: 'image/jpeg' }) : file),
+        'image/jpeg', quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
 async function uploadScreenshot(file, slot) {
   if (!file || !currentUserId) return null;
   try {
+    // Compress to max 1200px before upload to save storage and bandwidth
+    file = await compressImage(file, 1200, 0.82) || file;
     const ext      = file.name.split('.').pop() || 'jpg';
     const path     = `${currentUserId}/${Date.now()}_${slot}.${ext}`;
     const res      = await fetch(
@@ -3461,6 +3489,23 @@ function openJournalEntryForm(prefill = null) {
       const sel = document.getElementById('jnl-outcome');
       if (sel) sel.value = prefill.outcome;
     }
+    // Auto-fill exit price based on outcome — user can still override
+    // Only auto-fill if not a manual exit and no exitPrice was explicitly passed
+    if (prefill.outcome && !prefill.exitPrice && !prefill.isManualClose) {
+      const exitEl = document.getElementById('jnl-exit');
+      if (exitEl) {
+        const autoExit = {
+          sl_hit:   prefill.sl   || null,
+          tp1_hit:  prefill.tp1  || null,
+          tp2_hit:  prefill.tp2  || prefill.tp1  || null,
+          full_tp:  prefill.tp3  || prefill.tp2  || prefill.tp1 || null,
+        }[prefill.outcome];
+        if (autoExit) {
+          exitEl.value = autoExit;
+          exitEl.title = 'Auto-filled from alert levels — edit if different';
+        }
+      }
+    }
     if (prefill.timeframe) {
       const sel = document.getElementById('jnl-timeframe');
       if (sel) sel.value = prefill.timeframe;
@@ -3472,6 +3517,18 @@ function openJournalEntryForm(prefill = null) {
     if (prefill.exitPrice) {
       const el = document.getElementById('jnl-exit');
       if (el) el.value = prefill.exitPrice;
+    }
+    if (prefill.pnl != null) {
+      const el = document.getElementById('jnl-pnl');
+      if (el) el.value = prefill.pnl;
+    }
+    if (prefill.lessons) {
+      const el = document.getElementById('jnl-lessons');
+      if (el) el.value = prefill.lessons;
+    }
+    if (prefill.emotionAfter) {
+      const sel = document.getElementById('jnl-emotion-after');
+      if (sel) sel.value = prefill.emotionAfter;
     }
     if (prefill.closeReason) {
       // Put close reason in lessons box as a starting note
@@ -3493,13 +3550,9 @@ async function saveJournalEntry() {
   const entry  = parseFloat(document.getElementById('jnl-entry').value);
   if (!symbol) return showToast('Missing Asset', 'Enter an asset symbol.', 'error');
 
-  showToast('Saving…', 'Uploading screenshots and saving entry.', 'info');
-
-  // Upload screenshots to Supabase Storage
-  const [beforeUrl, afterUrl] = await Promise.all([
-    uploadScreenshot(jnlBeforeFile, 'before'),
-    uploadScreenshot(jnlAfterFile,  'after'),
-  ]);
+  // Capture all form values NOW before modal closes
+  const capturedFiles = { before: jnlBeforeFile, after: jnlAfterFile };
+  const linkedAlertId = document.getElementById('jnl-alert-id').value;
 
   const record = {
     user_id:          currentUserId,
@@ -3521,30 +3574,103 @@ async function saveJournalEntry() {
     emotion_before:   document.getElementById('jnl-emotion-before').value || null,
     emotion_after:    document.getElementById('jnl-emotion-after').value || null,
     lessons:          document.getElementById('jnl-lessons').value.trim() || null,
-    screenshot_before: beforeUrl,
-    screenshot_after:  afterUrl,
+    screenshot_before: null,
+    screenshot_after:  null,
     trade_date:        new Date().toISOString(),
   };
 
+  // ── EDIT PATH: update an existing journal entry ──────────────────────────
+  if (editingJournalId) {
+    const editId = editingJournalId;
+    editingJournalId = null;
+
+    // Update locally right away
+    const existingIdx = journalEntries.findIndex(e => String(e.id) === String(editId));
+    const existing = existingIdx !== -1 ? journalEntries[existingIdx] : null;
+
+    // Keep old screenshots if no new ones uploaded
+    const hasNewScreenshots = capturedFiles.before || capturedFiles.after;
+    const updatedRecord = {
+      ...record,
+      id: editId,
+      screenshot_before: existing?.screenshot_before || null,
+      screenshot_after:  existing?.screenshot_after  || null,
+    };
+    if (existingIdx !== -1) journalEntries[existingIdx] = updatedRecord;
+
+    closeJournalModal();
+    // Restore modal title
+    document.querySelectorAll('#journal-modal span').forEach(s => { if (s.textContent === 'EDIT TRADE') s.textContent = 'LOG TRADE'; });
+    renderJournal();
+    if (isMobileLayout()) mobileTab('journal');
+    showToast('Entry Updated', `${symbol} journal entry updated.`, 'success');
+
+    // Upload new screenshots if provided, then patch DB
+    const [beforeUrl, afterUrl] = await Promise.all([
+      hasNewScreenshots ? uploadScreenshot(capturedFiles.before, 'before') : Promise.resolve(null),
+      hasNewScreenshots ? uploadScreenshot(capturedFiles.after,  'after')  : Promise.resolve(null),
+    ]);
+    if (beforeUrl) updatedRecord.screenshot_before = beforeUrl;
+    if (afterUrl)  updatedRecord.screenshot_after  = afterUrl;
+    if (existingIdx !== -1) journalEntries[existingIdx] = updatedRecord;
+
+    const patchData = { ...record };
+    delete patchData.user_id; delete patchData.trade_date;
+    if (beforeUrl) patchData.screenshot_before = beforeUrl;
+    if (afterUrl)  patchData.screenshot_after  = afterUrl;
+
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/trade_journal?id=eq.${editId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
+        body: JSON.stringify(patchData),
+      });
+      if (hasNewScreenshots) { renderJournal(); showToast('Done', 'Screenshots updated.', 'success'); }
+    } catch(e) { console.warn('edit journal patch failed', e); }
+    return;
+  }
+
+  // ── CREATE PATH ────────────────────────────────────────────────────────────
+  // Step 1 — show entry card immediately, navigate to journal
+  const tempId = 'temp_' + Date.now();
+  const tempEntry = { ...record, id: tempId };
+  journalEntries.unshift(tempEntry);
+  closeJournalModal();
+  renderJournal();
+  if (isMobileLayout()) mobileTab('journal');
+
+  // Step 2 — dismiss linked setup alert right away
+  if (linkedAlertId) {
+    alerts = alerts.filter(a => a.id !== linkedAlertId);
+    deleteAlertFromDB(linkedAlertId);
+    renderAlerts();
+  }
+
+  showToast('Trade Logged', `${symbol} saved to journal.`, 'success');
+
+  // Step 3 — upload screenshots + save to DB in background
+  const hasScreenshots = capturedFiles.before || capturedFiles.after;
+  if (hasScreenshots) showToast('Uploading…', 'Saving screenshots in background.', 'info');
+
+  const [beforeUrl, afterUrl] = await Promise.all([
+    uploadScreenshot(capturedFiles.before, 'before'),
+    uploadScreenshot(capturedFiles.after,  'after'),
+  ]);
+  record.screenshot_before = beforeUrl || null;
+  record.screenshot_after  = afterUrl  || null;
+
   const saved = await saveJournalToDB(record);
   if (saved) {
-    journalEntries.unshift(saved);
-    closeJournalModal();
+    const idx = journalEntries.findIndex(e => e.id === tempId);
+    if (idx !== -1) journalEntries[idx] = saved;
+    else journalEntries.unshift(saved);
     renderJournal();
-    showToast('Trade Logged', `${symbol} saved to your journal.`, 'success');
-
-    // If linked to a setup alert, dismiss it from active list
-    const linkedAlertId = document.getElementById('jnl-alert-id').value;
-    if (linkedAlertId) {
-      alerts = alerts.filter(a => a.id !== linkedAlertId);
-      await deleteAlertFromDB(linkedAlertId);
-      renderAlerts();
-    }
-
-    // Navigate to journal tab
-    if (isMobileLayout()) mobileTab('journal');
+    if (hasScreenshots) showToast('Done', 'Screenshots uploaded.', 'success');
   } else {
-    showToast('Save Failed', 'Could not save entry. Check your connection.', 'error');
+    // Remove temp entry and warn
+    journalEntries = journalEntries.filter(e => e.id !== tempId);
+    renderJournal();
+    showToast('Save Failed', 'Could not save to DB. Check your connection.', 'error');
   }
 }
 
@@ -3565,6 +3691,9 @@ function logTradeFromAlert(alertId) {
     watching: 'manual_exit',
   };
 
+  // For final states (sl_hit, tp hits), auto-fill exit price from levels
+  // For manual_exit states, leave exit price blank for user to fill
+  const isFinalState = ['full_tp','sl_hit','tp1_hit','tp2_hit'].includes(j.tradeStatus || '');
   openJournalEntryForm({
     alertId:       alertId,
     symbol:        alert.symbol,
@@ -3580,6 +3709,7 @@ function logTradeFromAlert(alertId) {
     entryReason:   j.entryReason,
     htfContext:    j.htfContext,
     emotionBefore: j.emotionBefore,
+    isManualClose: !isFinalState, // blank exit price if manually closing
   });
 }
 
@@ -3679,26 +3809,26 @@ async function renderJournal() {
       ? `<span style="color:${entry.pnl_pct >= 0 ? 'var(--green)' : 'var(--red)'};font-weight:700">${entry.pnl_pct >= 0 ? '+' : ''}${entry.pnl_pct}%</span>`
       : '';
 
+    // Summary line: entry→exit shorthand
+    const entrySummary = entry.entry_price ? `${f(entry.entry_price)} → ${entry.exit_price ? f(entry.exit_price) : '?'}` : '';
+    const setupSummary = entry.setup_type || '';
+
     card.innerHTML = `
-      <div class="journal-card-header" onclick="toggleJournalCard('${entry.id}')">
-        <div>
+      <div class="journal-card-summary" onclick="openJournalDetail('${entry.id}')">
+        <div class="journal-card-summary-left">
           <span class="journal-card-symbol">${entry.symbol}</span>
-          <span class="journal-card-dir" style="color:${dirColor}">${dir}</span>
-          ${entry.timeframe ? `<span style="font-family:var(--mono);font-size:0.58rem;color:var(--muted);margin-left:4px">${entry.timeframe}</span>` : ''}
+          <span class="journal-card-dir" style="color:${dirColor};font-size:0.62rem;font-weight:700;margin-left:4px">${dir}</span>
+          ${entry.timeframe ? `<span style="font-family:var(--mono);font-size:0.57rem;color:var(--muted);margin-left:4px">${entry.timeframe}</span>` : ''}
+          ${setupSummary ? `<span style="font-family:var(--mono);font-size:0.57rem;color:var(--muted);margin-left:4px">· ${setupSummary}</span>` : ''}
         </div>
-        <div style="display:flex;align-items:center;gap:8px">
+        <div class="journal-card-summary-right">
           ${pnlStr}
           <span class="journal-card-outcome ${om.cls}">${om.label}</span>
-          <span style="color:var(--muted);font-size:0.75rem">›</span>
         </div>
-      </div>
-      <div class="journal-card-body" id="jcard-${entry.id}">
-        <div class="journal-levels">${levels}</div>
-        ${notes ? `<div class="journal-notes">${notes}</div>` : ''}
-        ${shots}
-        <div class="journal-card-meta">
-          <span>${date}</span>
-          <button onclick="deleteJournalEntry('${entry.id}')" style="background:none;border:none;color:var(--muted);font-family:var(--mono);font-size:0.6rem;cursor:pointer;letter-spacing:0.06em">DELETE</button>
+        <div class="journal-card-summary-bottom">
+          <span style="font-family:var(--mono);font-size:0.62rem;color:var(--muted)">${date}</span>
+          ${entrySummary ? `<span style="font-family:var(--mono);font-size:0.62rem;color:var(--muted)">${entrySummary}</span>` : ''}
+          <span style="font-family:var(--mono);font-size:0.62rem;color:var(--accent);margin-left:auto">VIEW DETAILS ›</span>
         </div>
       </div>`;
 
@@ -3711,11 +3841,174 @@ function toggleJournalCard(id) {
   if (body) body.classList.toggle('open');
 }
 
-function openImageFullscreen(url) {
+function openJournalDetail(entryId) {
+  const entry = journalEntries.find(e => String(e.id) === String(entryId));
+  if (!entry) return;
+
+  const existing = document.getElementById('journal-detail-overlay');
+  if (existing) existing.remove();
+
+  const om  = {
+    full_tp:     { label: 'FULL TP',     cls: 'joutcome-full-tp' },
+    tp2_hit:     { label: 'TP2 HIT',     cls: 'joutcome-tp2-hit' },
+    tp1_hit:     { label: 'TP1 HIT',     cls: 'joutcome-tp1-hit' },
+    breakeven:   { label: 'BREAKEVEN',   cls: 'joutcome-breakeven' },
+    sl_hit:      { label: 'SL HIT',      cls: 'joutcome-sl-hit' },
+    manual_exit: { label: 'MANUAL EXIT', cls: 'joutcome-manual-exit' },
+  }[entry.outcome] || { label: 'MANUAL EXIT', cls: 'joutcome-manual-exit' };
+
+  const dir = entry.direction === 'long' ? '▲ LONG' : '▼ SHORT';
+  const dirColor = entry.direction === 'long' ? 'var(--green)' : 'var(--red)';
+  const date = new Date(entry.trade_date || entry.created_at).toLocaleDateString([], {day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:true});
+  const f = (n) => n ? parseFloat(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:6}) : '—';
+  const pnlStr = entry.pnl_pct != null
+    ? `<span style="color:${entry.pnl_pct >= 0 ? 'var(--green)' : 'var(--red)'};font-weight:700;font-size:1rem">${entry.pnl_pct >= 0 ? '+' : ''}${entry.pnl_pct}%</span>`
+    : '';
+
+  const levelRows = [
+    ['ENTRY',     entry.entry_price, 'var(--text)'],
+    ['EXIT',      entry.exit_price,  'var(--text)'],
+    ['STOP LOSS', entry.sl_price,    'var(--red)'],
+    ['TP1',       entry.tp1_price,   'var(--green)'],
+    entry.tp2_price ? ['TP2', entry.tp2_price, 'var(--green)'] : null,
+    entry.tp3_price ? ['TP3', entry.tp3_price, 'var(--green)'] : null,
+  ].filter(Boolean).map(([lbl, val, col]) =>
+    `<div class="jdetail-level-row"><span style="font-family:var(--mono);font-size:0.62rem;color:var(--muted)">${lbl}</span><span style="font-family:var(--mono);font-size:0.82rem;font-weight:700;color:${col}">${f(val)}</span></div>`
+  ).join('');
+
+  const noteRows = [
+    entry.setup_type    ? ['Setup Type',    entry.setup_type]    : null,
+    entry.entry_reason  ? ['Entry Reason',  entry.entry_reason]  : null,
+    entry.htf_context   ? ['HTF Context',   entry.htf_context]   : null,
+    entry.emotion_before ? ['Emotion Before', entry.emotion_before] : null,
+    entry.emotion_after  ? ['Emotion After',  entry.emotion_after]  : null,
+    entry.lessons        ? ['Lessons',         entry.lessons]        : null,
+  ].filter(Boolean).map(([lbl, val]) =>
+    `<div class="jdetail-note-row"><span class="jdetail-note-label">${lbl}</span><span class="jdetail-note-val">${val}</span></div>`
+  ).join('');
+
+  // Screenshot swiper
+  const shots = [entry.screenshot_before, entry.screenshot_after].filter(Boolean);
+  let shotsHtml = '';
+  if (shots.length) {
+    const slides = shots.map((url, i) =>
+      `<div class="jdetail-slide" data-idx="${i}"><img src="${url}" class="jdetail-slide-img" alt="Screenshot ${i+1}"></div>`
+    ).join('');
+    const dots = shots.length > 1 ? `<div class="jdetail-dots">${shots.map((_,i) =>
+      `<span class="jdetail-dot${i===0?' active':''}" data-dot="${i}"></span>`).join('')}</div>` : '';
+    shotsHtml = `<div class="jdetail-swiper" id="jdetail-swiper-${entry.id}">${slides}</div>${dots}`;
+  }
+
   const ov = document.createElement('div');
-  ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.95);display:flex;align-items:center;justify-content:center;cursor:zoom-out';
-  ov.innerHTML = `<img src="${url}" style="max-width:95vw;max-height:90vh;object-fit:contain;border-radius:8px">`;
-  ov.onclick = () => ov.remove();
+  ov.id = 'journal-detail-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9000;background:var(--bg);overflow-y:auto;-webkit-overflow-scrolling:touch';
+  ov.innerHTML = `
+    <div style="position:sticky;top:0;background:var(--bg);z-index:2;display:flex;align-items:center;justify-content:space-between;padding:14px 16px 12px;border-bottom:1px solid var(--border)">
+      <span style="font-family:var(--mono);font-size:0.65rem;letter-spacing:0.1em;color:var(--muted)">TRADE DETAIL</span>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button onclick="editJournalEntry('${entry.id}')" style="background:rgba(0,212,255,0.1);border:1px solid rgba(0,212,255,0.3);color:var(--accent);font-family:var(--mono);font-size:0.6rem;padding:5px 12px;border-radius:5px;cursor:pointer;letter-spacing:0.06em">EDIT</button>
+        <button onclick="document.getElementById('journal-detail-overlay').remove()" style="background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer;padding:4px 8px">&#x2715;</button>
+      </div>
+    </div>
+    <div style="padding:16px 16px 100px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+        <div>
+          <span style="font-size:1.3rem;font-weight:800;letter-spacing:0.04em">${entry.symbol}</span>
+          <span style="color:${dirColor};font-size:0.75rem;font-weight:700;margin-left:8px">${dir}</span>
+          ${entry.timeframe ? `<span style="font-family:var(--mono);font-size:0.62rem;color:var(--muted);margin-left:6px">${entry.timeframe}</span>` : ''}
+        </div>
+        <div style="text-align:right">
+          ${pnlStr}
+          <div><span class="journal-card-outcome ${om.cls}" style="font-size:0.65rem">${om.label}</span></div>
+        </div>
+      </div>
+      <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);margin-bottom:16px">${date}</div>
+      <div class="jdetail-levels">${levelRows}</div>
+      ${noteRows ? `<div class="jdetail-notes" style="margin-top:16px">${noteRows}</div>` : ''}
+      ${shotsHtml ? `<div style="margin-top:20px">${shotsHtml}</div>` : ''}
+      <div style="margin-top:20px;display:flex;gap:10px">
+        <button onclick="deleteJournalEntry('${entry.id}');document.getElementById('journal-detail-overlay')?.remove()" style="flex:1;padding:11px;background:rgba(255,61,90,0.1);border:1px solid rgba(255,61,90,0.3);color:var(--red);font-family:var(--mono);font-size:0.65rem;border-radius:7px;cursor:pointer;letter-spacing:0.06em">DELETE ENTRY</button>
+      </div>
+    </div>`;
+
+  document.body.appendChild(ov);
+
+  // Wire up swiper if shots exist
+  if (shots.length > 1) {
+    const swiper = document.getElementById(`jdetail-swiper-${entry.id}`);
+    if (swiper) initJournalSwiper(swiper, shots.length, entry.id);
+  }
+
+  // Wire up slide images for fullscreen tap
+  ov.querySelectorAll('.jdetail-slide-img').forEach(img => {
+    img.onclick = () => openImageFullscreen(img.src, shots);
+  });
+}
+
+function initJournalSwiper(swiper, count, entryId) {
+  let cur = 0;
+  const slides = swiper.querySelectorAll('.jdetail-slide');
+  const ov = document.getElementById('journal-detail-overlay');
+  const dots = ov ? ov.querySelectorAll('.jdetail-dot') : [];
+
+  const goTo = (idx) => {
+    cur = Math.max(0, Math.min(count - 1, idx));
+    swiper.scrollTo({ left: cur * swiper.offsetWidth, behavior: 'smooth' });
+    dots.forEach((d, i) => d.classList.toggle('active', i === cur));
+  };
+
+  let startX = 0;
+  swiper.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, { passive: true });
+  swiper.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - startX;
+    if (Math.abs(dx) > 40) goTo(dx < 0 ? cur + 1 : cur - 1);
+  });
+}
+
+function openImageFullscreen(url, allUrls = []) {
+  const urls = allUrls.length ? allUrls : [url];
+  let cur = urls.indexOf(url);
+  if (cur < 0) cur = 0;
+
+  const existing = document.getElementById('image-fullscreen-overlay');
+  if (existing) existing.remove();
+
+  const ov = document.createElement('div');
+  ov.id = 'image-fullscreen-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#000;display:flex;flex-direction:column;touch-action:pan-y';
+
+  const render = () => {
+    const slides = urls.map((u, i) =>
+      `<div class="img-fs-slide" style="min-width:100%;display:flex;align-items:center;justify-content:center">
+        <img src="${u}" style="max-width:100vw;max-height:calc(100vh - 60px);object-fit:contain">
+       </div>`
+    ).join('');
+    const dots = urls.length > 1 ? `<div style="display:flex;justify-content:center;gap:6px;padding:8px 0">
+      ${urls.map((_,i) => `<span style="width:6px;height:6px;border-radius:50%;background:${i===cur?'#fff':'rgba(255,255,255,0.3)'}"></span>`).join('')}
+    </div>` : '';
+    ov.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:rgba(0,0,0,0.8)">
+        <span style="color:rgba(255,255,255,0.5);font-family:monospace;font-size:0.7rem">${urls.length > 1 ? `${cur+1} / ${urls.length}` : ''}</span>
+        <button onclick="document.getElementById('image-fullscreen-overlay').remove()" style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:#fff;border-radius:50%;width:32px;height:32px;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center">&#x2715;</button>
+      </div>
+      <div id="img-fs-track" style="display:flex;flex:1;overflow:hidden;scroll-snap-type:x mandatory;overflow-x:auto;-webkit-overflow-scrolling:touch">${slides}</div>
+      ${dots}`;
+
+    const track = ov.querySelector('#img-fs-track');
+    if (track) {
+      requestAnimationFrame(() => track.scrollTo({ left: cur * window.innerWidth, behavior: 'auto' }));
+      let sx = 0;
+      track.addEventListener('touchstart', e => { sx = e.touches[0].clientX; }, { passive: true });
+      track.addEventListener('touchend', e => {
+        const dx = e.changedTouches[0].clientX - sx;
+        if (Math.abs(dx) > 40) {
+          cur = Math.max(0, Math.min(urls.length - 1, dx < 0 ? cur + 1 : cur - 1));
+          render();
+        }
+      });
+    }
+  };
+  render();
   document.body.appendChild(ov);
 }
 
@@ -3723,6 +4016,51 @@ async function deleteJournalEntry(id) {
   journalEntries = journalEntries.filter(e => e.id !== id);
   await deleteJournalEntryFromDB(id);
   renderJournal();
+  // Close detail overlay if open
+  document.getElementById('journal-detail-overlay')?.remove();
+}
+
+function editJournalEntry(id) {
+  const entry = journalEntries.find(e => String(e.id) === String(id));
+  if (!entry) return;
+
+  editingJournalId = id;
+
+  // Close detail overlay first
+  document.getElementById('journal-detail-overlay')?.remove();
+
+  openJournalEntryForm({
+    symbol:        entry.symbol,
+    direction:     entry.direction,
+    entry:         entry.entry_price,
+    exitPrice:     entry.exit_price,
+    sl:            entry.sl_price,
+    tp1:           entry.tp1_price,
+    tp2:           entry.tp2_price,
+    tp3:           entry.tp3_price,
+    outcome:       entry.outcome,
+    timeframe:     entry.timeframe,
+    setupType:     entry.setup_type,
+    entryReason:   entry.entry_reason,
+    htfContext:    entry.htf_context,
+    emotionBefore: entry.emotion_before,
+    emotionAfter:  entry.emotion_after,
+    pnl:           entry.pnl_pct,
+    lessons:       entry.lessons,
+  });
+
+  // Update modal title to show editing state
+  const titleEl = document.querySelector('#journal-modal [style*="LOG TRADE"]');
+  const allSpans = document.querySelectorAll('#journal-modal span');
+  allSpans.forEach(s => { if (s.textContent === 'LOG TRADE') s.textContent = 'EDIT TRADE'; });
+
+  // Show delete existing screenshots option if they exist
+  if (entry.screenshot_before || entry.screenshot_after) {
+    showToast('Editing Trade', 'Upload new screenshots to replace existing ones, or leave blank to keep them.', 'info');
+  }
+
+  // Navigate to journal/chart to show the form
+  if (isMobileLayout()) mobileTab('journal');
 }
 
 // mobileTab is handled by app-watchlist.js — journal tab already supported there
