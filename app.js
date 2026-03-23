@@ -1120,7 +1120,9 @@ function mobileTab(tab, pushState = true) {
     panel.classList.add('mobile-active');
     panel.scrollTop = 0;
     document.getElementById('mnav-chart').classList.add('active');
-    setTimeout(() => { if (selectedAsset) loadTVChart(selectedAsset); }, 150);
+    // Only force-reload if the asset changed; keyboard dismiss keeps same asset → skip
+    const _needsForce = !lwCurrentAsset || !selectedAsset || lwCurrentAsset.id !== selectedAsset.id;
+    setTimeout(() => { if (selectedAsset) loadLWChart(selectedAsset, _needsForce); }, 150);
   } else if (tab === 'journal') {
     if (fab) fab.classList.remove('visible');
     const panel = document.getElementById('panel-journal');
@@ -1193,6 +1195,7 @@ let lwSeries       = null;
 let lwAlertLines   = [];
 let lwCurrentTF    = '1D'; // default
 let lwCurrentAsset = null;
+let lwLastTF       = null; // tracks last TF that was actually loaded (for idempotency)
 
 // ── Timeframe config ──────────────────────────────────────────────────────
 // Deriv valid granularities (seconds): 60 120 180 300 600 900 1800 3600 7200 14400 28800 86400
@@ -1235,7 +1238,7 @@ function setChartTF(tf) {
   document.querySelectorAll('.chart-tf-btn').forEach(b => {
     b.classList.toggle('active', b.textContent.trim() === tf);
   });
-  if (lwCurrentAsset) loadLWChart(lwCurrentAsset);
+  if (lwCurrentAsset) loadLWChart(lwCurrentAsset, true); // force=true: TF explicitly changed
 }
 
 // ── Create chart instance ──────────────────────────────────────────────────
@@ -1303,11 +1306,14 @@ function setChartLoading(on) {
 }
 
 // ── Main chart loader ──────────────────────────────────────────────────────
-async function loadLWChart(asset) {
+async function loadLWChart(asset, force = false) {
   if (!asset) return;
   // Don't reload chart while user is actively filling the alert form
-  // It causes the page to scroll back up mid-input
   if (userTypingInForm) return;
+  // Skip reload if already showing this asset+TF — unless forced
+  // This prevents keyboard open/close from resetting the chart
+  if (!force && lwChart && lwCurrentAsset && lwCurrentAsset.id === asset.id && lwLastTF === lwCurrentTF) return;
+  lwLastTF = lwCurrentTF;
   lwCurrentAsset = asset;
 
   // Destroy stale chart so it remeasures correctly
@@ -1823,6 +1829,7 @@ async function createAlert() {
 
   renderAlerts();
   renderWatchlist();
+  userTypingInForm = false;
   if (isMobileLayout()) {
     switchAlertTab('active');
     mobileTab('alerts');
@@ -2671,6 +2678,23 @@ async function createSetupAlert() {
     if (tp1 >= entry) return showToast('Invalid TP1', 'For a short, TP1 must be below entry.', 'error');
   }
 
+  // ── Duplicate check: one active setup alert per asset ───────────────────
+  if (!editingAlertId) {
+    const dupSetup = alerts.find(a =>
+      a.condition === 'setup' &&
+      a.assetId === selectedAsset.id &&
+      a.status === 'active'
+    );
+    if (dupSetup) {
+      const j = getJournal(dupSetup);
+      return showToast(
+        'Duplicate Setup',
+        `You already have an active ${j.direction === 'long' ? 'LONG' : 'SHORT'} setup on ${selectedAsset.symbol}. Edit or delete it first.`,
+        'error'
+      );
+    }
+  }
+
   // Pack all journal + trade data into the note field as JSON
   const journal = {
     direction:       setupDirection,
@@ -2707,20 +2731,13 @@ async function createSetupAlert() {
 
   alerts.push(newAlert);
 
-  try {
-    const saved = await saveAlert(newAlert);
-    const idx = alerts.findIndex(a => a.id === newAlert.id);
-    if (idx !== -1 && saved?.id) alerts[idx].id = saved.id;
-  } catch(e) {
-    console.warn('createSetupAlert: DB save failed', e);
-  }
+  // Navigate immediately — don't wait for DB save so UX feels instant
+  renderAlerts();
+  showToast('Trade Setup Created', `${selectedAsset.symbol} setup alert active — watching for entry at ${formatPrice(entry, selectedAsset.id)}.`, 'success');
+  if (isMobileLayout()) { switchAlertTab('active'); mobileTab('alerts'); }
+  userTypingInForm = false;
 
-  // Send Telegram setup confirmation
-  if (telegramEnabled && telegramChatId) {
-    sendTelegram(tgSetupCreatedMessage(selectedAsset.symbol, setupDirection, entry, sl, tp1, tp2, tp3, timeframe, journal));
-  }
-
-  // Reset form
+  // Reset form fields
   ['setup-entry','setup-sl','setup-tp1','setup-tp2','setup-tp3','setup-entry-reason','setup-htf-context'].forEach(id => {
     const el = document.getElementById(id);
     if (el) { el.value = ''; delete el.dataset.userEdited; }
@@ -2730,9 +2747,17 @@ async function createSetupAlert() {
     if (el) el.selectedIndex = 0;
   });
 
-  renderAlerts();
-  showToast('Trade Setup Created', `${selectedAsset.symbol} setup alert active — watching for entry at ${formatPrice(entry, selectedAsset.id)}.`, 'success');
-  if (isMobileLayout()) { switchAlertTab('active'); mobileTab('alerts'); }
+  // DB save + Telegram in background
+  try {
+    const saved = await saveAlert(newAlert);
+    const idx = alerts.findIndex(a => a.id === newAlert.id);
+    if (idx !== -1 && saved?.id) alerts[idx].id = saved.id;
+  } catch(e) {
+    console.warn('createSetupAlert: DB save failed', e);
+  }
+  if (telegramEnabled && telegramChatId) {
+    sendTelegram(tgSetupCreatedMessage(selectedAsset.symbol, setupDirection, entry, sl, tp1, tp2, tp3, timeframe, journal));
+  }
 }
 
 // ── Parse journal from alert.note ─────────────────────────────────────────
@@ -4361,10 +4386,16 @@ function setStatusPill(isLive) {
 
 window.addEventListener('resize', () => {
   if (selectedAsset && !isMobileLayout()) loadTVChart(selectedAsset);
-  // Re-activate correct panel after orientation change
-  const activePanel = navStack[navStack.length - 1];
   if (isMobileLayout()) {
-    mobileTab(activePanel, false);
+    // Keyboard open/close on mobile fires resize — do NOT call mobileTab here
+    // as it triggers loadTVChart and resets scroll position mid-input.
+    // Only re-fit the chart canvas size if chart is already visible.
+    if (lwChart) {
+      try { lwChart.resize(
+        document.getElementById('lw-chart').clientWidth,
+        document.getElementById('lw-chart').clientHeight
+      ); } catch(e) {}
+    }
   } else {
     // Desktop — ensure all panels visible
     ['panel-watchlist','panel-main','panel-alerts'].forEach(id => {
