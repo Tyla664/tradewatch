@@ -136,6 +136,58 @@
     color: var(--muted); text-transform: uppercase; margin-top: 4px;
   }
 
+  /* ── Screenshot upload area in journal form ── */
+  .screenshot-upload-area {
+    position: relative;
+    cursor: pointer;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .screenshot-preview-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 80px;
+    border: 1.5px dashed var(--border);
+    border-radius: 8px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.06em;
+    transition: border-color 0.15s;
+  }
+  .screenshot-preview-empty:hover { border-color: var(--accent); color: var(--accent); }
+  .screenshot-preview-filled {
+    position: relative;
+    height: 80px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1.5px solid var(--accent);
+  }
+  .screenshot-preview-img {
+    width: 100%;
+    height: 80px;
+    object-fit: cover;
+    border-radius: 7px;
+    display: block;
+  }
+  .screenshot-preview-remove {
+    position: absolute;
+    top: 4px; right: 4px;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.6);
+    border: none;
+    color: #fff;
+    font-size: 0.7rem;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    line-height: 1;
+    z-index: 2;
+  }
+
   /* ── Journal cards ── */
   /* ── Journal summary card ── */
   .journal-card {
@@ -1099,6 +1151,9 @@
   .setup-dir-btn:hover { border-color: var(--accent); color: var(--accent); }
   #setup-long-btn.active  { background: rgba(0,230,118,0.12); border-color: var(--green); color: var(--green); }
   #setup-short-btn.active { background: rgba(255,61,90,0.12);  border-color: var(--red);   color: var(--red); }
+  /* Journal form direction buttons — same green/red logic */
+  #jnl-long-btn.active    { background: rgba(0,230,118,0.12); border-color: var(--green); color: var(--green); }
+  #jnl-short-btn.active   { background: rgba(255,61,90,0.12);  border-color: var(--red);   color: var(--red); }
   #setup-tp2notify-yes.active { background: rgba(0,212,255,0.12); border-color: var(--accent); color: var(--accent); }
   #setup-tp2notify-no.active  { background: rgba(74,106,128,0.15); border-color: var(--muted); color: var(--text); }
   .sound-opt {
@@ -1637,3 +1692,7 @@
 
 /* Setup dir btns */
 [data-theme="light"] .setup-dir-btn { background: #f0f4f8; border-color: var(--border); color: var(--muted); }
+[data-theme="light"] #setup-long-btn.active,
+[data-theme="light"] #jnl-long-btn.active  { background: rgba(0,135,90,0.10); border-color: var(--green); color: var(--green); }
+[data-theme="light"] #setup-short-btn.active,
+[data-theme="light"] #jnl-short-btn.active  { background: rgba(200,40,60,0.09); border-color: var(--red); color: var(--red); }
