@@ -1784,7 +1784,7 @@ async function createAlert() {
     note,
     sound:           selectedAlertSound,
     status:          'active',
-    createdAt:       new Date().toLocaleTimeString(),
+    createdAt:       new Date().toLocaleDateString([], {day:'2-digit',month:'short',year:'numeric'}) + ' · ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
     currentPriceWhenCreated: currentPrice,
   };
 
@@ -2271,6 +2271,116 @@ function isMarketOpenForAsset(assetId, now) {
 }
 
 
+// ── Proximity helper: fire once per level, reset on status change ──────────
+function checkSetupProximity(alert, j, currentPrice, prev) {
+  if (!telegramEnabled || !telegramChatId) return;
+  const PROX = 0.015; // 1.5% proximity threshold for setup levels
+  const entry = alert.targetPrice;
+  const sl    = j.sl;
+  const tp1   = j.tp1;
+  const tp2   = j.tp2 || null;
+  const isLong = j.direction === 'long';
+  let noteDirty = false;
+
+  // Only warn about entry when watching
+  if (prev === 'watching' && entry) {
+    const dist = Math.abs(currentPrice - entry) / entry;
+    const approaching = isLong ? currentPrice < entry : currentPrice > entry; // price moving toward entry
+    if (dist <= PROX && dist > 0.001 && approaching && !j.proxWarnedEntry) {
+      j.proxWarnedEntry = true;
+      noteDirty = true;
+      const distPct = (dist * 100).toFixed(2);
+      sendTelegram([
+        `👀 <b>ENTRY APPROACHING — ${alert.symbol}</b>`,
+        ``,
+        `Price is within ${distPct}% of your entry level.`,
+        ``,
+        tgRow('Entry',         `<b>${entry}</b>`),
+        tgRow('Current price', `<b>${formatPrice(currentPrice, alert.assetId)}</b>`),
+        tgRow('Direction',     `<b>${isLong ? 'LONG' : 'SHORT'}</b>`),
+        alert.timeframe ? tgRow('Timeframe', `<b>${alert.timeframe}</b>`) : null,
+        ``,
+        `<i>Get ready — your trade may activate soon.</i>`,
+        `<a href="https://t.me/tradewatchalert_bot/assistant">Open TradeWatch →</a>`,
+      ].filter(Boolean).join('\n'));
+    }
+  }
+
+  // Warn about SL any time after entry has triggered
+  const entryAlreadyHit = ['entry_hit','running','tp1_hit','tp2_hit'].includes(prev);
+  if (entryAlreadyHit && sl) {
+    const dist = Math.abs(currentPrice - sl) / sl;
+    const approaching = isLong ? currentPrice > sl : currentPrice < sl; // price still outside SL
+    if (dist <= PROX && dist > 0.001 && approaching && !j.proxWarnedSL) {
+      j.proxWarnedSL = true;
+      noteDirty = true;
+      const distPct = (dist * 100).toFixed(2);
+      sendTelegram([
+        `⚠️ <b>STOP LOSS APPROACHING — ${alert.symbol}</b>`,
+        ``,
+        `Price is within ${distPct}% of your stop loss.`,
+        ``,
+        tgRow('Stop Loss',     `<b>${sl}</b>`),
+        tgRow('Current price', `<b>${formatPrice(currentPrice, alert.assetId)}</b>`),
+        tgRow('Direction',     `<b>${isLong ? 'LONG' : 'SHORT'}</b>`),
+        ``,
+        `<i>Consider protecting your position.</i>`,
+        `<a href="https://t.me/tradewatchalert_bot/assistant">Open TradeWatch →</a>`,
+      ].filter(Boolean).join('\n'));
+    }
+  }
+
+  // Warn about TP1 when running
+  if (['entry_hit','running'].includes(prev) && tp1) {
+    const dist = Math.abs(currentPrice - tp1) / tp1;
+    const approaching = isLong ? currentPrice < tp1 : currentPrice > tp1;
+    if (dist <= PROX && dist > 0.001 && approaching && !j.proxWarnedTP1) {
+      j.proxWarnedTP1 = true;
+      noteDirty = true;
+      const distPct = (dist * 100).toFixed(2);
+      sendTelegram([
+        `👀 <b>TP1 APPROACHING — ${alert.symbol}</b>`,
+        ``,
+        `Price is within ${distPct}% of your first take profit.`,
+        ``,
+        tgRow('TP1',           `<b>${tp1}</b>`),
+        tgRow('Current price', `<b>${formatPrice(currentPrice, alert.assetId)}</b>`),
+        ``,
+        `<i>Consider securing partial profits at TP1.</i>`,
+        `<a href="https://t.me/tradewatchalert_bot/assistant">Open TradeWatch →</a>`,
+      ].filter(Boolean).join('\n'));
+    }
+  }
+
+  // Warn about TP2 when tp1 already hit and tp2Notify is on
+  if (prev === 'tp1_hit' && tp2 && j.tp2Notify !== false) {
+    const dist = Math.abs(currentPrice - tp2) / tp2;
+    const approaching = isLong ? currentPrice < tp2 : currentPrice > tp2;
+    if (dist <= PROX && dist > 0.001 && approaching && !j.proxWarnedTP2) {
+      j.proxWarnedTP2 = true;
+      noteDirty = true;
+      const distPct = (dist * 100).toFixed(2);
+      sendTelegram([
+        `👀 <b>TP2 APPROACHING — ${alert.symbol}</b>`,
+        ``,
+        `Price is within ${distPct}% of your second take profit.`,
+        ``,
+        tgRow('TP2',           `<b>${tp2}</b>`),
+        tgRow('Current price', `<b>${formatPrice(currentPrice, alert.assetId)}</b>`),
+        ``,
+        `<i>Decide whether to secure profits at TP2 or let it run.</i>`,
+        `<a href="https://t.me/tradewatchalert_bot/assistant">Open TradeWatch →</a>`,
+      ].filter(Boolean).join('\n'));
+    }
+  }
+
+  // Persist proximity flags if any were set
+  if (noteDirty) {
+    alert.note = JSON.stringify(j);
+    updateAlert(alert.id, { note: alert.note });
+  }
+}
+
 // ── Check setup alert levels against live price ────────────────────────────
 function checkSetupLevels(alert, currentPrice) {
   if (!currentPrice) return;
@@ -2287,6 +2397,9 @@ function checkSetupLevels(alert, currentPrice) {
 
   // Already in a final or closed state — nothing to check
   if (['full_tp','sl_hit','cancelled','manual_exit'].includes(prev)) return;
+
+  // Check proximity warnings before level transitions
+  checkSetupProximity(alert, j, currentPrice, prev);
 
   let next = prev;
 
@@ -2364,6 +2477,12 @@ function checkSetupLevels(alert, currentPrice) {
 
   // ── Apply state change ────────────────────────────────────────────────────
   j.tradeStatus = next;
+  // Reset proximity warning flags on every status transition so the new
+  // level gets its own fresh proximity warning when price approaches it
+  delete j.proxWarnedEntry;
+  delete j.proxWarnedSL;
+  delete j.proxWarnedTP1;
+  delete j.proxWarnedTP2;
   alert.note = JSON.stringify(j);
 
   // Persist the updated note to DB
@@ -2726,7 +2845,7 @@ async function createSetupAlert() {
     note:         JSON.stringify(journal),
     sound:        selectedAlertSound,
     status:       'active',
-    createdAt:    new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}),
+    createdAt:    new Date().toLocaleDateString([], {day:'2-digit',month:'short',year:'numeric'}) + ' · ' + new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}),
   };
 
   alerts.push(newAlert);
@@ -2833,6 +2952,7 @@ function renderSetupCard(alert, div) {
       ${levels}
       ${alert.timeframe ? `<br><span style="opacity:0.5;font-size:0.68rem">· ${alert.timeframe}</span>` : ''}
       ${journalLines ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-size:0.72rem;line-height:1.7">${journalLines}</div>` : ''}
+      <div style="margin-top:6px;opacity:0.45;font-size:0.68rem">Set ${alert.createdAt}</div>
     </div>
     <div class="alert-actions">${btnDismiss}${btnEdit}${btnDelete}</div>`;
 }
@@ -3028,11 +3148,10 @@ async function confirmManualClose(alertId) {
 
 // ── Telegram messages for setup alerts ────────────────────────────────────
 function tgSetupCreatedMessage(symbol, direction, entry, sl, tp1, tp2, tp3, timeframe, journal) {
-  const dir     = direction === 'long' ? '▲ LONG' : '▼ SHORT';
-  const emoji   = direction === 'long' ? '🟢' : '🔴';
-  const rrRaw   = tp1 && sl ? Math.abs(tp1 - entry) / Math.abs(entry - sl) : null;
+  const dir   = direction === 'long' ? 'LONG' : 'SHORT';
+  const rrRaw = tp1 && sl ? Math.abs(tp1 - entry) / Math.abs(entry - sl) : null;
   const rows = [
-    tgRow('Direction', `<b>${emoji} ${dir}</b>`),
+    tgRow('Direction', `<b>${dir}</b>`),
     tgRow('Entry',     `<b>${entry}</b>`),
     tgRow('Stop Loss', `<b>${sl}</b>`),
     tgRow('TP1',       `<b>${tp1}</b>`),
@@ -3058,11 +3177,10 @@ function tgSetupCreatedMessage(symbol, direction, entry, sl, tp1, tp2, tp3, time
 }
 
 function tgSetupUpdatedMessage(symbol, direction, entry, sl, tp1, tp2, tp3, timeframe, journal) {
-  const dir   = direction === 'long' ? '▲ LONG' : '▼ SHORT';
-  const emoji = direction === 'long' ? '🟢' : '🔴';
+  const dir   = direction === 'long' ? 'LONG' : 'SHORT';
   const rrRaw = tp1 && sl ? Math.abs(tp1 - entry) / Math.abs(entry - sl) : null;
   const rows = [
-    tgRow('Direction', `<b>${emoji} ${dir}</b>`),
+    tgRow('Direction', `<b>${dir}</b>`),
     tgRow('Entry',     `<b>${entry}</b>`),
     tgRow('Stop Loss', `<b>${sl}</b>`),
     tgRow('TP1',       `<b>${tp1}</b>`),
@@ -3126,7 +3244,7 @@ function tgSetupLevelMessage(symbol, level, price, assetId, journal) {
   const t = templates[level] || templates['entry_hit'];
   const rows = [
     tgRow('Price', `<b>${price}</b>`),
-    journal.direction ? tgRow('Direction', `<b>${journal.direction === 'long' ? '▲ LONG' : '▼ SHORT'}</b>`) : null,
+    journal.direction ? tgRow('Direction', `<b>${journal.direction === 'long' ? 'LONG' : 'SHORT'}</b>`) : null,
   ].filter(Boolean);
   return [
     t.header, ``, t.body, ``, ...rows, ``, `<i>${t.action}</i>`, ``,
