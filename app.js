@@ -1077,13 +1077,16 @@ function isMobileLayout() {
 function mobileTab(tab, pushState = true) {
   if (!isMobileLayout()) return;
 
-  // Close journal modal (LOG TRADE form) and journal detail overlay when
-  // navigating to watchlist or chart — it shouldn't float over other pages
-  if (tab === 'watchlist' || tab === 'chart') {
+  // Close journal modal (LOG TRADE form), journal detail overlay, and
+  // close-choice modal whenever navigating away from the journal tab.
+  // They must not float over other pages.
+  if (tab !== 'journal') {
     const jm = document.getElementById('journal-modal');
-    if (jm) jm.style.display = 'none';
+    if (jm) { jm.style.display = 'none'; closeJournalModal(); }
     const jd = document.getElementById('journal-detail-overlay');
     if (jd) jd.remove();
+    const cc = document.getElementById('close-choice-modal');
+    if (cc) cc.remove();
   }
 
   const current = navStack[navStack.length - 1];
@@ -2452,29 +2455,55 @@ function checkSetupLevels(alert, currentPrice) {
   let next = prev;
 
   // ── Determine next status based on price ─────────────────────────────────
+  // IMPORTANT: Each state transition is evaluated separately and exclusively.
+  // Entry must be confirmed on a prior tick before TP/SL are ever checked.
+  // This prevents a "false trigger" where entry + TP fire in the same tick.
+
   if (prev === 'watching') {
-    // Entry hit?
+    // Only check: has price reached entry?
+    // Do NOT check TP/SL here — the trade hasn't started yet.
     const entryHit = isLong ? currentPrice >= entry : currentPrice <= entry;
     if (entryHit) next = 'entry_hit';
+    // Return now — let the NEXT tick handle TP/SL checking once entry is confirmed
+    if (next !== prev) {
+      // Persist entry_hit and send Telegram — TP/SL checked next tick
+      j.tradeStatus = next;
+      delete j.proxWarnedEntry;
+      delete j.proxWarnedSL;
+      delete j.proxWarnedTP1;
+      delete j.proxWarnedTP2;
+      alert.note = JSON.stringify(j);
+      updateAlert(alert.id, { note: alert.note });
+      renderAlerts();
+      const msgs = { entry_hit: [`ENTRY HIT — ${alert.symbol}`, 'Price reached your entry. Your trade may now be active.'] };
+      const [title, body] = msgs[next] || [`${alert.symbol} update`, ''];
+      showToast(title, body, 'info');
+      if (telegramEnabled && telegramChatId) {
+        sendTelegram(tgSetupLevelMessage(alert.symbol, next, currentPrice, alert.assetId, j));
+      }
+      return;
+    }
+    return; // still watching, no change
   }
 
-  if (prev === 'entry_hit' || next === 'entry_hit') {
-    // Check SL first (price moved against us)
+  // Only reach here when prev is entry_hit, running, tp1_hit, or tp2_hit
+  // At this point entry has already been confirmed on a previous tick.
+
+  if (prev === 'entry_hit') {
+    // Trade is active — now monitor SL and TPs
     if (sl) {
       const slHit = isLong ? currentPrice <= sl : currentPrice >= sl;
       if (slHit) { next = 'sl_hit'; }
     }
-    // Check TPs in order only if SL not hit
     if (next !== 'sl_hit') {
-      const tp3Hit = tp3 && (isLong ? currentPrice >= tp3 : currentPrice <= tp3);
-      const tp2Hit = tp2 && (isLong ? currentPrice >= tp2 : currentPrice <= tp2);
-      const tp1Hit = tp1 && (isLong ? currentPrice >= tp1 : currentPrice <= tp1);
       const topTp  = tp3 || tp2 || tp1;
       const topHit = topTp && (isLong ? currentPrice >= topTp : currentPrice <= topTp);
+      const tp2Hit = tp2 && (isLong ? currentPrice >= tp2 : currentPrice <= tp2);
+      const tp1Hit = tp1 && (isLong ? currentPrice >= tp1 : currentPrice <= tp1);
       if      (topHit)  next = 'full_tp';
       else if (tp2Hit)  next = 'tp2_hit';
       else if (tp1Hit)  next = 'tp1_hit';
-      else if (next !== 'entry_hit') next = 'running';
+      else              next = 'running';
     }
   }
 
@@ -3018,11 +3047,12 @@ function renderSetupCard(alert, div) {
 
   // Button layout by state:
   // watching     → CLOSE + EDIT + DELETE
-  // live trade   → LOG TRADE + DELETE (no edit — trade is running)
+  // live trade   → CLOSE + EDIT + DELETE  (CLOSE opens LOG TRADE / DISMISS choice)
   // final state  → LOG TRADE + DISMISS (to history) + DELETE
+  const btnCloseRunning = `<button class="alert-action-btn toggle" onclick="showCloseTradeChoice('${alert.id}')">CLOSE</button>`;
   let actionBtns;
   if (isFinalState)       actionBtns = btnLog + btnDismissHistory + btnDelete;
-  else if (isLiveTrade)   actionBtns = btnLog + btnDelete;
+  else if (isLiveTrade)   actionBtns = btnCloseRunning + btnEdit + btnDelete;
   else                    actionBtns = btnClose + btnEdit + btnDelete; // watching
 
   div.innerHTML = `
@@ -3044,6 +3074,43 @@ function dismissSetupAlert(id) {
   const alert = alerts.find(a => a.id === id);
   if (!alert) return;
   showManualCloseForm(alert, getJournal(alert));
+}
+
+// Close choice for running trades — ask: Log Trade or just Dismiss to history
+function showCloseTradeChoice(id) {
+  const alert = alerts.find(a => a.id === id);
+  if (!alert) return;
+  const j = getJournal(alert);
+
+  const existing = document.getElementById('close-choice-modal');
+  if (existing) existing.remove();
+
+  const ov = document.createElement('div');
+  ov.id = 'close-choice-modal';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,0.6);display:flex;align-items:flex-end;justify-content:center;padding:0 0 env(safe-area-inset-bottom);backdrop-filter:blur(4px)';
+  ov.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;width:100%;max-width:480px;padding:20px 20px calc(20px + env(safe-area-inset-bottom))">
+      <div style="font-family:var(--mono);font-size:0.62rem;letter-spacing:0.12em;color:var(--muted);text-align:center;margin-bottom:16px">CLOSE TRADE — ${alert.symbol}</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button onclick="document.getElementById('close-choice-modal').remove(); logTradeFromAlert('${id}')"
+          style="width:100%;padding:14px;background:rgba(0,230,118,0.12);border:1px solid rgba(0,230,118,0.4);color:var(--green);font-family:var(--mono);font-size:0.75rem;font-weight:700;letter-spacing:0.08em;border-radius:10px;cursor:pointer">
+          LOG TRADE
+          <div style="font-size:0.6rem;opacity:0.7;font-weight:400;margin-top:2px">Save this trade to your journal</div>
+        </button>
+        <button onclick="document.getElementById('close-choice-modal').remove(); dismissSetupToHistory('${id}')"
+          style="width:100%;padding:14px;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.25);color:var(--accent);font-family:var(--mono);font-size:0.75rem;font-weight:700;letter-spacing:0.08em;border-radius:10px;cursor:pointer">
+          DISMISS
+          <div style="font-size:0.6rem;opacity:0.7;font-weight:400;margin-top:2px">Move to history without logging</div>
+        </button>
+        <button onclick="document.getElementById('close-choice-modal').remove()"
+          style="width:100%;padding:11px;background:transparent;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:0.68rem;letter-spacing:0.06em;border-radius:10px;cursor:pointer">
+          CANCEL
+        </button>
+      </div>
+    </div>`;
+
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
 }
 
 // Dismiss a final-state setup alert to history (no journal form — already logged or user skips)
