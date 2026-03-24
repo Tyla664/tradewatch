@@ -2460,28 +2460,49 @@ function checkSetupLevels(alert, currentPrice) {
   // This prevents a "false trigger" where entry + TP fire in the same tick.
 
   if (prev === 'watching') {
-    // Only check: has price reached entry?
-    // Do NOT check TP/SL here — the trade hasn't started yet.
+    // Two-phase entry detection to prevent false triggers:
+    //
+    // Phase 1 — "setup side visit": price must first reach/exceed the entry level
+    //   from the setup side (i.e. trade becomes eligible).
+    //   SHORT: price must rise UP to >= entry  (inducement sweep above entry)
+    //   LONG:  price must fall DOWN to <= entry (dip to the buy zone)
+    //   We track this with j.priceVisitedSetupSide = true in the note.
+    //
+    // Phase 2 — entry fires: rawEntryHit is true AND setup side was visited.
+    //   SHORT: currentPrice <= entry (price came back down through entry after sweep)
+    //   LONG:  currentPrice >= entry (price bounced back up through entry after dip)
+    //
+    // This prevents the alert from firing immediately if price was ALREADY past
+    // entry at creation time, while correctly handling inducement-style setups.
+
+    const setupSideReached = isLong
+      ? currentPrice <= entry   // LONG: price visits below/at entry (buy zone)
+      : currentPrice >= entry;  // SHORT: price visits above/at entry (sweep/inducement)
+
+    // Phase 1: mark that price has visited the setup side
+    let noteDirty = false;
+    if (!j.priceVisitedSetupSide && setupSideReached) {
+      j.priceVisitedSetupSide = true;
+      noteDirty = true;
+    }
+
+    // Phase 2: entry fires only after setup side was visited
+    // For SHORT: price was >= entry (phase 1), then comes back down to <= entry
+    // For LONG:  price was <= entry (phase 1), then bounces back up to >= entry
+    // Note: if priceAtCreation shows price was on the setup side at creation (old alert
+    // with no flag), treat it as visited so these alerts still work.
+    const pacFallback = !j.priceVisitedSetupSide && j.priceAtCreation
+      ? (isLong ? j.priceAtCreation <= entry : j.priceAtCreation >= entry)
+      : false;
+    const setupVisited = j.priceVisitedSetupSide || pacFallback;
+
     const rawEntryHit = isLong ? currentPrice >= entry : currentPrice <= entry;
+    const entryHit = rawEntryHit && setupVisited;
 
-    // Guard against false trigger: price must have been on the CORRECT side of entry
-    // at the time the alert was created. If price was already past entry when the alert
-    // was set, it means the user set the alert late — we must not immediately fire.
-    // priceAtCreation is stored in the note JSON when the alert is created.
-    // For LONG: price must have been BELOW entry at creation (needs to travel UP to it)
-    // For SHORT: price must have been ABOVE entry at creation (needs to travel DOWN to it)
-    const pac = j.priceAtCreation;
-    const priceWasOnCorrectSide = pac
-      ? (isLong ? pac < entry : pac > entry)
-      : true; // if we have no creation price (old alert), allow firing as before
-
-    const entryHit = rawEntryHit && priceWasOnCorrectSide;
-
-    if (entryHit) next = 'entry_hit';
-    // Return now — let the NEXT tick handle TP/SL checking once entry is confirmed
-    if (next !== prev) {
-      // Persist entry_hit and send Telegram — TP/SL checked next tick
-      j.tradeStatus = next;
+    if (entryHit) {
+      // Persist entry_hit — TP/SL checked on the NEXT tick only
+      j.tradeStatus = 'entry_hit';
+      j.priceVisitedSetupSide = true; // keep it
       delete j.proxWarnedEntry;
       delete j.proxWarnedSL;
       delete j.proxWarnedTP1;
@@ -2489,15 +2510,19 @@ function checkSetupLevels(alert, currentPrice) {
       alert.note = JSON.stringify(j);
       updateAlert(alert.id, { note: alert.note });
       renderAlerts();
-      const msgs = { entry_hit: [`ENTRY HIT — ${alert.symbol}`, 'Price reached your entry. Your trade may now be active.'] };
-      const [title, body] = msgs[next] || [`${alert.symbol} update`, ''];
-      showToast(title, body, 'info');
+      showToast(`ENTRY HIT — ${alert.symbol}`, 'Price reached your entry. Your trade may now be active.', 'info');
       if (telegramEnabled && telegramChatId) {
-        sendTelegram(tgSetupLevelMessage(alert.symbol, next, currentPrice, alert.assetId, j));
+        sendTelegram(tgSetupLevelMessage(alert.symbol, 'entry_hit', currentPrice, alert.assetId, j));
       }
       return;
     }
-    return; // still watching, no change
+
+    // If we updated the priceVisitedSetupSide flag, persist it quietly
+    if (noteDirty) {
+      alert.note = JSON.stringify(j);
+      updateAlert(alert.id, { note: alert.note });
+    }
+    return; // still watching
   }
 
   // Only reach here when prev is entry_hit, running, tp1_hit, or tp2_hit
