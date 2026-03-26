@@ -2045,7 +2045,14 @@ function renderAlerts() {
     if (isCurrentlyInZone) div.className = 'alert-item zone-in-zone';
 
     if (isTriggered) {
-      if (alert.condition === 'zone')      { badgeClass = 'badge-triggered-below'; badgeLabel = `${ALERT_ICONS.zone}TRIGGERED`; }
+      if (alert.condition === 'zone') {
+        // Show CROSSED if price has left the zone after triggering
+        if (!isCurrentlyInZone) {
+          badgeClass = 'badge-zone-crossed'; badgeLabel = `${ALERT_ICONS.zone}CROSSED`;
+        } else {
+          badgeClass = 'badge-zone-active'; badgeLabel = `${ALERT_ICONS.inzone}IN ZONE`;
+        }
+      }
       else if (alert.condition === 'tap')  { badgeClass = 'badge-triggered-above'; badgeLabel = `${ALERT_ICONS.triggered}TAPPED`; }
       else { badgeClass = `badge-triggered-${dir}`; badgeLabel = dir === 'above' ? `${ALERT_ICONS.above}TRIGGERED` : `${ALERT_ICONS.below}TRIGGERED`; }
     } else if (zoneInProgress && isCurrentlyInZone) {
@@ -2059,7 +2066,18 @@ function renderAlerts() {
     }
 
     const triggeredLine = isTriggered
-      ? `<span style="color:${dir === 'above' || alert.condition === 'tap' ? 'var(--green)' : 'var(--red)'}">Hit ${formatPrice(alert.triggeredPrice, alert.assetId)} at ${formatTriggeredAt(alert.triggeredAt)}</span><br>`
+      ? (() => {
+          if (alert.condition === 'zone') {
+            if (isCurrentlyInZone) {
+              return `<span style="color:var(--accent);font-size:0.78rem;">Price inside zone · triggered at ${formatPrice(alert.triggeredPrice, alert.assetId)}</span><br>`;
+            } else {
+              const side = currentLivePrice < alert.zoneLow ? 'below' : 'above';
+              return `<span style="color:#e88a00;font-size:0.78rem;">Price crossed ${side} zone at ${formatPrice(alert.triggeredPrice, alert.assetId)}</span><br>`;
+            }
+          }
+          const col = dir === 'above' || alert.condition === 'tap' ? 'var(--green)' : 'var(--red)';
+          return `<span style="color:${col}">Hit ${formatPrice(alert.triggeredPrice, alert.assetId)} at ${formatTriggeredAt(alert.triggeredAt)}</span><br>`;
+        })()
       : (zoneInProgress && isCurrentlyInZone)
         ? `<span style="color:var(--accent);font-size:0.78rem;">Price inside zone · alerting every ${alert.repeatInterval}m</span><br>`
       : (zoneInProgress && !isCurrentlyInZone)
@@ -2500,13 +2518,19 @@ function checkSetupLevels(alert, currentPrice) {
     const entryHit = rawEntryHit && setupVisited;
 
     if (entryHit) {
-      // Persist entry_hit — TP/SL checked on the NEXT tick only
+      // Guard: prevent re-firing if we already fired entry_hit recently (within 60s)
+      // This catches the case where async DB save hasn't persisted yet and the
+      // next tick re-reads the same in-memory note
+      const now = Date.now();
+      if (j.entryFiredMs && (now - j.entryFiredMs) < 60000) return;
+
       j.tradeStatus = 'entry_hit';
-      j.priceVisitedSetupSide = true; // keep it
+      j.priceVisitedSetupSide = true;
+      j.entryFiredMs = now;
+      // Reset only entry prox warning, keep SL/TP prox state clean for next phase
       delete j.proxWarnedEntry;
-      delete j.proxWarnedSL;
-      delete j.proxWarnedTP1;
-      delete j.proxWarnedTP2;
+      // Do NOT delete proxWarnedSL/TP here — proximity runs before this block
+      // and would re-fire immediately if we clear them
       alert.note = JSON.stringify(j);
       updateAlert(alert.id, { note: alert.note });
       renderAlerts();
@@ -2591,14 +2615,22 @@ function checkSetupLevels(alert, currentPrice) {
   // No state change — nothing to do
   if (next === prev) return;
 
+  // Guard: prevent same transition from firing twice within 30s (async DB lag protection)
+  const _now = Date.now();
+  const _lastKey = `lastFired_${next}`;
+  if (j[_lastKey] && (_now - j[_lastKey]) < 30000) return;
+
   // ── Apply state change ────────────────────────────────────────────────────
   j.tradeStatus = next;
-  // Reset proximity warning flags on every status transition so the new
-  // level gets its own fresh proximity warning when price approaches it
+  j[_lastKey] = _now;
+  // Reset proximity flags so the new phase gets fresh warnings
+  // Only reset SL/TP flags on TP transitions (not on running — SL might still be close)
+  if (['sl_hit','full_tp','tp1_hit','tp2_hit'].includes(next)) {
+    delete j.proxWarnedSL;
+    delete j.proxWarnedTP1;
+    delete j.proxWarnedTP2;
+  }
   delete j.proxWarnedEntry;
-  delete j.proxWarnedSL;
-  delete j.proxWarnedTP1;
-  delete j.proxWarnedTP2;
   alert.note = JSON.stringify(j);
 
   // Persist the updated note to DB
