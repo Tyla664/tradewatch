@@ -610,6 +610,23 @@ function makeDerivWS(symbols, retryRef) {
           vol: '—', mcap: '—', live: true, src: 'deriv',
         };
         prices[asset.id] = newPrice;
+
+        // ── Real-time setup level check on every live tick ──────────────
+        // Ensures brief TP/SL wicks are never missed by the 8s poll.
+        // Throttled: max once per 2s per asset to avoid excessive calls.
+        const _tickNow = Date.now();
+        const _throttleKey = 'lastSetupCheck_' + asset.id;
+        if (!window[_throttleKey] || (_tickNow - window[_throttleKey]) >= 2000) {
+          window[_throttleKey] = _tickNow;
+          const _nowDate = new Date(_tickNow);
+          if (isMarketOpenForAsset(asset.id, _nowDate)) {
+            alerts.forEach(al => {
+              if (al.condition === 'setup' && al.assetId === asset.id && al.status === 'active') {
+                checkSetupLevels(al, newPrice);
+              }
+            });
+          }
+        }
       }
     } catch(e) {}
   };
