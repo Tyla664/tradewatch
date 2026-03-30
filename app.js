@@ -627,6 +627,7 @@ function makeDerivWS(symbols, retryRef) {
             });
           }
         }
+        // (Cooldown logic inside checkSetupLevels uses lastTriggeredAt shared with Edge Function)
       }
     } catch(e) {}
   };
@@ -2360,6 +2361,10 @@ function isMarketOpenForAsset(assetId, now) {
 // ── Proximity helper: fire once per level, reset on status change ──────────
 function checkSetupProximity(alert, j, currentPrice, prev) {
   if (!telegramEnabled || !telegramChatId) return;
+  // Suppress ALL proximity warnings for 5 minutes after any level transition
+  // This prevents spam when app opens and loads a freshly-transitioned alert
+  const lastFired = alert.lastTriggeredAt || 0;
+  if ((Date.now() - lastFired) < 300000) return; // 5 min suppression after transition
   const PROX = 0.015; // 1.5% proximity threshold for setup levels
   const entry = alert.targetPrice;
   const sl    = j.sl;
@@ -2535,21 +2540,25 @@ function checkSetupLevels(alert, currentPrice) {
     const entryHit = rawEntryHit && setupVisited;
 
     if (entryHit) {
-      // Guard: prevent re-firing if we already fired entry_hit recently (within 60s)
-      // This catches the case where async DB save hasn't persisted yet and the
-      // next tick re-reads the same in-memory note
       const now = Date.now();
-      if (j.entryFiredMs && (now - j.entryFiredMs) < 60000) return;
+      // Shared cooldown: check lastTriggeredAt (set by BOTH frontend and Edge Function)
+      // This prevents duplicate fires when both sources try to fire at the same time
+      const lastFired = alert.lastTriggeredAt || 0;
+      if ((now - lastFired) < 90000) return; // 90s shared cooldown
+      // Also check the in-memory flag for same-session re-fires
+      if (j.entryFiredMs && (now - j.entryFiredMs) < 90000) return;
 
       j.tradeStatus = 'entry_hit';
       j.priceVisitedSetupSide = true;
       j.entryFiredMs = now;
-      // Reset only entry prox warning, keep SL/TP prox state clean for next phase
+      // Mark proxWarned flags so frontend doesn't spam SL/TP approaching
+      // immediately after entry fires (Edge Function may have already transitioned)
+      // Only mark if SL/TP are NOT currently being approached
       delete j.proxWarnedEntry;
-      // Do NOT delete proxWarnedSL/TP here — proximity runs before this block
-      // and would re-fire immediately if we clear them
       alert.note = JSON.stringify(j);
-      updateAlert(alert.id, { note: alert.note });
+      // Update both note and last_triggered_at so Edge Function sees we already fired
+      updateAlert(alert.id, { note: alert.note, last_triggered_at: new Date().toISOString() });
+      alert.lastTriggeredAt = now; // update in-memory too
       renderAlerts();
       showToast(`ENTRY HIT — ${alert.symbol}`, 'Price reached your entry. Your trade may now be active.', 'info');
       if (telegramEnabled && telegramChatId) {
@@ -2632,10 +2641,13 @@ function checkSetupLevels(alert, currentPrice) {
   // No state change — nothing to do
   if (next === prev) return;
 
-  // Guard: prevent same transition from firing twice within 30s (async DB lag protection)
+  // Shared cooldown: use lastTriggeredAt DB column (shared with Edge Function)
+  // Plus per-transition in-note flag as secondary guard
   const _now = Date.now();
+  const _lastShared = alert.lastTriggeredAt || 0;
   const _lastKey = `lastFired_${next}`;
-  if (j[_lastKey] && (_now - j[_lastKey]) < 30000) return;
+  if ((_now - _lastShared) < 60000) return; // 60s shared cooldown
+  if (j[_lastKey] && (_now - j[_lastKey]) < 60000) return; // per-transition guard
 
   // ── Apply state change ────────────────────────────────────────────────────
   j.tradeStatus = next;
@@ -2650,8 +2662,9 @@ function checkSetupLevels(alert, currentPrice) {
   delete j.proxWarnedEntry;
   alert.note = JSON.stringify(j);
 
-  // Persist the updated note to DB
-  updateAlert(alert.id, { note: alert.note });
+  // Persist note + last_triggered_at (shared cooldown signal for Edge Function)
+  updateAlert(alert.id, { note: alert.note, last_triggered_at: new Date().toISOString() });
+  alert.lastTriggeredAt = _now; // update in-memory too
 
   // Render updated card
   renderAlerts();
