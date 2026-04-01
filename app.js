@@ -4446,48 +4446,58 @@ function closeMenuPanel() {
 }
 
 function updateMenuToggles() {
-  // Theme toggle
   const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
-  const themeIcon    = document.getElementById('menu-theme-icon');
-  const themeLabel   = document.getElementById('menu-theme-label');
-  const themeSub     = document.getElementById('menu-theme-sub');
-  const themeToggle  = document.getElementById('menu-theme-toggle');
-  if (themeIcon)   themeIcon.textContent   = isDark ? '🌙' : '☀️';
-  if (themeLabel)  themeLabel.textContent  = isDark ? 'Dark Mode' : 'Light Mode';
-  if (themeSub)    themeSub.textContent    = isDark ? 'Currently using dark theme' : 'Currently using light theme';
+
+  // Theme SVG icons
+  const iconMoon = document.getElementById('menu-icon-moon');
+  const iconSun  = document.getElementById('menu-icon-sun');
+  if (iconMoon) iconMoon.style.display = isDark ? '' : 'none';
+  if (iconSun)  iconSun.style.display  = isDark ? 'none' : '';
+
+  // Theme label + toggle pill
+  const themeLabel  = document.getElementById('menu-theme-label');
+  const themeSub    = document.getElementById('menu-theme-sub');
+  const themeToggle = document.getElementById('menu-theme-toggle');
+  if (themeLabel)  themeLabel.textContent = isDark ? 'Dark Mode' : 'Light Mode';
+  if (themeSub)    themeSub.textContent   = isDark ? 'Switch to light theme' : 'Switch to dark theme';
   if (themeToggle) themeToggle.classList.toggle('on', isDark);
 
-  // Sound toggle
+  // Sound SVG icons
+  const soundWaves = document.getElementById('menu-sound-waves');
+  const soundMute  = document.getElementById('menu-sound-mute');
+  if (soundWaves) soundWaves.style.display = alertSoundEnabled ? '' : 'none';
+  if (soundMute)  soundMute.style.display  = alertSoundEnabled ? 'none' : '';
+
+  // Sound label + toggle pill
   const soundToggle = document.getElementById('menu-sound-toggle');
   const soundSub    = document.getElementById('menu-sound-sub');
   if (soundToggle) soundToggle.classList.toggle('on', alertSoundEnabled);
-  if (soundSub)    soundSub.textContent = alertSoundEnabled ? 'Sound alerts are ON' : 'Sound alerts are OFF';
+  if (soundSub)    soundSub.textContent = alertSoundEnabled ? 'Alert sounds are on' : 'Alert sounds are off';
 
   // Telegram status
   const tgSub = document.getElementById('menu-tg-sub');
-  if (tgSub) tgSub.textContent = telegramEnabled && telegramChatId
-    ? `Connected · @${telegramChatId.length > 8 ? '...' : telegramChatId}`
-    : 'Tap to set up alert notifications';
+  if (tgSub) tgSub.textContent = (telegramEnabled && telegramChatId)
+    ? 'Connected · notifications active'
+    : 'Set up alert notifications';
 }
 
-function openMenuAbout() {
-  closeMenuPanel();
-  showToast('TradeWatch', 'Real-time price alerts & trade journal for active traders. v1.0', 'info');
+function openMenuAbout()        { openMenuPage('about'); }
+function openMenuSubscription() { openMenuPage('subscription'); }
+function openMenuAffiliate()    { openMenuPage('affiliate'); }
+function openMenuHelp()         { openMenuPage('help'); }
+
+function openMenuPage(name) {
+  const page = document.getElementById('menu-page-' + name);
+  if (!page) return;
+  page.style.display = 'flex';
+  requestAnimationFrame(() => requestAnimationFrame(() => page.classList.add('open')));
 }
 
-function openMenuSubscription() {
-  closeMenuPanel();
-  showToast('Subscription Plans', 'Free, Pro and Elite tiers — coming soon.', 'info');
-}
-
-function openMenuAffiliate() {
-  closeMenuPanel();
-  showToast('Affiliate Program', 'Broker & prop firm partnerships — coming soon.', 'info');
-}
-
-function openMenuHelp() {
-  closeMenuPanel();
-  showToast('Help & FAQs', 'For support, contact us via Telegram @tradewatchsupport.', 'info');
+function closeMenuPage(name) {
+  const page = document.getElementById('menu-page-' + name);
+  if (!page) return;
+  page.classList.remove('open');
+  setTimeout(() => { page.style.display = 'none'; }, 280);
 }
 
 function toggleSound() {
