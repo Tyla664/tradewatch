@@ -490,7 +490,8 @@ let swRegistration  = null;
 const TELEGRAM_WORKER_URL = 'https://telegram-worker.meet-tyla.workers.dev';
 let telegramEnabled  = false;
 let telegramChatId   = localStorage.getItem('tg_chat_id') || '';
-let telegramUserName = '';
+let telegramUserName  = '';
+let telegramUserPhoto = ''; // Telegram profile picture URL
 
 // Asset library reference
 const ASSET_LIBRARY = ALL_ASSETS;
@@ -4421,6 +4422,42 @@ function playAlertSound(type = 'chime') {
 
 
 // ── Slide-out menu panel ─────────────────────────────────────────────────────
+
+// ── Swipe-back gesture (iPhone-style) ────────────────────────────────────────
+// Attaches a one-time right-swipe listener to an element.
+// panelMode=true: only fires if touch starts within leftEdge px of screen edge
+// Sub-pages: fires on any right-swipe across the page
+function attachSwipeBack(el, onBack, panelMode = false) {
+  // Remove any existing listener first to avoid stacking
+  if (el._swipeHandler) {
+    el.removeEventListener('touchstart', el._swipeHandler, { passive: true });
+    el.removeEventListener('touchend',   el._swipeEndHandler);
+  }
+
+  let startX = 0, startY = 0;
+
+  el._swipeHandler = (e) => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  };
+
+  el._swipeEndHandler = (e) => {
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = Math.abs(e.changedTouches[0].clientY - startY);
+
+    // Must be a horizontal swipe (dx > dy), moving right (dx > 0)
+    if (dx < 60 || dy > dx * 0.8) return;
+
+    // Panel mode: only from left edge of screen (within 30px)
+    if (panelMode && startX > 30) return;
+
+    onBack();
+  };
+
+  el.addEventListener('touchstart', el._swipeHandler, { passive: true });
+  el.addEventListener('touchend',   el._swipeEndHandler, { passive: true });
+}
+
 function openMenuPanel() {
   const panel   = document.getElementById('menu-panel');
   const overlay = document.getElementById('menu-overlay');
@@ -4433,7 +4470,34 @@ function openMenuPanel() {
   if (nameEl) {
     const displayName = telegramUserName || 'TradeWatch User';
     nameEl.textContent = displayName;
-    if (avatarEl) avatarEl.textContent = (displayName[0] || 'T').toUpperCase();
+
+    if (avatarEl) {
+      const photoEl  = document.getElementById('menu-avatar-photo');
+      const letterEl = document.getElementById('menu-avatar-letter');
+      const photoUrl = telegramUserPhoto || localStorage.getItem('tg_photo_url') || '';
+
+      if (photoUrl && photoEl) {
+        // Show profile photo, hide initials
+        photoEl.src = photoUrl;
+        photoEl.style.display = 'block';
+        if (letterEl) letterEl.style.display = 'none';
+        // If photo fails to load, fall back to initials
+        photoEl.onerror = () => {
+          photoEl.style.display = 'none';
+          if (letterEl) {
+            letterEl.textContent  = (displayName[0] || 'T').toUpperCase();
+            letterEl.style.display = '';
+          }
+        };
+      } else {
+        // No photo — show coloured initial
+        if (photoEl)   photoEl.style.display  = 'none';
+        if (letterEl) {
+          letterEl.textContent  = (displayName[0] || 'T').toUpperCase();
+          letterEl.style.display = '';
+        }
+      }
+    }
   }
   // Plan badge — placeholder FREE until billing is live
   if (planEl) planEl.innerHTML = '<span class="menu-plan-badge">FREE</span>';
@@ -4443,6 +4507,7 @@ function openMenuPanel() {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       panel.style.transform = 'translateX(0)';
+      attachSwipeBack(panel, closeMenuPanel, true);
     });
   });
   updateMenuToggles();
@@ -4502,7 +4567,10 @@ function openMenuPage(name) {
   const page = document.getElementById('menu-page-' + name);
   if (!page) return;
   page.style.display = 'flex';
-  requestAnimationFrame(() => requestAnimationFrame(() => page.classList.add('open')));
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    page.classList.add('open');
+    attachSwipeBack(page, () => closeMenuPage(name));
+  }));
 }
 
 function closeMenuPage(name) {
@@ -4583,11 +4651,18 @@ function sendBrowserNotification() {}
   try {
     const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
     if (tgUser?.id) {
-      telegramChatId   = String(tgUser.id);
-      telegramUserName = tgUser.first_name || tgUser.username || 'there';
-      localStorage.setItem('tg_chat_id', telegramChatId);
+      telegramChatId    = String(tgUser.id);
+      telegramUserName  = tgUser.first_name || tgUser.username || 'there';
+      telegramUserPhoto = tgUser.photo_url || '';
+      localStorage.setItem('tg_chat_id',    telegramChatId);
+      localStorage.setItem('tg_user_name',  telegramUserName);
+      localStorage.setItem('tg_photo_url',  telegramUserPhoto);
       telegramEnabled = true;
       localStorage.setItem('tg_enabled', 'true');
+    } else {
+      // Restore from localStorage on reload
+      telegramUserName  = localStorage.getItem('tg_user_name')  || '';
+      telegramUserPhoto = localStorage.getItem('tg_photo_url')  || '';
     }
   } catch(e) {}
 })();
