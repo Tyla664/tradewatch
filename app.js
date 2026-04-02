@@ -4465,14 +4465,14 @@ function updateMenuToggles() {
   // Sound SVG icons
   const soundWaves = document.getElementById('menu-sound-waves');
   const soundMute  = document.getElementById('menu-sound-mute');
-  if (soundWaves) soundWaves.style.display = alertSoundEnabled ? '' : 'none';
-  if (soundMute)  soundMute.style.display  = alertSoundEnabled ? 'none' : '';
+  if (soundWaves) soundWaves.style.display = SoundEnabled ? '' : 'none';
+  if (soundMute)  soundMute.style.display  = SoundEnabled ? 'none' : '';
 
   // Sound label + toggle pill
   const soundToggle = document.getElementById('menu-sound-toggle');
   const soundSub    = document.getElementById('menu-sound-sub');
-  if (soundToggle) soundToggle.classList.toggle('on', alertSoundEnabled);
-  if (soundSub)    soundSub.textContent = alertSoundEnabled ? 'Alert sounds are on' : 'Alert sounds are off';
+  if (soundToggle) soundToggle.classList.toggle('on', SoundEnabled);
+  if (soundSub)    soundSub.textContent = SoundEnabled ? 'Alert sounds are on' : 'Alert sounds are off';
 
   // Telegram status
   const tgSub = document.getElementById('menu-tg-sub');
