@@ -10,8 +10,8 @@
   --gold: #ffd600;
   --text: #e8f4f8;
   --muted: #4a6a80;
-  --mono: 'Space Mono', monospace;
-  --sans: 'Syne', sans-serif;
+  --mono: 'SF Mono', 'SFMono-Regular', ui-monospace, Menlo, Monaco, 'Courier New', monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -48,10 +48,7 @@ header {
 }
 /* Status pill sits in the middle, taking flex space */
 .status-pill-wrapper {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  display: none; /* Status pill removed from UI */
 }
 /* Menu button always at far right */
 .menu-btn-fixed {
