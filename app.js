@@ -5290,60 +5290,75 @@ setInterval(() => {
 
 // ═══════════════════════════════════════════════
 // ALTRADIA LOADING SPLASH
-// Letters light up sequentially a→l→t→r→a→d→i→a,
-// all fade together, then restart. Dismissed by
-// calling the returned function when init is done.
+// Covers the screen while init() runs.
+// Letters animate via CSS keyframes injected here.
+// Returns a dismiss function. Also has a hard 8-second
+// max lifetime — can never hang the app.
 // ═══════════════════════════════════════════════
 function showAltradiaLoadingSplash() {
   const splash = document.getElementById('altradia-splash');
-  if (!splash) return null;
-  splash.style.display = 'flex';
+  if (!splash) return () => {};
 
-  const letters        = splash.querySelectorAll('.splash-letter');
-  const LIGHT_DURATION = 120;  // ms per letter
-  const HOLD_AFTER     = 300;  // ms all lit before fade
-  const FADE_DURATION  = 400;  // ms fade-out
-  const RESTART_PAUSE  = 200;  // ms dark gap before restart
+  const letters = Array.from(splash.querySelectorAll('.splash-letter'));
+  const PER     = 110;  // ms per letter light-up
+  const HOLD    = 280;  // ms all lit
+  const FADE    = 350;  // ms all fade out
+  const GAP     = 150;  // ms gap before restart
+  const CYCLE   = letters.length * PER + HOLD + FADE + GAP;
 
-  let animTimer = null;
-  let stopped   = false;
-
-  function runCycle(onCycleEnd) {
-    if (stopped) return;
-    letters.forEach(l => { l.classList.remove('lit', 'fade-all'); });
-    let i = 0;
-    function lightNext() {
-      if (stopped) return;
-      if (i < letters.length) {
-        letters[i].classList.add('lit');
-        i++;
-        animTimer = setTimeout(lightNext, LIGHT_DURATION);
-      } else {
-        animTimer = setTimeout(() => {
-          if (stopped) return;
-          letters.forEach(l => { l.classList.remove('lit'); l.classList.add('fade-all'); });
-          animTimer = setTimeout(() => {
-            if (stopped) return;
-            letters.forEach(l => l.classList.remove('fade-all'));
-            animTimer = setTimeout(() => {
-              if (onCycleEnd) onCycleEnd();
-            }, RESTART_PAUSE);
-          }, FADE_DURATION);
-        }, HOLD_AFTER);
-      }
-    }
-    lightNext();
+  // Inject a single <style> block with CSS keyframes per letter
+  const styleId = 'splash-anim-style';
+  if (!document.getElementById(styleId)) {
+    const rules = letters.map((_, i) => {
+      const startPct  = Math.round((i * PER / CYCLE) * 1000) / 10;
+      const onPct     = Math.round(((i * PER + PER * 0.5) / CYCLE) * 1000) / 10;
+      const holdPct   = Math.round(((letters.length * PER + HOLD * 0.5) / CYCLE) * 1000) / 10;
+      const fadeStart = Math.round(((letters.length * PER + HOLD) / CYCLE) * 1000) / 10;
+      const fadeEnd   = Math.round(((letters.length * PER + HOLD + FADE) / CYCLE) * 1000) / 10;
+      return `
+        @keyframes sl${i} {
+          0%          { opacity: 0.1; }
+          ${startPct}%{ opacity: 0.1; }
+          ${onPct}%   { opacity: 1;   }
+          ${holdPct}% { opacity: 1;   }
+          ${fadeStart}%{ opacity: 1;  }
+          ${fadeEnd}% { opacity: 0.1; }
+          100%        { opacity: 0.1; }
+        }`;
+    }).join('\n');
+    const s = document.createElement('style');
+    s.id = styleId;
+    s.textContent = rules;
+    document.head.appendChild(s);
   }
 
-  function loop() { runCycle(loop); }
-  loop();
+  // Apply animation to each letter
+  letters.forEach((el, i) => {
+    el.style.animation = `sl${i} ${CYCLE}ms ease-in-out infinite`;
+  });
 
-  return function dismissSplash() {
-    stopped = true;
-    clearTimeout(animTimer);
-    splash.style.transition = 'opacity 0.35s ease';
-    splash.style.opacity = '0';
-    setTimeout(() => { splash.style.display = 'none'; splash.style.opacity = ''; splash.style.transition = ''; }, 370);
+  let dismissed = false;
+
+  function dismiss() {
+    if (dismissed) return;
+    dismissed = true;
+    // Stop animations
+    letters.forEach(el => { el.style.animation = 'none'; el.style.opacity = '0.1'; });
+    // Fade out the overlay
+    splash.classList.add('dismissed');
+    setTimeout(() => {
+      splash.style.display = 'none';
+      splash.classList.remove('dismissed');
+    }, 420);
+  }
+
+  // Hard safety timeout — dismiss after 8s no matter what
+  const safetyTimer = setTimeout(dismiss, 8000);
+
+  // Return wrapped dismiss that also clears the safety timer
+  return function () {
+    clearTimeout(safetyTimer);
+    dismiss();
   };
 }
 
