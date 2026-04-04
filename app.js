@@ -5292,6 +5292,19 @@ setInterval(() => {
 }, 60 * 1000);
 
 // ═══════════════════════════════════════════════
+// APP INIT REVEAL
+// ═══════════════════════════════════════════════
+function revealApp() {
+  document.body.classList.remove('app-loading');
+  const screen = document.getElementById('app-init-screen');
+  if (screen) {
+    screen.style.transition = 'opacity 0.35s ease';
+    screen.style.opacity = '0';
+    setTimeout(() => { screen.style.display = 'none'; }, 370);
+  }
+}
+
+// ═══════════════════════════════════════════════
 // AUTO-GROW TEXTAREAS
 // ═══════════════════════════════════════════════
 function autoGrow(el) {
@@ -5435,12 +5448,13 @@ async function init() {
     // ── New user onboarding: show linking screen, auto send test ──
     const hasOnboarded = localStorage.getItem('tw_onboarded');
     if (!hasOnboarded) {
+      revealApp();
       const onboardOk = await showOnboardingScreen();
       if (!onboardOk) return;
       localStorage.setItem('tw_onboarded', '1');
     }
   } else {
-    // Not inside Telegram — show blocking connect prompt
+    revealApp();
     soundEnabled = prefs?.sound_enabled ?? true;
     showTgConnectPrompt();
     return;
@@ -5554,6 +5568,7 @@ async function init() {
 
   // Navigate straight to chart on load
   mobileTab('chart', false);
+  revealApp();
 
 }
 
