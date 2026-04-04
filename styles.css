@@ -1422,10 +1422,31 @@ header {
   .mobile-nav { display: flex; }
 
   header {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(8,12,18,0.92);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    height: auto;
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .header-top-row {
+    display: flex;
+    align-items: center;
     padding: 0 16px;
     height: 54px;
-    padding-top: env(safe-area-inset-top);
-    height: calc(54px + env(safe-area-inset-top));
+    flex-shrink: 0;
+  }
+
+  .global-search-bar {
+    padding: 7px 12px 8px;
+    background: transparent;
+    border-bottom: none;
+    width: 100%;
+    box-sizing: border-box;
   }
   .logo { font-size: 0.95rem; gap: 7px; }
   .logo-mark { width: 22px; height: 22px; }
@@ -1452,7 +1473,7 @@ header {
   .app {
     display: flex;
     flex-direction: column;
-    height: calc(100dvh - 54px - env(safe-area-inset-top));
+    height: calc(100dvh - 54px - 46px - env(safe-area-inset-top));
     overflow: hidden;
     position: relative;
     z-index: 1;
@@ -1796,6 +1817,62 @@ header {
   }
 }
 
+
+/* ══════════════════════════════════════════════════
+   APP INIT LOADING SCREEN
+   ══════════════════════════════════════════════════ */
+.app-loading .app,
+.app-loading header,
+.app-loading .mobile-nav {
+  visibility: hidden;
+}
+.app-loading .app-init-screen {
+  display: flex;
+}
+.app-init-screen {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: #080c12;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 20px;
+}
+[data-theme="light"] .app-init-screen { background: #f0f4f8; }
+.app-init-logo {
+  display: flex;
+  align-items: baseline;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
+  font-weight: 800;
+  font-size: 2.4rem;
+  letter-spacing: -1px;
+  line-height: 1;
+}
+.app-init-logo .alt   { color: #025a91; }
+.app-init-logo .radia { color: #2d8a3e; }
+.app-init-bar {
+  width: 120px;
+  height: 2px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+[data-theme="light"] .app-init-bar { background: rgba(0,0,0,0.08); }
+.app-init-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #025a91, #2d8a3e);
+  border-radius: 2px;
+  animation: initBarFill 3s ease-in-out infinite;
+}
+@keyframes initBarFill {
+  0%   { width: 0%;   opacity: 1; }
+  70%  { width: 100%; opacity: 1; }
+  90%  { width: 100%; opacity: 0.4; }
+  100% { width: 0%;   opacity: 0; }
+}
 
 /* ══════════════════════════════════════════════════
    SESSION DISPLAY in summary bar
