@@ -129,7 +129,11 @@
     <div class="divider"></div>
     <div class="summary-item">TRIGGERED <strong id="triggeredCount">0</strong></div>
     <div class="divider"></div>
-    <div class="summary-item">UPDATED <strong id="lastUpdate">--:--</strong></div>
+    <div class="summary-item" id="session-display">
+      <span id="session-dot" class="closed"></span>
+      <span id="session-label">SESSION</span>
+      <span id="session-countdown"></span>
+    </div>
   </div>
 
   <!-- LEFT: Watchlist -->
@@ -304,7 +308,7 @@
         </div>
         <div class="form-group">
           <label>NOTE (OPTIONAL)</label>
-          <input type="text" id="alert-note" placeholder="e.g. Key resistance level">
+          <textarea id="alert-note" class="auto-grow-textarea" placeholder="e.g. Key resistance level" rows="1"></textarea>
         </div>
       </div>
 
@@ -334,7 +338,7 @@
           </div>
           <div class="form-group">
             <label>NOTE (OPTIONAL)</label>
-            <input type="text" id="alert-note-zone" placeholder="e.g. Consolidation zone">
+            <textarea id="alert-note-zone" class="auto-grow-textarea" placeholder="e.g. Consolidation zone" rows="1"></textarea>
           </div>
         </div>
       </div>
@@ -465,13 +469,13 @@
         <div class="form-row">
           <div class="form-group" style="flex:1">
             <label>ENTRY REASON</label>
-            <input type="text" id="setup-entry-reason" placeholder="e.g. FVG fill at OB with BOS">
+            <textarea id="setup-entry-reason" class="auto-grow-textarea" placeholder="e.g. FVG fill at OB with BOS" rows="1"></textarea>
           </div>
         </div>
         <div class="form-row">
           <div class="form-group" style="flex:1">
             <label>HTF CONTEXT</label>
-            <input type="text" id="setup-htf-context" placeholder="e.g. HTF bullish, in premium, D1 OB respected">
+            <textarea id="setup-htf-context" class="auto-grow-textarea" placeholder="e.g. HTF bullish, in premium, D1 OB respected" rows="1"></textarea>
           </div>
         </div>
 
@@ -675,11 +679,11 @@
     <!-- Entry reason + HTF -->
     <div class="form-group" style="margin-bottom:10px">
       <label>ENTRY REASON</label>
-      <input type="text" id="jnl-entry-reason" placeholder="e.g. FVG fill at OB with BOS">
+      <textarea id="jnl-entry-reason" class="auto-grow-textarea" placeholder="e.g. FVG fill at OB with BOS" rows="1"></textarea>
     </div>
     <div class="form-group" style="margin-bottom:10px">
       <label>HTF CONTEXT</label>
-      <input type="text" id="jnl-htf" placeholder="e.g. D1 OB respected, bullish bias">
+      <textarea id="jnl-htf" class="auto-grow-textarea" placeholder="e.g. D1 OB respected, bullish bias" rows="1"></textarea>
     </div>
 
     <!-- Emotions -->
@@ -1322,6 +1326,20 @@
 
     <!-- More coming -->
     <p style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);text-align:center;margin-top:24px;opacity:0.6">More settings coming soon</p>
+  </div>
+</div>
+
+<!-- altradia loading splash -->
+<div id="altradia-splash">
+  <div class="splash-letters">
+    <span class="splash-letter alt-letter" data-idx="0">a</span>
+    <span class="splash-letter alt-letter" data-idx="1">l</span>
+    <span class="splash-letter alt-letter" data-idx="2">t</span>
+    <span class="splash-letter radia-letter" data-idx="3">r</span>
+    <span class="splash-letter radia-letter" data-idx="4">a</span>
+    <span class="splash-letter radia-letter" data-idx="5">d</span>
+    <span class="splash-letter radia-letter" data-idx="6">i</span>
+    <span class="splash-letter radia-letter" data-idx="7">a</span>
   </div>
 </div>
 
