@@ -1464,9 +1464,15 @@ header {
     width: 100%;
     padding: 7px 12px 5px;
     background: var(--bg);
-    z-index: 20;
     border-bottom: 1px solid var(--border);
     box-sizing: border-box;
+  }
+
+  .panels-wrap {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    min-height: 0;
   }
 
   .summary-bar {
@@ -1519,12 +1525,6 @@ header {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
   }
-  .panels-wrap {
-    position: relative;
-    flex: 1;
-    overflow: hidden;
-    min-height: 0;
-  }
 
   .panel, .main-panel {
     position: absolute;
@@ -1536,6 +1536,8 @@ header {
     padding: 0;
     border: none;
     scroll-behavior: smooth;
+    /* Ensure scroll position 0 shows content from the very top of the panel */
+    scroll-padding-top: 0;
   }
   .panel.mobile-active,
   .main-panel.mobile-active { display: block; }
@@ -1986,7 +1988,6 @@ header {
   position: relative;
   padding: 8px 16px 4px;
   background: var(--bg);
-  z-index: 20;
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
 }
