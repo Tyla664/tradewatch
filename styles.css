@@ -1796,48 +1796,65 @@ header {
 }
 
 /* ══════════════════════════════════════════════════
-   ALTRADIA LOADING SPLASH
-   Covers the whole screen until init() is done.
-   Has a hard 8s max lifetime so it can never hang.
+   APP INIT HIDE — .app starts invisible, JS reveals
+   it once init() completes. Prevents any flash of
+   the hotlist or any other panel on load.
    ══════════════════════════════════════════════════ */
-#altradia-splash {
+.app-loading .app,
+.app-loading header,
+.app-loading .mobile-nav {
+  opacity: 0;
+  pointer-events: none;
+}
+.app-loading .app-init-screen {
+  display: flex;
+}
+.app-init-screen {
+  display: none;
   position: fixed;
   inset: 0;
   z-index: 99999;
-  background: var(--bg, #080c12);
-  display: flex;
+  background: #080c12;
   align-items: center;
   justify-content: center;
-  /* starts fully opaque — JS fades it out when ready */
-  opacity: 1;
-  transition: opacity 0.4s ease;
-  pointer-events: none; /* never blocks touch/click even if something goes wrong */
+  flex-direction: column;
+  gap: 20px;
 }
-#altradia-splash.dismissed {
-  opacity: 0;
-}
-.splash-letters {
+[data-theme="light"] .app-init-screen { background: #f0f4f8; }
+
+.app-init-logo {
   display: flex;
   align-items: baseline;
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
   font-weight: 800;
-  font-size: 2.6rem;
+  font-size: 2.4rem;
   letter-spacing: -1px;
   line-height: 1;
 }
-.splash-letter {
-  opacity: 0.1;
-}
-.splash-letter.alt-letter   { color: #025a91; }
-.splash-letter.radia-letter { color: #2d8a3e; }
+.app-init-logo .alt   { color: #025a91; }
+.app-init-logo .radia { color: #2d8a3e; }
 
-@keyframes splashLetterOn {
-  0%   { opacity: 0.1; }
-  100% { opacity: 1;   }
+.app-init-bar {
+  width: 120px;
+  height: 2px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 2px;
+  overflow: hidden;
 }
-@keyframes splashLetterOff {
-  0%   { opacity: 1;   }
-  100% { opacity: 0.1; }
+[data-theme="light"] .app-init-bar { background: rgba(0,0,0,0.08); }
+
+.app-init-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #025a91, #2d8a3e);
+  border-radius: 2px;
+  animation: initBarFill 3s ease-in-out infinite;
+}
+@keyframes initBarFill {
+  0%   { width: 0%;   opacity: 1; }
+  70%  { width: 100%; opacity: 1; }
+  90%  { width: 100%; opacity: 0.4; }
+  100% { width: 0%;   opacity: 0; }
 }
 
 /* ══════════════════════════════════════════════════
