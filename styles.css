@@ -1797,16 +1797,24 @@ header {
 
 /* ══════════════════════════════════════════════════
    ALTRADIA LOADING SPLASH
+   Covers the whole screen until init() is done.
+   Has a hard 8s max lifetime so it can never hang.
    ══════════════════════════════════════════════════ */
 #altradia-splash {
   position: fixed;
   inset: 0;
   z-index: 99999;
-  background: var(--bg);
+  background: var(--bg, #080c12);
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-direction: column;
+  /* starts fully opaque — JS fades it out when ready */
+  opacity: 1;
+  transition: opacity 0.4s ease;
+  pointer-events: none; /* never blocks touch/click even if something goes wrong */
+}
+#altradia-splash.dismissed {
+  opacity: 0;
 }
 .splash-letters {
   display: flex;
@@ -1818,13 +1826,19 @@ header {
   line-height: 1;
 }
 .splash-letter {
-  opacity: 0.12;
-  transition: opacity 0.15s ease, color 0.15s ease;
+  opacity: 0.1;
 }
 .splash-letter.alt-letter   { color: #025a91; }
 .splash-letter.radia-letter { color: #2d8a3e; }
-.splash-letter.lit          { opacity: 1; }
-.splash-letter.fade-all     { opacity: 0.12; transition: opacity 0.4s ease; }
+
+@keyframes splashLetterOn {
+  0%   { opacity: 0.1; }
+  100% { opacity: 1;   }
+}
+@keyframes splashLetterOff {
+  0%   { opacity: 1;   }
+  100% { opacity: 0.1; }
+}
 
 /* ══════════════════════════════════════════════════
    SESSION DISPLAY in summary bar
