@@ -847,6 +847,7 @@ function refreshSelectedAssetPanel() {
 
   document.getElementById('sel-symbol').textContent = asset.symbol;
   document.getElementById('sel-name').textContent   = asset.name;
+  updateChartWatchlistBtn();
 
   const d     = priceData[asset.id];
   const price = d?.price || null;
@@ -1029,6 +1030,152 @@ function switchWLTab(tab) {
     document.getElementById(btnId)?.classList.add('active');
   }
 }
+
+// ═══════════════════════════════════════════════
+// GLOBAL ASSET SEARCH
+// ═══════════════════════════════════════════════
+function onGlobalSearch(query) {
+  const q = (query || '').trim().toLowerCase();
+  const clearBtn = document.getElementById('global-search-clear');
+  const resultsEl = document.getElementById('global-search-results');
+  if (clearBtn) clearBtn.style.display = q ? '' : 'none';
+
+  if (!q || q.length < 1) {
+    if (resultsEl) resultsEl.style.display = 'none';
+    return;
+  }
+
+  // Search ALL_ASSETS by symbol or name
+  const results = ALL_ASSETS.filter(a =>
+    a.symbol.toLowerCase().includes(q) ||
+    a.name.toLowerCase().includes(q)
+  ).slice(0, 20);
+
+  if (!resultsEl) return;
+  if (!results.length) {
+    resultsEl.innerHTML = '<div class="search-no-results">No assets found</div>';
+    resultsEl.style.display = 'block';
+    return;
+  }
+
+  resultsEl.innerHTML = results.map(a => {
+    const inWL = Object.values(ASSETS).flat().some(w => w.id === a.id);
+    return `
+      <div class="search-result-item" onclick="searchSelectAsset('${a.id}')">
+        <div class="search-result-left">
+          <span class="search-result-symbol">${a.symbol}</span>
+          <span class="search-result-name">${a.name}</span>
+        </div>
+        <button class="search-add-btn ${inWL ? 'in-wl' : ''}"
+          onclick="searchAddToWatchlist(event,'${a.id}','${a.cat}')"
+          title="${inWL ? 'In watchlist' : 'Add to watchlist'}">
+          ${inWL
+            ? '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><polyline points="2,7 6,11 12,3" stroke="var(--green)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+            : '<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
+          }
+        </button>
+      </div>`;
+  }).join('');
+  resultsEl.style.display = 'block';
+}
+
+function searchSelectAsset(assetId) {
+  const asset = ALL_ASSETS.find(a => a.id === assetId);
+  if (!asset) return;
+  clearGlobalSearch();
+  selectAsset(asset);
+  mobileTab('chart');
+}
+
+function searchAddToWatchlist(e, assetId, cat) {
+  e.stopPropagation();
+  const asset = ALL_ASSETS.find(a => a.id === assetId);
+  if (!asset) return;
+  const inWL = Object.values(ASSETS).flat().some(w => w.id === assetId);
+  if (inWL) {
+    showToast('Already Added', `${asset.symbol} is already in your watchlist.`, 'info');
+    return;
+  }
+  if (!ASSETS[cat]) ASSETS[cat] = [];
+  ASSETS[cat].push(asset);
+  addToWatchlist(asset, cat);
+  showToast('Added', `${asset.symbol} added to your watchlist.`, 'success');
+  renderWatchlist();
+  renderHotList();
+  // Refresh search results to update icon
+  const input = document.getElementById('global-search-input');
+  if (input && input.value) onGlobalSearch(input.value);
+}
+
+function showGlobalSearch() {
+  const input = document.getElementById('global-search-input');
+  if (input && input.value.trim()) onGlobalSearch(input.value);
+}
+
+function clearGlobalSearch() {
+  const input   = document.getElementById('global-search-input');
+  const results = document.getElementById('global-search-results');
+  const clear   = document.getElementById('global-search-clear');
+  if (input)   { input.value = ''; input.blur(); }
+  if (results) results.style.display = 'none';
+  if (clear)   clear.style.display = 'none';
+}
+
+// Close search results when tapping outside
+document.addEventListener('touchstart', (e) => {
+  const bar = document.getElementById('global-search-bar');
+  if (bar && !bar.contains(e.target)) {
+    const results = document.getElementById('global-search-results');
+    if (results) results.style.display = 'none';
+  }
+}, { passive: true });
+
+
+// ── Chart page watchlist toggle button ───────────────────────────────────────
+function updateChartWatchlistBtn() {
+  const btn   = document.getElementById('wl-toggle-btn');
+  const icon  = document.getElementById('wl-toggle-icon');
+  const label = document.getElementById('wl-toggle-label');
+  if (!btn || !selectedAsset) { if (btn) btn.style.display = 'none'; return; }
+
+  const inWL = Object.values(ASSETS).flat().some(a => a.id === selectedAsset.id);
+  btn.style.display = '';
+  btn.classList.toggle('in-watchlist', inWL);
+
+  if (inWL) {
+    label.textContent = 'Remove from watchlist';
+    icon.innerHTML = '<line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>';
+  } else {
+    label.textContent = 'Add to watchlist';
+    icon.innerHTML = '<line x1="7" y1="1" x2="7" y2="13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="1" y1="7" x2="13" y2="7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>';
+  }
+}
+
+function toggleChartAssetWatchlist() {
+  if (!selectedAsset) return;
+  const asset = selectedAsset;
+  const inWL  = Object.values(ASSETS).flat().some(a => a.id === asset.id);
+
+  if (inWL) {
+    // Remove from watchlist
+    Object.keys(ASSETS).forEach(cat => {
+      ASSETS[cat] = (ASSETS[cat] || []).filter(a => a.id !== asset.id);
+    });
+    removeFromWatchlist(asset.id);
+    showToast('Removed', `${asset.symbol} removed from your watchlist.`, 'error');
+  } else {
+    // Add to watchlist
+    const cat = asset.cat || 'forex';
+    if (!ASSETS[cat]) ASSETS[cat] = [];
+    ASSETS[cat].push(asset);
+    addToWatchlist(asset, cat);
+    showToast('Added', `${asset.symbol} added to your watchlist.`, 'success');
+  }
+  renderWatchlist();
+  renderHotList();
+  updateChartWatchlistBtn();
+}
+
 function selectAsset(asset) {
   // Cancel any active edit when switching assets
   if (editingAlertId && selectedAsset && selectedAsset.id !== asset.id) {
@@ -1262,6 +1409,7 @@ const BINANCE_SYMBOL = {
 // ── Timeframe button handler ───────────────────────────────────────────────
 function setChartTF(tf) {
   lwCurrentTF = tf;
+  try { localStorage.setItem('altradia_last_tf', tf); } catch(e) {}
   document.querySelectorAll('.chart-tf-btn').forEach(b => {
     b.classList.toggle('active', b.textContent.trim() === tf);
   });
@@ -1279,22 +1427,35 @@ function ensureLWChart() {
   const w = (tvCont && tvCont.offsetWidth  > 10 ? tvCont.offsetWidth  : 400);
   const h = (tvCont && tvCont.offsetHeight > 10 ? tvCont.offsetHeight : 460);
 
+  const _isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const _chartTheme = _isDark ? {
+    bg:       '#080c12',
+    text:     '#8899aa',
+    grid:     'rgba(26,45,69,0.4)',
+    border:   'rgba(26,45,69,0.6)',
+  } : {
+    bg:       '#ffffff',
+    text:     '#334155',
+    grid:     'rgba(200,215,230,0.6)',
+    border:   'rgba(180,200,220,0.7)',
+  };
+
   lwChart = LightweightCharts.createChart(container, {
     width:  w,
     height: h,
     layout: {
-      background: { type: 'solid', color: '#080c12' },
-      textColor:  '#8899aa',
+      background: { type: 'solid', color: _chartTheme.bg },
+      textColor:  _chartTheme.text,
       fontSize:   11,
     },
     grid: {
-      vertLines: { color: 'rgba(26,45,69,0.4)' },
-      horzLines: { color: 'rgba(26,45,69,0.4)' },
+      vertLines: { color: _chartTheme.grid },
+      horzLines: { color: _chartTheme.grid },
     },
     crosshair: { mode: 1 }, // 1 = Normal
-    rightPriceScale: { borderColor: 'rgba(26,45,69,0.6)' },
+    rightPriceScale: { borderColor: _chartTheme.border },
     timeScale: {
-      borderColor:    'rgba(26,45,69,0.6)',
+      borderColor:    _chartTheme.border,
       timeVisible:    true,
       secondsVisible: false,
       rightOffset:    8,
@@ -4552,7 +4713,9 @@ function toggleTheme() {
   const isLight = root.getAttribute('data-theme') !== 'light';
   root.setAttribute('data-theme', isLight ? 'light' : 'dark');
   localStorage.setItem('tw_theme', isLight ? 'light' : 'dark');
-  updateMenuToggles(); // sync menu panel toggle state
+  updateMenuToggles(); // sync menu panel
+  // Reload chart so it picks up new theme colors
+  if (lwCurrentAsset) loadLWChart(lwCurrentAsset, true); // reload with new theme
 }
 
 function initTheme() {
@@ -5215,6 +5378,15 @@ async function init() {
   renderAlerts();
   document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
 
+  // Restore last timeframe (before restoring asset so chart loads with correct TF)
+  const _lastTF = localStorage.getItem('altradia_last_tf');
+  if (_lastTF) {
+    lwCurrentTF = _lastTF;
+    // Highlight the correct TF button
+    document.querySelectorAll('.chart-tf-btn').forEach(b => {
+      b.classList.toggle('active', b.textContent.trim() === _lastTF);
+    });
+  }
   // Restore last viewed asset, or default to EUR/USD for new users
   const _lastAssetId = localStorage.getItem('altradia_last_asset') || 'EUR/USD';
   const _defaultAsset = ALL_ASSETS.find(a => a.id === _lastAssetId)
