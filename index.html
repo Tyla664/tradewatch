@@ -81,6 +81,18 @@
     </div>
     <div class="global-search-results" id="global-search-results" style="display:none"></div>
   </div>
+  <!-- Summary bar sits inside header so it's part of the sticky block -->
+  <div class="summary-bar">
+    <div class="summary-item">ACTIVE <strong id="activeCount">0</strong></div>
+    <div class="divider"></div>
+    <div class="summary-item">TRIGGERED <strong id="triggeredCount">0</strong></div>
+    <div class="divider"></div>
+    <div class="summary-item" id="session-display">
+      <span id="session-dot" class="closed"></span>
+      <span id="session-label">SESSION</span>
+      <span id="session-countdown"></span>
+    </div>
+  </div>
 </header>
 
 <!-- Telegram Setup Modal -->
@@ -139,19 +151,6 @@
 </div>
 
 <div class="app">
-  <!-- Summary bar -->
-
-  <div class="summary-bar">
-    <div class="summary-item">ACTIVE <strong id="activeCount">0</strong></div>
-    <div class="divider"></div>
-    <div class="summary-item">TRIGGERED <strong id="triggeredCount">0</strong></div>
-    <div class="divider"></div>
-    <div class="summary-item" id="session-display">
-      <span id="session-dot" class="closed"></span>
-      <span id="session-label">SESSION</span>
-      <span id="session-countdown"></span>
-    </div>
-  </div>
 
   <!-- LEFT: Watchlist -->
   <div class="panels-wrap">
@@ -1189,9 +1188,12 @@
     <p class="legal-p">These Terms are governed by the laws of the Federal Republic of Nigeria, without regard to conflict of law principles.</p>
     <hr class="legal-hr">
     <h2 class="legal-h2">15. Contact Information</h2>
-    <p class="legal-p">For questions or concerns about these Terms, contact us at <strong>support@altradia.com</strong>.</p>
+    <p class="legal-p">For questions or concerns about these Terms, contact us at <strong><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="b4c7c1c4c4dbc6c0f4d5d8c0c6d5d0ddd59ad7dbd9">[email&#160;protected]</a></strong>.</p>
     <hr class="legal-hr">
     <p class="legal-p legal-closing">By using Altradia, you acknowledge that you have read, understood, and agreed to these Terms of Use.</p>
+    <div style="margin-top:20px;text-align:center">
+      <button class="menu-page-cta" onclick="openSupportBot()">Contact Support</button>
+    </div>
   </div>
 </div>
 
@@ -1264,9 +1266,12 @@
     <p class="legal-p">We may update this Privacy Policy from time to time. Updates will be communicated through the app or our website.</p>
     <hr class="legal-hr">
     <h2 class="legal-h2">9. Contact Us</h2>
-    <p class="legal-p">For questions or concerns about this Privacy Policy, contact us at <strong>support@altradia.com</strong>.</p>
+    <p class="legal-p">For questions or concerns about this Privacy Policy, contact us at <strong><a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="a5d6d0d5d5cad7d1e5c4c9d1d7c4c1ccc48bc6cac8">[email&#160;protected]</a></strong>.</p>
     <hr class="legal-hr">
     <p class="legal-p legal-closing">By using Altradia, you acknowledge that you have read, understood, and agreed to this Privacy Policy.</p>
+    <div style="margin-top:20px;text-align:center">
+      <button class="menu-page-cta" onclick="openSupportBot()">Contact Support</button>
+    </div>
   </div>
 </div>
 
@@ -1316,6 +1321,9 @@
     <hr class="legal-hr">
     <h2 class="legal-h2">6. Updates</h2>
     <p class="legal-p">We may update this policy as our app evolves. Changes will be communicated through the app or our website.</p>
+    <div style="margin-top:20px;text-align:center">
+      <button class="menu-page-cta" onclick="openSupportBot()">Contact Support</button>
+    </div>
   </div>
 </div>
 
@@ -1442,7 +1450,7 @@
     </div>
     <div class="menu-page-section" style="margin-top:8px">
       <div class="menu-page-section-title">STILL NEED HELP?</div>
-      <button class="menu-page-cta" onclick="closeMenuPage('help');openTelegramModal()">Contact Support via Telegram</button>
+      <button class="menu-page-cta" onclick="closeMenuPage('help');openSupportBot()">Contact Support via Telegram</button>
     </div>
   </div>
 </div>
@@ -1661,14 +1669,4 @@
           <span class="settings-row-label">Group by Category</span>
           <span class="settings-row-sub" id="wl-group-sub">Assets grouped by Forex, Crypto, etc.</span>
         </div>
-        <div class="menu-toggle-pill on" id="wl-group-toggle" onclick="toggleWatchlistGrouping()" style="cursor:pointer"></div>
-      </div>
-    </div>
-
-    <!-- More coming -->
-    <p style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);text-align:center;margin-top:24px;opacity:0.6">More settings coming soon</p>
-  </div>
-</div>
-
-
-</body>
+        <div class="menu-toggle-pill on" id="wl-group-toggle" onclick="toggleWatchlistGrouping()" style="cur
