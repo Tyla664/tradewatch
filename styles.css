@@ -1510,12 +1510,17 @@ header {
     height: 34px;
     min-height: 34px;
     border-bottom: 1px solid var(--border);
-    position: relative;
-    z-index: 20;
     flex-shrink: 0;
     background: var(--surface);
     font-size: 0.56rem;
     gap: 0;
+    /* Now inside header — no extra z-index needed */
+    width: 100%;
+    box-sizing: border-box;
+  }
+  /* When summary-bar is hidden (chart/journal tabs), header shrinks naturally */
+  .summary-bar.sb-hidden {
+    display: none;
   }
   .summary-item {
     display: flex; gap: 3px; align-items: center;
