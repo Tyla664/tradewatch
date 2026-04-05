@@ -464,6 +464,12 @@ let libSearchQuery = '';
 let currentWLTab   = 'hot';
 let navigateToChartOnSelect = false;
 
+// Feature state
+let slStreakWarningEnabled = false;
+let slStreakThreshold      = 3;   // warn after this many consecutive SLs
+let consecutiveSlCount     = 0;   // current streak counter
+let watchlistGrouped       = true; // true = show category headers
+
 // ═══════════════════════════════════════════════
 // HOT LIST
 // ═══════════════════════════════════════════════
@@ -924,34 +930,96 @@ function updateWatchlistSelection() {
 // type 'commodity'→ static SVG inline (no good free CDN)
 function renderWatchlist() {
   let totalCount = 0;
-  Object.entries(ASSETS).forEach(([cat, assets]) => {
-    const container = document.getElementById(cat + '-list');
-    if (!container) return;
-    container.innerHTML = '';
-    assets.forEach(asset => {
-      const hasAlert = alerts.some(a => a.assetId === asset.id && a.status === 'active');
-      const isSelected = !isMobileLayout() && selectedAsset && selectedAsset.id === asset.id;
+  const catLabels = { crypto:'CRYPTO', forex:'FOREX', commodities:'COMMODITIES', indices:'INDICES', stocks:'STOCKS', synthetics:'SYNTHETICS' };
 
+  if (watchlistGrouped) {
+    // ── Grouped view (default): render into existing per-category containers ──
+    Object.entries(ASSETS).forEach(([cat, assets]) => {
+      const container = document.getElementById(cat + '-list');
+      const labelEl   = container?.previousElementSibling; // the market-group-label div
+      if (!container) return;
+      container.innerHTML = '';
+      // Show/hide the category label based on whether it has assets
+      if (labelEl && labelEl.classList.contains('market-group-label')) {
+        labelEl.style.display = assets.length ? '' : 'none';
+      }
+      assets.forEach(asset => {
+        const hasAlert  = alerts.some(a => a.assetId === asset.id && a.status === 'active');
+        const isSelected = !isMobileLayout() && selectedAsset && selectedAsset.id === asset.id;
+        const card = document.createElement('div');
+        card.className = `asset-card${isSelected ? ' selected' : ''}${hasAlert ? ' has-alert' : ''}`;
+        card.dataset.assetId = asset.id;
+        card.innerHTML = `
+          <button class="asset-remove" title="Remove from watchlist" onclick="removeAssetFromWatchlist('${asset.id}','${cat}',event)"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+          <div class="asset-left">
+            <div class="asset-symbol">${asset.symbol}</div>
+            <div class="asset-name">${asset.name}</div>
+          </div>
+          ${hasAlert ? '<div class="asset-right"><div class="alert-dot" title="Alert active"></div></div>' : ''}`;
+        card.onclick = (e) => {
+          if (e.target.classList.contains('asset-remove') || e.target.closest('.asset-remove')) return;
+          navigateToChartOnSelect = true;
+          selectAsset(asset);
+        };
+        container.appendChild(card);
+        totalCount++;
+      });
+    });
+    // Show ungrouped flat container if exists — hide it
+    const flat = document.getElementById('wl-flat-list');
+    if (flat) flat.style.display = 'none';
+    // Show the normal grouped sections
+    document.querySelectorAll('#panel-my-watchlist .market-group').forEach(g => { g.style.display = ''; });
+  } else {
+    // ── Flat view: hide all category groups, show one flat list ──
+    document.querySelectorAll('#panel-my-watchlist .market-group').forEach(g => { g.style.display = 'none'; });
+
+    // Create or reuse flat container
+    let flat = document.getElementById('wl-flat-list');
+    if (!flat) {
+      flat = document.createElement('div');
+      flat.id = 'wl-flat-list';
+      flat.style.padding = '0 16px';
+      const panel = document.getElementById('panel-my-watchlist');
+      const emptyEl = document.getElementById('wl-empty');
+      if (panel && emptyEl) panel.insertBefore(flat, emptyEl);
+    }
+    flat.style.display = '';
+    flat.innerHTML = '';
+
+    // Collect all assets across categories
+    const allAssets = Object.entries(ASSETS).flatMap(([cat, assets]) =>
+      assets.map(asset => ({ asset, cat }))
+    );
+
+    allAssets.forEach(({ asset, cat }) => {
+      const hasAlert   = alerts.some(a => a.assetId === asset.id && a.status === 'active');
+      const isSelected = !isMobileLayout() && selectedAsset && selectedAsset.id === asset.id;
+      const catLabel   = catLabels[cat] || cat.toUpperCase();
       const card = document.createElement('div');
       card.className = `asset-card${isSelected ? ' selected' : ''}${hasAlert ? ' has-alert' : ''}`;
       card.dataset.assetId = asset.id;
+      card.style.marginBottom = '8px';
       card.innerHTML = `
         <button class="asset-remove" title="Remove from watchlist" onclick="removeAssetFromWatchlist('${asset.id}','${cat}',event)"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
         <div class="asset-left">
           <div class="asset-symbol">${asset.symbol}</div>
           <div class="asset-name">${asset.name}</div>
         </div>
-        ${hasAlert ? '<div class="asset-right"><div class="alert-dot" title="Alert active"></div></div>' : ''}`;
+        <div style="margin-left:auto;padding-right:${hasAlert ? '28px' : '4px'}">
+          <span style="font-family:var(--mono);font-size:0.5rem;letter-spacing:0.08em;color:var(--muted);background:var(--surface2);padding:2px 6px;border-radius:4px">${catLabel}</span>
+        </div>
+        ${hasAlert ? '<div class="asset-right" style="position:absolute;right:36px;top:50%;transform:translateY(-50%)"><div class="alert-dot" title="Alert active"></div></div>' : ''}`;
       card.onclick = (e) => {
-        // Don't trigger selectAsset if the remove button was clicked
         if (e.target.classList.contains('asset-remove') || e.target.closest('.asset-remove')) return;
-        navigateToChartOnSelect = true; // user explicitly tapped — allow tab switch
+        navigateToChartOnSelect = true;
         selectAsset(asset);
       };
-      container.appendChild(card);
+      flat.appendChild(card);
       totalCount++;
     });
-  });
+  }
+
   // Update watchlist count in tab label
   const wlCountEl = document.getElementById('wl-count');
   if (wlCountEl) wlCountEl.textContent = totalCount;
@@ -1127,6 +1195,22 @@ function clearGlobalSearch() {
   if (input)   { input.value = ''; input.blur(); }
   if (results) results.style.display = 'none';
   if (clear)   clear.style.display = 'none';
+}
+
+function toggleHeaderSearch() {
+  const bar = document.getElementById('global-search-bar');
+  const btn = document.getElementById('header-search-btn');
+  if (!bar) return;
+  const isVisible = bar.style.display !== 'none';
+  if (isVisible) {
+    bar.style.display = 'none';
+    btn?.classList.remove('active');
+    clearGlobalSearch();
+  } else {
+    bar.style.display = 'block';
+    btn?.classList.add('active');
+    setTimeout(() => document.getElementById('global-search-input')?.focus(), 50);
+  }
 }
 
 // Close search results when tapping outside
@@ -2219,14 +2303,10 @@ function renderAlerts() {
   });
 
   sortedAlerts.forEach(alert => {
+    // Setup alerts live in the TRADES tab, not ACTIVE
+    if (alert.condition === 'setup') return;
+
     const div = document.createElement('div');
-
-    if (alert.condition === 'setup') {
-      renderSetupCard(alert, div);
-      container.appendChild(div);
-      return;
-    }
-
     const isTriggered = alert.status === 'triggered';
     const dir = alert.triggeredDirection || alert.condition;
     // Zone in-zone gets its own glow class so the whole card lights up
@@ -2330,6 +2410,49 @@ function renderAlerts() {
   if (lwCurrentAsset) drawAlertLines(lwCurrentAsset.id);
 }
 
+// ─── TRADES TAB ───────────────────────────────────────────────────────────────
+// Renders only setup (trade) alerts — lives in the TRADES tab
+function renderTradesTab() {
+  const container = document.getElementById('alerts-trades');
+  if (!container) return;
+  container.innerHTML = '';
+
+  const setupAlerts = alerts.filter(a => a.condition === 'setup');
+
+  if (setupAlerts.length === 0) {
+    container.innerHTML = `<div class="empty-state" style="padding:40px 20px;text-align:center">
+      <div class="icon" style="margin-bottom:12px">
+        <svg width="40" height="40" viewBox="0 0 40 40" fill="none" opacity="0.4">
+          <rect x="6" y="10" width="28" height="22" rx="3" stroke="currentColor" stroke-width="2" fill="none"/>
+          <line x1="12" y1="18" x2="28" y2="18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <line x1="12" y1="23" x2="22" y2="23" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <p style="font-family:var(--mono);font-size:0.75rem;color:var(--muted)">No trade setups yet.<br>Create a <b style="color:var(--text)">Trade SETUP</b> alert<br>to track it here.</p>
+    </div>`;
+    return;
+  }
+
+  // Sort: active trades first, then watching
+  const sorted = [...setupAlerts].sort((a, b) => {
+    const rank = al => {
+      try {
+        const st = JSON.parse(al.note||'{}').tradeStatus || 'watching';
+        if (['full_tp','sl_hit'].includes(st)) return 0;
+        if (['entry_hit','running','tp1_hit','tp2_hit'].includes(st)) return 1;
+        return 2;
+      } catch(e) { return 2; }
+    };
+    return rank(a) - rank(b);
+  });
+
+  sorted.forEach(alert => {
+    const div = document.createElement('div');
+    renderSetupCard(alert, div);
+    container.appendChild(div);
+  });
+}
+
 
 // ═══════════════════════════════════════════════
 // ALERT HISTORY — persistence + rendering
@@ -2376,17 +2499,26 @@ function clearAlertHistory() {
 let currentAlertTab = 'active';
 function switchAlertTab(tab) {
   currentAlertTab = tab;
-  const listEl = document.getElementById('alerts-list');
-  const histEl = document.getElementById('alerts-history');
+  const listEl   = document.getElementById('alerts-list');
+  const tradesEl = document.getElementById('alerts-trades');
+  const histEl   = document.getElementById('alerts-history');
+
+  // Hide all
+  if (listEl)   listEl.style.display   = 'none';
+  if (tradesEl) tradesEl.style.display = 'none';
+  if (histEl)   histEl.style.display   = 'none';
+
   if (tab === 'active') {
     if (listEl) listEl.style.removeProperty('display');
-    if (histEl) histEl.style.display = 'none';
+  } else if (tab === 'trades') {
+    if (tradesEl) { tradesEl.style.removeProperty('display'); renderTradesTab(); }
   } else {
-    if (listEl) listEl.style.display = 'none';
     if (histEl) histEl.style.removeProperty('display');
     renderHistory();
   }
+
   document.getElementById('atab-active')?.classList.toggle('active',  tab === 'active');
+  document.getElementById('atab-trades')?.classList.toggle('active',  tab === 'trades');
   document.getElementById('atab-history')?.classList.toggle('active', tab === 'history');
 }
 
@@ -2876,6 +3008,9 @@ function checkSetupLevels(alert, currentPrice) {
   const [title, body] = msgs[next] || [`${alert.symbol} update`, ''];
   showToast(title, body + (isFinal ? '' : ''), isFinal ? 'alert' : 'info');
   if (isFinal) playAlertSound(selectedAlertSound);
+
+  // SL streak discipline check
+  if (isFinal) checkSlStreak(next);
 
   // Telegram level notification
   if (telegramEnabled && telegramChatId) {
@@ -4284,6 +4419,56 @@ async function renderJournal() {
   });
 }
 
+// ─── JOURNAL CSV EXPORT ───────────────────────────────────────────────────────
+function exportJournalCSV() {
+  const filter = document.getElementById('journal-filter')?.value || 'all';
+  const cutoff = filter === 'all' ? 0 : Date.now() - parseInt(filter) * 86400000;
+  const entries = journalEntries.filter(e => {
+    const ts = new Date(e.trade_date || e.created_at).getTime();
+    return ts >= cutoff;
+  });
+
+  if (!entries.length) {
+    showToast('Nothing to export', 'No journal entries match the current filter.', 'error');
+    return;
+  }
+
+  const headers = ['Date','Symbol','Direction','Outcome','Entry','Exit','SL','TP1','TP2','TP3','P&L %','Timeframe','Setup Type','Entry Reason','HTF Context','Emotion Before','Emotion After','Lessons'];
+  const rows = entries.map(e => [
+    new Date(e.trade_date || e.created_at).toLocaleDateString(),
+    e.symbol || '',
+    e.direction || '',
+    e.outcome || '',
+    e.entry_price || '',
+    e.exit_price || '',
+    e.sl_price || '',
+    e.tp1_price || '',
+    e.tp2_price || '',
+    e.tp3_price || '',
+    e.pnl_pct != null ? e.pnl_pct : '',
+    e.timeframe || '',
+    e.setup_type || '',
+    (e.entry_reason || '').replace(/"/g, '""'),
+    (e.htf_context || '').replace(/"/g, '""'),
+    e.emotion_before || '',
+    e.emotion_after || '',
+    (e.lessons || '').replace(/"/g, '""'),
+  ].map(v => `"${v}"`).join(','));
+
+  const csv  = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  const filterLabel = { all:'all-time', '7':'7-days', '30':'30-days', '90':'3-months' }[filter] || filter;
+  a.href     = url;
+  a.download = `altradia-journal-${filterLabel}-${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('Exported', `${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} exported to CSV.`, 'success');
+}
+
 function toggleJournalCard(id) {
   const body = document.getElementById(`jcard-${id}`);
   if (body) body.classList.toggle('open');
@@ -4693,6 +4878,78 @@ function updateMenuToggles() {
   if (tgSub) tgSub.textContent = (telegramEnabled && telegramChatId)
     ? 'Connected · notifications active'
     : 'Set up alert notifications';
+
+  // SL streak warning toggle
+  const slToggle   = document.getElementById('sl-streak-toggle');
+  const slSub      = document.getElementById('sl-streak-sub');
+  const slCountRow = document.getElementById('sl-streak-count-row');
+  if (slToggle)   slToggle.classList.toggle('on', slStreakWarningEnabled);
+  if (slSub)      slSub.textContent = slStreakWarningEnabled
+    ? `Warn after ${slStreakThreshold} consecutive stop losses`
+    : 'Off — tap to enable';
+  if (slCountRow) slCountRow.style.display = slStreakWarningEnabled ? '' : 'none';
+
+  // SL streak count display
+  const slCountEl   = document.getElementById('sl-streak-count-display');
+  const slIconNum   = document.getElementById('sl-streak-icon-num');
+  if (slCountEl)  slCountEl.textContent = slStreakThreshold;
+  if (slIconNum)  slIconNum.textContent = slStreakThreshold;
+
+  // Watchlist grouping toggle
+  const wlToggle = document.getElementById('wl-group-toggle');
+  const wlSub    = document.getElementById('wl-group-sub');
+  if (wlToggle) wlToggle.classList.toggle('on', watchlistGrouped);
+  if (wlSub)    wlSub.textContent = watchlistGrouped
+    ? 'Assets grouped by Forex, Crypto, etc.'
+    : 'All assets listed flat with category badge';
+}
+
+// ─── SL STREAK WARNING ────────────────────────────────────────────────────────
+function toggleSlStreakWarning() {
+  slStreakWarningEnabled = !slStreakWarningEnabled;
+  localStorage.setItem('sl_streak_enabled',   slStreakWarningEnabled ? '1' : '0');
+  consecutiveSlCount = 0; // reset streak on toggle
+  updateMenuToggles();
+}
+
+function adjustSlStreak(delta) {
+  slStreakThreshold = Math.max(1, Math.min(20, slStreakThreshold + delta));
+  localStorage.setItem('sl_streak_threshold', slStreakThreshold);
+  consecutiveSlCount = 0;
+  updateMenuToggles();
+}
+
+function checkSlStreak(outcome) {
+  // Called whenever a trade setup alert transitions to a final state
+  if (!slStreakWarningEnabled) return;
+  if (outcome === 'sl_hit') {
+    consecutiveSlCount++;
+    if (consecutiveSlCount >= slStreakThreshold) {
+      consecutiveSlCount = 0; // reset so it doesn't fire every subsequent SL
+      if (telegramEnabled && telegramChatId) {
+        sendTelegram(
+          `⚠️ *Trading Discipline Alert*\n\n` +
+          `You've hit *${slStreakThreshold} stop losses in a row*.\n\n` +
+          `This is a good time to *step back* and review your trading journal. ` +
+          `Look at your recent setups, check for emotional patterns, and make sure your strategy is still aligned with current market conditions.\n\n` +
+          `📓 Open your journal in altradia and review your last ${slStreakThreshold} trades before placing your next one.\n\n` +
+          `_Discipline is the edge._`
+        );
+      }
+      showToast('Discipline Check', `${slStreakThreshold} SLs in a row. Review your journal before the next trade.`, 'alert');
+    }
+  } else {
+    // Any win/breakeven resets the streak
+    consecutiveSlCount = 0;
+  }
+}
+
+// ─── WATCHLIST GROUPING TOGGLE ────────────────────────────────────────────────
+function toggleWatchlistGrouping() {
+  watchlistGrouped = !watchlistGrouped;
+  localStorage.setItem('wl_grouped', watchlistGrouped ? '1' : '0');
+  updateMenuToggles();
+  renderWatchlist();
 }
 
 function openMenuAbout()        { openMenuPage('about'); }
@@ -5423,6 +5680,11 @@ function updateSessionDisplay() {
 async function init() {
   // Apply saved theme before anything renders
   initTheme();
+
+  // Restore persisted feature settings
+  slStreakWarningEnabled = localStorage.getItem('sl_streak_enabled')   === '1';
+  slStreakThreshold      = parseInt(localStorage.getItem('sl_streak_threshold') || '3', 10);
+  watchlistGrouped       = localStorage.getItem('wl_grouped') !== '0'; // default true
 
   // Push initial history state so Android back button is interceptable from the start
   window.history.replaceState({ twTab: 'chart' }, '', '');
