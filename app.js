@@ -1399,10 +1399,10 @@ function mobileTab(tab, pushState = true) {
   document.querySelectorAll('.mobile-nav-btn').forEach(b => b.classList.remove('active'));
 
   // Hide summary bar on chart & journal (they have their own headers)
-  // Show it on watchlist & alerts
+  // Show it on watchlist & alerts — toggle class so header resizes naturally
   const summaryBar = document.querySelector('.summary-bar');
   if (summaryBar) {
-    summaryBar.style.display = (tab === 'chart' || tab === 'journal') ? 'none' : '';
+    summaryBar.classList.toggle('sb-hidden', tab === 'chart' || tab === 'journal');
   }
 
   // Hide FAB unless staying on watchlist tab
@@ -5002,6 +5002,17 @@ function openMenuSubscription() { openMenuPage('subscription'); }
 function openMenuAffiliate()    { openMenuPage('affiliate'); }
 function openMenuHelp()         { openMenuPage('help'); }
 
+// ── Support bot deep link with user context ───────────────────────────────────
+function openSupportBot() {
+  const userId = telegramChatId || localStorage.getItem('tg_chat_id') || 'unknown';
+  const url    = `https://t.me/altradia_support_bot?start=${userId}`;
+  if (window.Telegram?.WebApp?.openLink) {
+    window.Telegram.WebApp.openLink(url);
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
 function openMenuPage(name) {
   const page = document.getElementById('menu-page-' + name);
   if (!page) return;
@@ -6463,6 +6474,106 @@ function showTgToast(msg) {
   document.addEventListener('touchcancel', () => {
     tracking = false;
     removeDragOverlay();
+  }, { passive: true });
+})();
+
+// ── MENU PAGE BACK SWIPE — iOS-style edge swipe to close menu sub-pages ──────
+// Separate from the main nav swipe. Only fires when a .menu-page.open exists.
+// Swiping right from the left edge closes the topmost open menu sub-page.
+(function() {
+  const EDGE_ZONE  = 28;   // slightly wider zone for menu pages
+  const COMMIT_PCT = 0.30; // 30% of screen width to commit
+
+  let tracking   = false;
+  let startX     = 0;
+  let startY     = 0;
+  let axisLocked = false;
+  let isHoriz    = false;
+  let activePage = null; // the .menu-page.open element being swiped
+
+  document.addEventListener('touchstart', e => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+
+    // Only track if starting in the left edge zone
+    if (startX > EDGE_ZONE) { tracking = false; return; }
+
+    // Only act when a menu sub-page is open (not the main menu panel itself)
+    const openPages = document.querySelectorAll('.menu-page.open');
+    if (!openPages.length) { tracking = false; return; }
+
+    activePage = openPages[openPages.length - 1]; // topmost open page
+    tracking   = true;
+    axisLocked = false;
+    isHoriz    = false;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', e => {
+    if (!tracking) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+
+    if (!axisLocked) {
+      if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+      isHoriz    = Math.abs(dx) > Math.abs(dy);
+      axisLocked = true;
+      if (!isHoriz) { tracking = false; return; }
+    }
+    if (!isHoriz) return;
+    if (dx <= 0) { tracking = false; return; }
+
+    // Drag the page with the finger
+    if (activePage) {
+      const pct = Math.min(dx / window.innerWidth, 1);
+      activePage.style.transform = `translateX(${dx}px)`;
+      activePage.style.transition = 'none';
+      activePage.style.opacity    = String(1 - pct * 0.3);
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchend', e => {
+    if (!tracking || !isHoriz || !activePage) { tracking = false; return; }
+    tracking = false;
+
+    const dx = e.changedTouches[0].clientX - startX;
+    const committed = dx >= window.innerWidth * COMMIT_PCT;
+
+    if (committed) {
+      // Slide out and close
+      activePage.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
+      activePage.style.transform  = 'translateX(100%)';
+      activePage.style.opacity    = '0';
+      setTimeout(() => {
+        if (activePage) {
+          activePage.classList.remove('open');
+          activePage.style.display    = 'none';
+          activePage.style.transform  = '';
+          activePage.style.opacity    = '';
+          activePage.style.transition = '';
+        }
+        activePage = null;
+      }, 260);
+    } else {
+      // Snap back
+      activePage.style.transition = 'transform 0.2s ease, opacity 0.2s ease';
+      activePage.style.transform  = '';
+      activePage.style.opacity    = '';
+      setTimeout(() => {
+        if (activePage) {
+          activePage.style.transition = '';
+        }
+      }, 210);
+      activePage = null;
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchcancel', () => {
+    if (activePage) {
+      activePage.style.transform  = '';
+      activePage.style.opacity    = '';
+      activePage.style.transition = '';
+    }
+    tracking = false; activePage = null;
   }, { passive: true });
 })();
 
