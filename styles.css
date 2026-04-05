@@ -1436,9 +1436,12 @@ header {
   .header-top-row {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     padding: 0 16px;
     height: 54px;
     flex-shrink: 0;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .global-search-bar {
