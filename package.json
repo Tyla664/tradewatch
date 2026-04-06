@@ -1,12 +1,15 @@
 {
-  "name": "altradia-support-bot",
+  "name": "altradia-alert-bot",
   "version": "1.0.0",
   "description": "Telegram customer support bot for Altradia",
-  "main": "bot.js",
+  "main": "app.js",
   "scripts": {
-    "start": "node bot.js"
+    "start": "node app.js"
   },
   "dependencies": {
     "node-telegram-bot-api": "^0.61.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
