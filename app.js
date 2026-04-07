@@ -2445,6 +2445,20 @@ function renderAlerts() {
   const dot = document.getElementById('alert-dot');
   if (dot) dot.classList.toggle('show', alerts.some(a => a.status === 'active'));
   if (lwCurrentAsset) drawAlertLines(lwCurrentAsset.id);
+
+  // Update live trade count badge on TRADES tab
+  const liveTradeCount = alerts.filter(a => {
+    if (a.condition !== 'setup') return false;
+    try {
+      const st = JSON.parse(a.note||'{}').tradeStatus || 'watching';
+      return ['entry_hit','running','tp1_hit','tp2_hit'].includes(st);
+    } catch(e) { return false; }
+  }).length;
+  const badge = document.getElementById('trades-live-count');
+  if (badge) {
+    badge.textContent  = liveTradeCount;
+    badge.style.display = liveTradeCount > 0 ? 'inline' : 'none';
+  }
 }
 
 // ─── TRADES TAB ───────────────────────────────────────────────────────────────
@@ -3672,6 +3686,12 @@ function editSetupAlert(id) {
   setTxt('setup-htf-context',  j.htfContext);
   setTxt('setup-type',         j.setupType);
 
+  // Resize auto-grow textareas to fit their restored content
+  ['setup-entry-reason','setup-htf-context'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) autoGrow(el);
+  });
+
   const tfEl = document.getElementById('setup-timeframe');
   if (tfEl) tfEl.value = alert.timeframe || '';
 
@@ -3722,17 +3742,39 @@ function showTrailStopDialog(id) {
   const existing = document.getElementById('trail-stop-modal');
   if (existing) existing.remove();
 
+  const isLong = j.direction === 'long';
+  const dec = (alert.assetId || '').includes('/') && !alert.assetId.startsWith('XAU') && !alert.assetId.startsWith('XAG') ? 5 : 2;
+
   const ov = document.createElement('div');
   ov.id = 'trail-stop-modal';
   ov.style.cssText = 'position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,0.65);display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
   ov.innerHTML = `
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;width:100%;max-width:480px;padding:20px 20px calc(24px + env(safe-area-inset-bottom))">
-      <div style="font-family:var(--mono);font-size:0.62rem;letter-spacing:0.12em;color:var(--muted);text-align:center;margin-bottom:16px">TRAIL STOP — ${alert.symbol}</div>
-      <div style="font-size:0.78rem;color:var(--muted);margin-bottom:14px">Current price: <strong style="color:var(--text)">${formatPrice(currentPrice, alert.assetId)}</strong> · Current SL: <strong style="color:var(--red)">${formatPrice(j.sl, alert.assetId)}</strong></div>
-      <label style="font-family:var(--mono);font-size:0.6rem;letter-spacing:0.1em;color:var(--muted);display:block;margin-bottom:6px">TRAIL DISTANCE (%)</label>
-      <input id="trail-pct-input" type="number" step="0.1" min="0.1" max="20" value="1.0"
-        style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:1rem;padding:12px 14px;border-radius:8px;box-sizing:border-box;margin-bottom:6px">
-      <div id="trail-preview" style="font-size:0.72rem;color:var(--muted);margin-bottom:16px;font-family:var(--mono)">New SL will be calculated on confirm</div>
+      <div style="font-family:var(--mono);font-size:0.62rem;letter-spacing:0.12em;color:var(--muted);text-align:center;margin-bottom:14px">TRAIL STOP — ${alert.symbol}</div>
+      <div style="font-size:0.78rem;color:var(--muted);margin-bottom:14px">
+        Current: <strong style="color:var(--text)">${formatPrice(currentPrice, alert.assetId)}</strong>
+        &nbsp;·&nbsp; SL: <strong style="color:var(--red)">${formatPrice(j.sl, alert.assetId)}</strong>
+      </div>
+      <!-- Input mode toggle -->
+      <div style="display:flex;gap:8px;margin-bottom:14px">
+        <button id="trail-mode-pct" onclick="setTrailMode('pct')"
+          style="flex:1;padding:8px;background:rgba(0,212,255,0.15);border:1px solid var(--accent);color:var(--accent);font-family:var(--mono);font-size:0.68rem;font-weight:700;border-radius:7px;cursor:pointer">% Percentage</button>
+        <button id="trail-mode-price" onclick="setTrailMode('price')"
+          style="flex:1;padding:8px;background:transparent;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:0.68rem;font-weight:700;border-radius:7px;cursor:pointer">Price Level</button>
+      </div>
+      <!-- Pct input -->
+      <div id="trail-pct-group">
+        <label style="font-family:var(--mono);font-size:0.6rem;letter-spacing:0.1em;color:var(--muted);display:block;margin-bottom:6px">TRAIL DISTANCE (%)</label>
+        <input id="trail-pct-input" type="number" step="0.1" min="0.1" max="20" value="1.0"
+          style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:1rem;padding:12px 14px;border-radius:8px;box-sizing:border-box;margin-bottom:6px">
+      </div>
+      <!-- Price input (hidden by default) -->
+      <div id="trail-price-group" style="display:none">
+        <label style="font-family:var(--mono);font-size:0.6rem;letter-spacing:0.1em;color:var(--muted);display:block;margin-bottom:6px">NEW STOP LOSS PRICE</label>
+        <input id="trail-price-input" type="number" step="any" placeholder="${formatPrice(j.sl, alert.assetId)}"
+          style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:1rem;padding:12px 14px;border-radius:8px;box-sizing:border-box;margin-bottom:6px">
+      </div>
+      <div id="trail-preview" style="font-family:var(--mono);font-size:0.7rem;color:var(--accent);margin-bottom:16px;min-height:18px"></div>
       <div style="display:flex;gap:10px">
         <button onclick="document.getElementById('trail-stop-modal').remove()"
           style="flex:1;padding:12px;background:transparent;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:0.72rem;border-radius:8px;cursor:pointer">CANCEL</button>
@@ -3741,23 +3783,52 @@ function showTrailStopDialog(id) {
       </div>
     </div>`;
 
-  // Live preview
-  const input = ov.querySelector('#trail-pct-input');
-  const preview = ov.querySelector('#trail-preview');
-  const isLong = j.direction === 'long';
-  const updatePreview = () => {
-    const pct = parseFloat(input.value) / 100;
-    if (isNaN(pct) || pct <= 0) { preview.textContent = 'Enter a valid %'; return; }
-    const newSL = isLong
-      ? currentPrice * (1 - pct)
-      : currentPrice * (1 + pct);
-    preview.textContent = `New SL: ${formatPrice(newSL, alert.assetId)} (${(pct * 100).toFixed(1)}% from current price)`;
-  };
-  input.addEventListener('input', updatePreview);
-  updatePreview();
-
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
   document.body.appendChild(ov);
+
+  // Live preview helper
+  function updateTrailPreview() {
+    const preview = document.getElementById('trail-preview');
+    if (!preview) return;
+    const mode = ov._trailMode || 'pct';
+    if (mode === 'pct') {
+      const pct = parseFloat(document.getElementById('trail-pct-input')?.value) / 100;
+      if (isNaN(pct) || pct <= 0) { preview.textContent = ''; return; }
+      const newSL = isLong ? currentPrice * (1 - pct) : currentPrice * (1 + pct);
+      preview.textContent = `→ New SL: ${formatPrice(newSL, alert.assetId)}`;
+    } else {
+      const price = parseFloat(document.getElementById('trail-price-input')?.value);
+      if (isNaN(price) || price <= 0) { preview.textContent = ''; return; }
+      preview.textContent = `→ New SL: ${formatPrice(price, alert.assetId)}`;
+    }
+  }
+
+  ov._trailMode = 'pct';
+
+  // Expose setTrailMode globally on the overlay
+  window.setTrailMode = (mode) => {
+    ov._trailMode = mode;
+    const pctBtn   = document.getElementById('trail-mode-pct');
+    const priceBtn = document.getElementById('trail-mode-price');
+    const pctGrp   = document.getElementById('trail-pct-group');
+    const priceGrp = document.getElementById('trail-price-group');
+    if (mode === 'pct') {
+      pctBtn.style.cssText   = 'flex:1;padding:8px;background:rgba(0,212,255,0.15);border:1px solid var(--accent);color:var(--accent);font-family:var(--mono);font-size:0.68rem;font-weight:700;border-radius:7px;cursor:pointer';
+      priceBtn.style.cssText = 'flex:1;padding:8px;background:transparent;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:0.68rem;font-weight:700;border-radius:7px;cursor:pointer';
+      pctGrp.style.display   = '';
+      priceGrp.style.display = 'none';
+    } else {
+      priceBtn.style.cssText = 'flex:1;padding:8px;background:rgba(0,212,255,0.15);border:1px solid var(--accent);color:var(--accent);font-family:var(--mono);font-size:0.68rem;font-weight:700;border-radius:7px;cursor:pointer';
+      pctBtn.style.cssText   = 'flex:1;padding:8px;background:transparent;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:0.68rem;font-weight:700;border-radius:7px;cursor:pointer';
+      pctGrp.style.display   = 'none';
+      priceGrp.style.display = '';
+    }
+    updateTrailPreview();
+  };
+
+  document.getElementById('trail-pct-input')?.addEventListener('input', updateTrailPreview);
+  document.getElementById('trail-price-input')?.addEventListener('input', updateTrailPreview);
+  updateTrailPreview();
 }
 
 async function applyTrailStop(id) {
@@ -3765,19 +3836,29 @@ async function applyTrailStop(id) {
   if (!alert) return;
   const j = getJournal(alert);
   const currentPrice = priceData[alert.assetId]?.price;
-  const pct = parseFloat(document.getElementById('trail-pct-input')?.value) / 100;
-  if (!currentPrice || isNaN(pct) || pct <= 0) return showToast('Invalid', 'Check price and percentage.', 'error');
+  const ov = document.getElementById('trail-stop-modal');
+  const mode = ov?._trailMode || 'pct';
 
-  const isLong = j.direction === 'long';
-  const newSL = isLong ? currentPrice * (1 - pct) : currentPrice * (1 + pct);
+  let newSL;
+  if (mode === 'price') {
+    newSL = parseFloat(document.getElementById('trail-price-input')?.value);
+    if (isNaN(newSL) || newSL <= 0) return showToast('Invalid', 'Enter a valid price.', 'error');
+  } else {
+    if (!currentPrice) return showToast('No Price', 'Current price not available.', 'error');
+    const pct = parseFloat(document.getElementById('trail-pct-input')?.value) / 100;
+    if (isNaN(pct) || pct <= 0) return showToast('Invalid', 'Enter a valid percentage.', 'error');
+    const isLong = j.direction === 'long';
+    newSL = isLong ? currentPrice * (1 - pct) : currentPrice * (1 + pct);
+  }
+
   j.sl = parseFloat(newSL.toFixed(5));
   alert.note = JSON.stringify(j);
   await updateAlert(id, { note: alert.note });
 
-  document.getElementById('trail-stop-modal')?.remove();
+  ov?.remove();
   renderAlerts();
   if (currentAlertTab === 'trades') renderTradesTab();
-  showToast('Trail Stop Set', `${alert.symbol} SL moved to ${formatPrice(newSL, alert.assetId)} (${(pct * 100).toFixed(1)}% trail).`, 'success');
+  showToast('Trail Stop Set', `${alert.symbol} SL → ${formatPrice(newSL, alert.assetId)}`, 'success');
 }
 
 function showManualCloseForm(alert, journal) {
@@ -5101,12 +5182,17 @@ function toggleWatchlistGrouping() {
 // ── Alert Edit button on chart page ──────────────────────────────────────────
 // Shows "Edit Alert" button above chart only when navigating from an alert card
 function updateAlertEditBtn() {
-  const btn = document.getElementById('alert-edit-chart-btn');
+  const btn  = document.getElementById('alert-edit-chart-btn');
+  const form = document.getElementById('alert-form-panel');
   if (!btn) return;
   if (alertSourceId) {
+    // Came from an alert card — show Edit button, hide the form
     btn.style.display = 'flex';
+    if (form) form.style.display = 'none';
   } else {
+    // Normal chart view — hide Edit button, show form
     btn.style.display = 'none';
+    if (form) form.style.removeProperty('display');
   }
 }
 
@@ -5115,14 +5201,20 @@ function editAlertFromChart() {
   const alert = alerts.find(a => a.id === alertSourceId);
   if (!alert) { alertSourceId = null; updateAlertEditBtn(); return; }
 
-  if (alert.condition === 'setup') {
-    editSetupAlert(alertSourceId);
-  } else {
-    editAlert(alertSourceId);
-  }
-  // Clear source so button hides after edit starts
+  // Show the form first
+  const form = document.getElementById('alert-form-panel');
+  if (form) form.style.removeProperty('display');
+
+  // Clear source so edit button hides
+  const id = alertSourceId;
   alertSourceId = null;
   updateAlertEditBtn();
+
+  if (alert.condition === 'setup') {
+    editSetupAlert(id);
+  } else {
+    editAlert(id);
+  }
 }
 
 // ─── TELEGRAM NOTIFICATION PREFERENCES ───────────────────────────────────────
@@ -5211,14 +5303,53 @@ function renderAffiliateDashboard() {
 
 function copyReferralLink() {
   const userId  = telegramChatId || localStorage.getItem('tg_chat_id') || 'user';
-  const refLink = `https://t.me/altradia_support_bot?start=ref_${userId}`;
+  // Telegram Mini App deep link — opens the app with startapp param
+  // Bot username: altradia_support_bot, app short name: altradia
+  // When a new user opens this link, their referrer ID is passed via startapp
+  const refLink = `https://t.me/altradia_support_bot/altradia?startapp=ref_${userId}`;
   if (navigator.clipboard) {
-    navigator.clipboard.writeText(refLink).then(() => {
-      showToast('Link Copied!', 'Your referral link has been copied to clipboard.', 'success');
-    }).catch(() => showToast('Link', refLink, 'info'));
+    navigator.clipboard.writeText(refLink)
+      .then(() => showToast('Link Copied!', 'Share it with traders to earn commissions.', 'success'))
+      .catch(() => showToast('Your Referral Link', refLink, 'info'));
   } else {
     showToast('Your Referral Link', refLink, 'info');
   }
+}
+
+function renderPayoutHistory() {
+  const container = document.getElementById('payout-history-list');
+  if (!container) return;
+
+  // Load from localStorage (replace with Supabase query in production)
+  let payouts = [];
+  try { payouts = JSON.parse(localStorage.getItem('aff_payouts') || '[]'); } catch(e) {}
+
+  if (!payouts.length) {
+    container.innerHTML = `
+      <div style="text-align:center;padding:40px 20px">
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none" style="opacity:0.25;margin-bottom:14px">
+          <rect x="8" y="8" width="32" height="36" rx="4" stroke="currentColor" stroke-width="2" fill="none"/>
+          <line x1="16" y1="18" x2="32" y2="18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <line x1="16" y1="24" x2="32" y2="24" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <line x1="16" y1="30" x2="24" y2="30" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+        <div style="font-family:var(--mono);font-size:0.75rem;color:var(--muted)">No payouts yet.</div>
+        <div style="font-family:var(--mono);font-size:0.62rem;color:var(--muted);margin-top:6px;opacity:0.6">Payouts appear here once processed.</div>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = payouts.map(p => `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-family:var(--mono);font-size:0.7rem;font-weight:700;color:var(--text)">${p.period || '—'}</div>
+        <div style="font-family:var(--mono);font-size:0.58rem;color:var(--muted);margin-top:3px">${p.subs || 0} subscribers · ${p.pct || 20}% commission</div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:1rem;font-weight:800;color:var(--green)">$${parseFloat(p.amount || 0).toFixed(2)}</div>
+        <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);margin-top:2px;text-transform:uppercase">${p.status || 'Paid'}</div>
+      </div>
+    </div>`).join('');
 }
 
 function openMenuPage(name) {
@@ -6587,133 +6718,84 @@ function showTgToast(msg) {
   }, 4000);
 }
 
-// ── SWIPE GESTURES — iOS-style edge-only back swipe ──────────────────────
-// Works like iPhone: swipe must START within 20px of the left edge,
-// tracks the finger in real time, and only commits on release if distance
-// exceeds the threshold. No false triggers from chart pan or scroll.
+// ══════════════════════════════════════════════════════════════════════════════
+// iOS-STYLE EDGE BACK SWIPE
+// Handles THREE contexts in priority order:
+//   1. Menu sub-page open (.menu-page.open) — swipe closes topmost sub-page
+//   2. Menu panel open (#menu-panel visible) — swipe closes the menu panel
+//   3. Main nav (navStack.length > 1) — swipe goes back in tab history
+// Swipe must start within 28px of left edge and travel 30% of screen width.
+// ══════════════════════════════════════════════════════════════════════════════
 (function() {
-  const EDGE_ZONE   = 20;   // px from left edge to start a back swipe
-  const COMMIT_PCT  = 0.35; // % of screen width needed to commit
-  const CANCEL_VELO = 0.3;  // if released quickly leftward, cancel
-
-  let tracking   = false;
-  let startX     = 0;
-  let startY     = 0;
-  let currentX   = 0;
-  let axisLocked = false; // true once we know it's horizontal
-  let isHoriz    = false;
-
-  // Visual drag overlay so user sees the panel following their finger
-  let dragOverlay = null;
-
-  function createDragOverlay() {
-    if (dragOverlay) return;
-    dragOverlay = document.createElement('div');
-    dragOverlay.style.cssText = `
-      position:fixed;inset:0;z-index:8999;
-      pointer-events:none;
-      background:rgba(0,0,0,0);
-      transition:none;
-    `;
-    document.body.appendChild(dragOverlay);
-  }
-  function removeDragOverlay() {
-    if (dragOverlay) { dragOverlay.remove(); dragOverlay = null; }
-  }
-
-  document.addEventListener('touchstart', e => {
-    if (!isMobileLayout()) return;
-    // Only start tracking if touch begins in the left edge zone
-    startX   = e.touches[0].clientX;
-    startY   = e.touches[0].clientY;
-    tracking = startX <= EDGE_ZONE;
-    axisLocked = false;
-    isHoriz    = false;
-    currentX   = startX;
-
-    // Don't interfere when modals/menu are open
-    const menuOpen   = document.getElementById('menu-panel')?.style.display === 'flex';
-    const modalOpen  = document.getElementById('add-modal')?.style.display  !== 'none';
-    const tgOpen     = document.getElementById('tg-modal')?.style.display   !== 'none';
-    if (menuOpen || modalOpen || tgOpen) { tracking = false; return; }
-
-    // Need at least one page to go back to
-    if (navStack.length <= 1) { tracking = false; }
-  }, { passive: true });
-
-  document.addEventListener('touchmove', e => {
-    if (!tracking) return;
-    const x  = e.touches[0].clientX;
-    const y  = e.touches[0].clientY;
-    const dx = x - startX;
-    const dy = y - startY;
-    currentX = x;
-
-    if (!axisLocked) {
-      if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return; // not moved enough to decide
-      isHoriz    = Math.abs(dx) > Math.abs(dy);
-      axisLocked = true;
-      if (!isHoriz) { tracking = false; return; } // vertical scroll — abort
-    }
-
-    if (!isHoriz) return;
-
-    // Only allow rightward drag (positive dx = going back)
-    if (dx <= 0) { tracking = false; return; }
-
-    // Darken overlay proportionally
-    if (!dragOverlay) createDragOverlay();
-    const progress = Math.min(dx / (window.innerWidth * COMMIT_PCT), 1);
-    dragOverlay.style.background = `rgba(0,0,0,${0.15 * progress})`;
-  }, { passive: true });
-
-  document.addEventListener('touchend', e => {
-    removeDragOverlay();
-    if (!tracking || !isHoriz) { tracking = false; return; }
-    tracking = false;
-
-    const dx = e.changedTouches[0].clientX - startX;
-    if (dx <= 0) return;
-
-    const committed = dx >= window.innerWidth * COMMIT_PCT;
-    if (committed) goBack();
-  }, { passive: true });
-
-  document.addEventListener('touchcancel', () => {
-    tracking = false;
-    removeDragOverlay();
-  }, { passive: true });
-})();
-
-// ── MENU PAGE BACK SWIPE — iOS-style edge swipe to close menu sub-pages ──────
-// Separate from the main nav swipe. Only fires when a .menu-page.open exists.
-// Swiping right from the left edge closes the topmost open menu sub-page.
-(function() {
-  const EDGE_ZONE  = 28;   // slightly wider zone for menu pages
-  const COMMIT_PCT = 0.30; // 30% of screen width to commit
+  const EDGE_ZONE  = 28;
+  const COMMIT_PCT = 0.30;
 
   let tracking   = false;
   let startX     = 0;
   let startY     = 0;
   let axisLocked = false;
   let isHoriz    = false;
-  let activePage = null; // the .menu-page.open element being swiped
+  let mode       = null;   // 'subpage' | 'menupanel' | 'nav'
+  let activePage = null;   // for 'subpage' mode
+
+  function snapBack(el) {
+    el.style.transition = 'transform 0.22s ease, opacity 0.22s ease';
+    el.style.transform  = '';
+    el.style.opacity    = '';
+    setTimeout(() => { el.style.transition = ''; }, 230);
+  }
+
+  function slideOut(el, cb) {
+    el.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
+    el.style.transform  = 'translateX(100%)';
+    el.style.opacity    = '0';
+    setTimeout(() => {
+      el.style.display    = 'none';
+      el.style.transform  = '';
+      el.style.opacity    = '';
+      el.style.transition = '';
+      if (cb) cb();
+    }, 260);
+  }
 
   document.addEventListener('touchstart', e => {
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
-
-    // Only track if starting in the left edge zone
-    if (startX > EDGE_ZONE) { tracking = false; return; }
-
-    // Only act when a menu sub-page is open (not the main menu panel itself)
-    const openPages = document.querySelectorAll('.menu-page.open');
-    if (!openPages.length) { tracking = false; return; }
-
-    activePage = openPages[openPages.length - 1]; // topmost open page
-    tracking   = true;
+    startX     = e.touches[0].clientX;
+    startY     = e.touches[0].clientY;
+    tracking   = false;
     axisLocked = false;
     isHoriz    = false;
+    mode       = null;
+    activePage = null;
+
+    if (startX > EDGE_ZONE) return;
+
+    // Priority 1: menu sub-page open
+    const openPages = document.querySelectorAll('.menu-page.open');
+    if (openPages.length) {
+      activePage = openPages[openPages.length - 1];
+      mode       = 'subpage';
+      tracking   = true;
+      return;
+    }
+
+    // Priority 2: menu panel visible
+    const menuPanel = document.getElementById('menu-panel');
+    const menuVisible = menuPanel && (menuPanel.style.display === 'flex' || menuPanel.classList.contains('open'));
+    if (menuVisible) {
+      mode     = 'menupanel';
+      tracking = true;
+      return;
+    }
+
+    // Priority 3: main nav back
+    if (isMobileLayout() && navStack.length > 1) {
+      const modalOpen = document.getElementById('add-modal')?.style.display !== 'none';
+      const tgOpen    = document.getElementById('tg-modal')?.style.display  !== 'none';
+      if (!modalOpen && !tgOpen) {
+        mode     = 'nav';
+        tracking = true;
+      }
+    }
   }, { passive: true });
 
   document.addEventListener('touchmove', e => {
@@ -6727,61 +6809,68 @@ function showTgToast(msg) {
       axisLocked = true;
       if (!isHoriz) { tracking = false; return; }
     }
-    if (!isHoriz) return;
-    if (dx <= 0) { tracking = false; return; }
+    if (!isHoriz || dx <= 0) { tracking = false; return; }
 
-    // Drag the page with the finger
-    if (activePage) {
+    // Drag the relevant element with the finger
+    if (mode === 'subpage' && activePage) {
       const pct = Math.min(dx / window.innerWidth, 1);
-      activePage.style.transform = `translateX(${dx}px)`;
       activePage.style.transition = 'none';
-      activePage.style.opacity    = String(1 - pct * 0.3);
+      activePage.style.transform  = `translateX(${dx}px)`;
+      activePage.style.opacity    = String(1 - pct * 0.25);
+    } else if (mode === 'menupanel') {
+      const panel = document.getElementById('menu-panel');
+      if (panel) {
+        const pct = Math.min(dx / window.innerWidth, 1);
+        panel.style.transition = 'none';
+        panel.style.transform  = `translateX(${dx}px)`;
+        panel.style.opacity    = String(1 - pct * 0.2);
+      }
     }
+    // nav mode: no visual drag needed — just commit on release
   }, { passive: true });
 
   document.addEventListener('touchend', e => {
-    if (!tracking || !isHoriz || !activePage) { tracking = false; return; }
+    if (!tracking || !isHoriz) { tracking = false; return; }
     tracking = false;
 
-    const dx = e.changedTouches[0].clientX - startX;
+    const dx        = e.changedTouches[0].clientX - startX;
     const committed = dx >= window.innerWidth * COMMIT_PCT;
 
-    if (committed) {
-      // Slide out and close
-      activePage.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
-      activePage.style.transform  = 'translateX(100%)';
-      activePage.style.opacity    = '0';
-      setTimeout(() => {
-        if (activePage) {
-          activePage.classList.remove('open');
-          activePage.style.display    = 'none';
-          activePage.style.transform  = '';
-          activePage.style.opacity    = '';
-          activePage.style.transition = '';
-        }
+    if (mode === 'subpage' && activePage) {
+      if (committed) {
+        const page = activePage;
         activePage = null;
-      }, 260);
-    } else {
-      // Snap back
-      activePage.style.transition = 'transform 0.2s ease, opacity 0.2s ease';
-      activePage.style.transform  = '';
-      activePage.style.opacity    = '';
-      setTimeout(() => {
-        if (activePage) {
-          activePage.style.transition = '';
+        slideOut(page, () => {
+          page.classList.remove('open');
+        });
+      } else {
+        snapBack(activePage);
+        activePage = null;
+      }
+
+    } else if (mode === 'menupanel') {
+      const panel = document.getElementById('menu-panel');
+      if (panel) {
+        if (committed) {
+          slideOut(panel, () => {
+            panel.classList.remove('open');
+            panel.style.display = 'none';
+          });
+        } else {
+          snapBack(panel);
         }
-      }, 210);
-      activePage = null;
+      }
+
+    } else if (mode === 'nav') {
+      if (committed) goBack();
     }
   }, { passive: true });
 
   document.addEventListener('touchcancel', () => {
-    if (activePage) {
-      activePage.style.transform  = '';
-      activePage.style.opacity    = '';
-      activePage.style.transition = '';
-    }
-    tracking = false; activePage = null;
+    if (activePage) { snapBack(activePage); activePage = null; }
+    const panel = document.getElementById('menu-panel');
+    if (panel && mode === 'menupanel') snapBack(panel);
+    tracking = false; mode = null;
   }, { passive: true });
 })();
 
