@@ -463,6 +463,7 @@ let currentLibTab  = 'ALL';
 let libSearchQuery = '';
 let currentWLTab   = 'hot';
 let navigateToChartOnSelect = false;
+let alertSourceId = null; // set when chart opened via alert card tap
 
 // Feature state
 let slStreakWarningEnabled = false;
@@ -1411,15 +1412,16 @@ function mobileTab(tab, pushState = true) {
   if (tab === 'watchlist') {
     document.getElementById('panel-watchlist').classList.add('mobile-active');
     // Nav highlight handled by switchWLTab caller
+    alertSourceId = null; updateAlertEditBtn();
   } else if (tab === 'chart') {
     if (fab) fab.classList.remove('visible');
     const panel = document.getElementById('panel-main');
     panel.classList.add('mobile-active');
     panel.scrollTop = 0;
     document.getElementById('mnav-chart').classList.add('active');
-    // Only force-reload if the asset changed; keyboard dismiss keeps same asset → skip
     const _needsForce = !lwCurrentAsset || !selectedAsset || lwCurrentAsset.id !== selectedAsset.id;
     setTimeout(() => { if (selectedAsset) loadLWChart(selectedAsset, _needsForce); }, 150);
+    updateAlertEditBtn();
   } else if (tab === 'journal') {
     if (fab) fab.classList.remove('visible');
     const panel = document.getElementById('panel-journal');
@@ -2424,6 +2426,19 @@ function renderAlerts() {
         Set at ${alert.createdAt}
       </div>
       <div class="alert-actions">${actions}</div>`;
+
+    // Tap card body (not buttons) → open chart for this asset
+    div.style.cursor = 'pointer';
+    div.addEventListener('click', (e) => {
+      if (e.target.closest('button')) return; // ignore button taps
+      const asset = ASSET_BY_ID.get(alert.assetId) || ALL_ASSETS.find(a => a.id === alert.assetId);
+      if (!asset) return;
+      alertSourceId = alert.id;
+      selectAsset(asset);
+      if (isMobileLayout()) mobileTab('chart');
+      updateAlertEditBtn();
+    });
+
     container.appendChild(div);
   });
 
@@ -3501,15 +3516,18 @@ function renderSetupCard(alert, div) {
   const btnEdit    = `<button class="alert-action-btn toggle"  onclick="editSetupAlert('${alert.id}')" title="Edit setup">${SVG_EDIT}EDIT</button>`;
   const btnDelete  = `<button class="alert-action-btn delete"  onclick="deleteAlert('${alert.id}')">DELETE</button>`;
 
+  // Quick SL management buttons for live trades
+  const btnBreakeven = isLiveTrade ? `<button class="alert-action-btn be-btn" onclick="moveSlToBreakeven('${alert.id}')" title="Move SL to entry (breakeven)">
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="margin-right:3px;vertical-align:middle"><line x1="1" y1="5" x2="9" y2="5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><polyline points="6,2 9,5 6,8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>BE</button>` : '';
+  const btnTrail = isLiveTrade ? `<button class="alert-action-btn trail-btn" onclick="showTrailStopDialog('${alert.id}')" title="Set trailing stop">
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="margin-right:3px;vertical-align:middle"><path d="M1 8 L4 5 L6 7 L9 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="9" cy="2" r="1" fill="currentColor"/></svg>TRAIL</button>` : '';
+
   // Button layout by state:
-  // watching     → EDIT + DELETE only (trade not triggered yet — nothing to close)
-  // live trade   → CLOSE + EDIT + DELETE  (CLOSE opens LOG TRADE / DISMISS choice)
-  // final state  → LOG TRADE + DISMISS (to history) + DELETE
   const btnCloseRunning = `<button class="alert-action-btn toggle" onclick="showCloseTradeChoice('${alert.id}')">CLOSE</button>`;
   let actionBtns;
   if (isFinalState)       actionBtns = btnLog + btnDismissHistory + btnDelete;
-  else if (isLiveTrade)   actionBtns = btnCloseRunning + btnEdit + btnDelete;
-  else                    actionBtns = btnEdit + btnDelete; // watching — no CLOSE
+  else if (isLiveTrade)   actionBtns = btnCloseRunning + btnBreakeven + btnTrail + btnEdit + btnDelete;
+  else                    actionBtns = btnEdit + btnDelete;
 
   div.innerHTML = `
     <div class="alert-header-row">
@@ -3524,6 +3542,18 @@ function renderSetupCard(alert, div) {
       <div style="margin-top:6px;opacity:0.45;font-size:0.68rem">Set ${alert.createdAt}</div>
     </div>
     <div class="alert-actions">${actionBtns}</div>`;
+
+  // Tap card body (not buttons) → open chart for this asset
+  div.style.cursor = 'pointer';
+  div.addEventListener('click', (e) => {
+    if (e.target.closest('button')) return;
+    const asset = ASSET_BY_ID.get(alert.assetId) || ALL_ASSETS.find(a => a.id === alert.assetId);
+    if (!asset) return;
+    alertSourceId = alert.id;
+    selectAsset(asset);
+    if (isMobileLayout()) mobileTab('chart');
+    updateAlertEditBtn();
+  });
 }
 
 function dismissSetupAlert(id) {
@@ -3663,6 +3693,91 @@ function editSetupAlert(id) {
   }
 
   showToast('Edit Setup', `Editing ${alert.symbol} setup — adjust values and tap UPDATE SETUP.`, 'alert');
+}
+
+// ── Move SL to Breakeven ──────────────────────────────────────────────────────
+async function moveSlToBreakeven(id) {
+  const alert = alerts.find(a => a.id === id);
+  if (!alert) return;
+  const j = getJournal(alert);
+  const entry = alert.targetPrice;
+  if (!entry) return showToast('No Entry', 'Entry price not set.', 'error');
+
+  j.sl = entry;
+  alert.note = JSON.stringify(j);
+  await updateAlert(id, { note: alert.note });
+  renderAlerts();
+  if (currentAlertTab === 'trades') renderTradesTab();
+  showToast('SL → Breakeven', `${alert.symbol} stop loss moved to entry (${formatPrice(entry, alert.assetId)}).`, 'success');
+}
+
+// ── Trail Stop dialog ─────────────────────────────────────────────────────────
+function showTrailStopDialog(id) {
+  const alert = alerts.find(a => a.id === id);
+  if (!alert) return;
+  const j = getJournal(alert);
+  const currentPrice = priceData[alert.assetId]?.price;
+  if (!currentPrice) return showToast('No Price', 'Current price not available.', 'error');
+
+  const existing = document.getElementById('trail-stop-modal');
+  if (existing) existing.remove();
+
+  const ov = document.createElement('div');
+  ov.id = 'trail-stop-modal';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,0.65);display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
+  ov.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;width:100%;max-width:480px;padding:20px 20px calc(24px + env(safe-area-inset-bottom))">
+      <div style="font-family:var(--mono);font-size:0.62rem;letter-spacing:0.12em;color:var(--muted);text-align:center;margin-bottom:16px">TRAIL STOP — ${alert.symbol}</div>
+      <div style="font-size:0.78rem;color:var(--muted);margin-bottom:14px">Current price: <strong style="color:var(--text)">${formatPrice(currentPrice, alert.assetId)}</strong> · Current SL: <strong style="color:var(--red)">${formatPrice(j.sl, alert.assetId)}</strong></div>
+      <label style="font-family:var(--mono);font-size:0.6rem;letter-spacing:0.1em;color:var(--muted);display:block;margin-bottom:6px">TRAIL DISTANCE (%)</label>
+      <input id="trail-pct-input" type="number" step="0.1" min="0.1" max="20" value="1.0"
+        style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:1rem;padding:12px 14px;border-radius:8px;box-sizing:border-box;margin-bottom:6px">
+      <div id="trail-preview" style="font-size:0.72rem;color:var(--muted);margin-bottom:16px;font-family:var(--mono)">New SL will be calculated on confirm</div>
+      <div style="display:flex;gap:10px">
+        <button onclick="document.getElementById('trail-stop-modal').remove()"
+          style="flex:1;padding:12px;background:transparent;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:0.72rem;border-radius:8px;cursor:pointer">CANCEL</button>
+        <button onclick="applyTrailStop('${id}')"
+          style="flex:2;padding:12px;background:rgba(255,214,0,0.12);border:1px solid rgba(255,214,0,0.4);color:var(--gold);font-family:var(--mono);font-size:0.75rem;font-weight:700;letter-spacing:0.06em;border-radius:8px;cursor:pointer">SET TRAIL STOP</button>
+      </div>
+    </div>`;
+
+  // Live preview
+  const input = ov.querySelector('#trail-pct-input');
+  const preview = ov.querySelector('#trail-preview');
+  const isLong = j.direction === 'long';
+  const updatePreview = () => {
+    const pct = parseFloat(input.value) / 100;
+    if (isNaN(pct) || pct <= 0) { preview.textContent = 'Enter a valid %'; return; }
+    const newSL = isLong
+      ? currentPrice * (1 - pct)
+      : currentPrice * (1 + pct);
+    preview.textContent = `New SL: ${formatPrice(newSL, alert.assetId)} (${(pct * 100).toFixed(1)}% from current price)`;
+  };
+  input.addEventListener('input', updatePreview);
+  updatePreview();
+
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  document.body.appendChild(ov);
+}
+
+async function applyTrailStop(id) {
+  const alert = alerts.find(a => a.id === id);
+  if (!alert) return;
+  const j = getJournal(alert);
+  const currentPrice = priceData[alert.assetId]?.price;
+  const pct = parseFloat(document.getElementById('trail-pct-input')?.value) / 100;
+  if (!currentPrice || isNaN(pct) || pct <= 0) return showToast('Invalid', 'Check price and percentage.', 'error');
+
+  const isLong = j.direction === 'long';
+  const newSL = isLong ? currentPrice * (1 - pct) : currentPrice * (1 + pct);
+  j.sl = parseFloat(newSL.toFixed(5));
+  alert.note = JSON.stringify(j);
+  await updateAlert(id, { note: alert.note });
+
+  document.getElementById('trail-stop-modal')?.remove();
+  renderAlerts();
+  if (currentAlertTab === 'trades') renderTradesTab();
+  showToast('Trail Stop Set', `${alert.symbol} SL moved to ${formatPrice(newSL, alert.assetId)} (${(pct * 100).toFixed(1)}% trail).`, 'success');
 }
 
 function showManualCloseForm(alert, journal) {
@@ -4983,6 +5098,33 @@ function toggleWatchlistGrouping() {
   renderWatchlist();
 }
 
+// ── Alert Edit button on chart page ──────────────────────────────────────────
+// Shows "Edit Alert" button above chart only when navigating from an alert card
+function updateAlertEditBtn() {
+  const btn = document.getElementById('alert-edit-chart-btn');
+  if (!btn) return;
+  if (alertSourceId) {
+    btn.style.display = 'flex';
+  } else {
+    btn.style.display = 'none';
+  }
+}
+
+function editAlertFromChart() {
+  if (!alertSourceId) return;
+  const alert = alerts.find(a => a.id === alertSourceId);
+  if (!alert) { alertSourceId = null; updateAlertEditBtn(); return; }
+
+  if (alert.condition === 'setup') {
+    editSetupAlert(alertSourceId);
+  } else {
+    editAlert(alertSourceId);
+  }
+  // Clear source so button hides after edit starts
+  alertSourceId = null;
+  updateAlertEditBtn();
+}
+
 // ─── TELEGRAM NOTIFICATION PREFERENCES ───────────────────────────────────────
 function toggleTgNotifPref(key) {
   tgNotifPrefs[key] = !tgNotifPrefs[key];
@@ -4999,7 +5141,7 @@ function loadTgNotifPrefs() {
 
 function openMenuAbout()        { openMenuPage('about'); }
 function openMenuSubscription() { openMenuPage('subscription'); }
-function openMenuAffiliate()    { openMenuPage('affiliate'); }
+function openMenuAffiliate()    { openMenuPage('affiliate'); renderAffiliateDashboard(); }
 function openMenuHelp()         { openMenuPage('help'); }
 
 // ── Support bot deep link with user context ───────────────────────────────────
@@ -5010,6 +5152,72 @@ function openSupportBot() {
     window.Telegram.WebApp.openLink(url);
   } else {
     window.open(url, '_blank');
+  }
+}
+
+// ── Affiliate Dashboard ───────────────────────────────────────────────────────
+function renderAffiliateDashboard() {
+  // Pull user display name from Telegram WebApp or fallback
+  const tgUser   = window.Telegram?.WebApp?.initDataUnsafe?.user;
+  const name     = tgUser
+    ? [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ')
+    : telegramUserName || 'Your Account';
+
+  // Affiliate stats — loaded from localStorage (replace with Supabase when backend ready)
+  const totalReferrals = parseInt(localStorage.getItem('aff_total_referrals') || '0', 10);
+  const proSubs        = parseInt(localStorage.getItem('aff_pro_subs')        || '0', 10);
+  const lifetimeRaw    = parseFloat(localStorage.getItem('aff_lifetime')      || '0');
+
+  // Commission tier logic: 1–500 = 20%, 501+ = 25%
+  const commissionPct  = proSubs >= 501 ? 0.25 : 0.20;
+  // Assume $3/month per pro subscriber as example unit price
+  const subPrice       = 3;
+  const monthlyEarnings = proSubs * subPrice * commissionPct;
+  const tierLabel      = proSubs >= 501 ? '25% · Elite Tier' : '20% · Standard Tier';
+  const tierDisplay    = commissionPct === 0.25 ? '25% Commission · Elite Tier' : '20% Commission · Standard Tier';
+
+  // Progress toward 501 (next tier milestone)
+  const progressToNextTier = proSubs >= 501 ? 100 : Math.min((proSubs / 501) * 100, 100);
+  const subsNeeded         = proSubs >= 501 ? 0 : 501 - proSubs;
+
+  // Motivational footer
+  const footers = [
+    'Keep growing, your goal is in sight!',
+    'Every referral brings you closer to Elite Tier.',
+    'You\'re building something great — keep sharing!',
+    'Consistency compounds. Keep going!',
+  ];
+  const footer = proSubs >= 501
+    ? '🏆 You\'ve reached Elite Tier! Maximum commissions unlocked.'
+    : footers[Math.floor(totalReferrals / 10) % footers.length];
+
+  // Update DOM
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  set('aff-username',        name);
+  set('aff-tier',            tierDisplay);
+  set('aff-total-referrals', totalReferrals.toLocaleString());
+  set('aff-pro-subs',        proSubs.toLocaleString());
+  set('aff-monthly',        `$${monthlyEarnings.toFixed(0)}`);
+  set('aff-lifetime',       `$${lifetimeRaw.toFixed(0)}`);
+  set('aff-tier-label',      tierLabel);
+  set('aff-progress-note',   proSubs >= 501
+    ? '✓ Elite Tier reached — earning 25% commission'
+    : `Reach 501 Pro Subscribers for 25% commission · ${subsNeeded} to go`);
+  set('aff-footer-line',     footer);
+
+  const fill = document.getElementById('aff-progress-fill');
+  if (fill) fill.style.width = progressToNextTier.toFixed(1) + '%';
+}
+
+function copyReferralLink() {
+  const userId  = telegramChatId || localStorage.getItem('tg_chat_id') || 'user';
+  const refLink = `https://t.me/altradia_support_bot?start=ref_${userId}`;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(refLink).then(() => {
+      showToast('Link Copied!', 'Your referral link has been copied to clipboard.', 'success');
+    }).catch(() => showToast('Link', refLink, 'info'));
+  } else {
+    showToast('Your Referral Link', refLink, 'info');
   }
 }
 
