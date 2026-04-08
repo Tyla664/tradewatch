@@ -5041,6 +5041,259 @@ function playAlertSound(type = 'chime') {
 
 // ── Slide-out menu panel ─────────────────────────────────────────────────────
 
+// ═══════════════════════════════════════════════════════════════════
+// BROKER SYNC — Token management and status display
+// ═══════════════════════════════════════════════════════════════════
+
+let _brokerSyncToken = '';
+
+// Generate a cryptographically random token
+function generateSyncToken() {
+  const arr = new Uint8Array(24);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+// Load or create broker sync token when page opens
+async // ════════════════════════════════════════════════════════════
+// BROKER SYNC — MTAPI.IO integration
+// ════════════════════════════════════════════════════════════
+
+const BS_EDGE = 'https://etugovdinpbqiygsbemc.supabase.co/functions/v1/broker-sync';
+let _bsPlatform    = 'MT4';
+let _bsConnectionId = null;
+let _bsPollInterval = null;
+
+// ── Platform selector ─────────────────────────────────────────────────
+function bsSelectPlatform(p) {
+  _bsPlatform = p;
+  document.getElementById('bs-btn-mt4').classList.toggle('active', p === 'MT4');
+  document.getElementById('bs-btn-mt5').classList.toggle('active', p === 'MT5');
+}
+
+// ── Show/hide password ────────────────────────────────────────────────
+function bsTogglePassword() {
+  const inp  = document.getElementById('bs-password');
+  const show = document.getElementById('bs-eye-show');
+  const hide = document.getElementById('bs-eye-hide');
+  const isText = inp.type === 'text';
+  inp.type = isText ? 'password' : 'text';
+  show.style.display = isText ? '' : 'none';
+  hide.style.display = isText ? 'none' : '';
+}
+
+// ── Connect ────────────────────────────────────────────────────────────
+async function bsConnect() {
+  const server   = document.getElementById('bs-server').value.trim();
+  const login    = document.getElementById('bs-login').value.trim();
+  const password = document.getElementById('bs-password').value;
+  const broker   = document.getElementById('bs-broker-name').value.trim();
+  const errEl    = document.getElementById('bs-error');
+  const btn      = document.getElementById('bs-connect-btn');
+  const label    = document.getElementById('bs-connect-label');
+  const icon     = document.getElementById('bs-connect-icon');
+
+  errEl.style.display = 'none';
+
+  if (!server || !login || !password) {
+    errEl.textContent = 'Please fill in all fields.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  // Loading state
+  btn.disabled = true;
+  label.textContent = 'Connecting…';
+  icon.innerHTML = '<circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5" stroke-dasharray="30" stroke-dashoffset="10" style="animation:spin 1s linear infinite;transform-origin:center"/>';
+
+  try {
+    const jwt = await getSupabaseJWT();
+    const resp = await fetch(`${BS_EDGE}/connect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+      body: JSON.stringify({
+        platform:   _bsPlatform,
+        server,
+        port:       443,
+        login,
+        password,
+        brokerName: broker,
+      }),
+    });
+
+    const data = await resp.json();
+
+    if (!resp.ok || !data.ok) {
+      errEl.textContent = data.error || 'Connection failed. Check your server address, login, and password.';
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      label.textContent = 'Connect Account';
+      icon.innerHTML = '<path d="M8 1v6M8 9v6M1 8h6M9 8h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>';
+      return;
+    }
+
+    // Success — switch to connected view
+    _bsConnectionId = data.connection.id;
+    bsShowConnected(data.connection, data.sync);
+    showToast('Connected', `${data.connection.broker} account synced.`, 'success');
+
+    // Start polling every 30s
+    bsStartPolling();
+
+  } catch(e) {
+    errEl.textContent = 'Network error. Please try again.';
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    label.textContent = 'Connect Account';
+    icon.innerHTML = '<path d="M8 1v6M8 9v6M1 8h6M9 8h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>';
+  }
+}
+
+// ── Display connected state ───────────────────────────────────────────
+function bsShowConnected(conn, sync) {
+  document.getElementById('bs-view-connect').style.display   = 'none';
+  document.getElementById('bs-view-connected').style.display = '';
+
+  document.getElementById('bs-conn-dot').classList.add('live');
+  document.getElementById('bs-account-name').textContent    = conn.name || conn.broker || conn.login;
+  document.getElementById('bs-account-sub').textContent     = `Login: ${conn.login}`;
+  document.getElementById('bs-account-platform').textContent = conn.platform || _bsPlatform;
+
+  const cur = conn.currency || '';
+  document.getElementById('bs-balance').textContent     = conn.balance  != null ? `${cur} ${Number(conn.balance).toFixed(2)}`  : '—';
+  document.getElementById('bs-equity').textContent      = conn.equity   != null ? `${cur} ${Number(conn.equity).toFixed(2)}`   : '—';
+  document.getElementById('bs-open-trades').textContent = sync?.orders  != null ? String(sync.orders) : '—';
+  document.getElementById('bs-last-sync').textContent   = 'Last sync: just now';
+
+  // Refresh alerts so synced trades show up immediately
+  renderAlerts();
+}
+
+// ── Build synced trades list in the UI ────────────────────────────────
+function bsRenderTradesList() {
+  const el = document.getElementById('bs-trades-list');
+  if (!el) return;
+
+  const synced = alerts.filter(a => {
+    try { return !!JSON.parse(a.note || '{}').brokerTicket; } catch { return false; }
+  });
+
+  if (!synced.length) {
+    el.innerHTML = '<div style="font-family:var(--mono);font-size:0.68rem;color:var(--muted);padding:12px 0">No trades synced yet.</div>';
+    return;
+  }
+
+  el.innerHTML = synced.map(a => {
+    let j = {};
+    try { j = JSON.parse(a.note || '{}'); } catch {}
+    const dir     = j.direction || 'long';
+    const profit  = typeof j.profit === 'number' ? j.profit : null;
+    const pnlCls  = profit === null ? '' : profit >= 0 ? 'pos' : 'neg';
+    const pnlTxt  = profit === null ? '' : (profit >= 0 ? '+' : '') + profit.toFixed(2);
+    const status  = j.tradeStatus === 'running' ? '● LIVE' : '○ PENDING';
+    return `
+      <div class="bs-trade-row">
+        <div class="bs-trade-dir ${dir}">${dir.toUpperCase()}</div>
+        <div class="bs-trade-info">
+          <div class="bs-trade-sym">${a.symbol}</div>
+          <div class="bs-trade-detail">#${j.brokerTicket} · ${status} · ${j.lotSize ?? '—'} lots</div>
+        </div>
+        ${profit !== null ? `<div class="bs-trade-pnl ${pnlCls}">${pnlTxt}</div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+// ── Manual sync ───────────────────────────────────────────────────────
+async function bsManualPoll() {
+  try {
+    const jwt  = await getSupabaseJWT();
+    const resp = await fetch(`${BS_EDGE}/poll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+      body: '{}',
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      document.getElementById('bs-last-sync').textContent = 'Last sync: just now';
+      renderAlerts();
+      bsRenderTradesList();
+      showToast('Synced', 'Trades refreshed from broker.', 'success');
+    }
+  } catch(e) { showToast('Error', 'Sync failed.', 'error'); }
+}
+
+// ── Auto-poll every 30s while page is open ────────────────────────────
+function bsStartPolling() {
+  if (_bsPollInterval) clearInterval(_bsPollInterval);
+  _bsPollInterval = setInterval(() => {
+    if (_bsConnectionId) bsManualPoll();
+  }, 30000);
+}
+
+// ── Disconnect ────────────────────────────────────────────────────────
+async function bsDisconnect() {
+  if (!_bsConnectionId) return;
+  try {
+    const jwt = await getSupabaseJWT();
+    await fetch(`${BS_EDGE}/disconnect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+      body: JSON.stringify({ connectionId: _bsConnectionId }),
+    });
+  } catch {}
+  _bsConnectionId = null;
+  if (_bsPollInterval) { clearInterval(_bsPollInterval); _bsPollInterval = null; }
+  document.getElementById('bs-view-connect').style.display   = '';
+  document.getElementById('bs-view-connected').style.display = 'none';
+  document.getElementById('bs-conn-dot').classList.remove('live');
+  showToast('Disconnected', 'Broker account disconnected.', 'info');
+}
+
+// ── Load existing connection when page opens ──────────────────────────
+async function loadBrokerSyncPage() {
+  try {
+    const jwt  = await getSupabaseJWT();
+    const resp = await fetch(`${BS_EDGE}/list`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+      body: '{}',
+    });
+    const data = await resp.json();
+    const conns = data.connections || [];
+    const active = conns.find((c) => c.status === 'connected');
+
+    if (active) {
+      _bsConnectionId = active.id;
+      _bsPlatform     = active.platform;
+      bsShowConnected({
+        id:       active.id,
+        platform: active.platform,
+        broker:   active.broker_name,
+        login:    active.mt_login,
+        balance:  active.balance,
+        equity:   active.equity,
+        currency: active.currency,
+        name:     active.broker_name,
+      }, { orders: active.open_trades });
+
+      const ls = active.last_sync ? new Date(active.last_sync).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '—';
+      document.getElementById('bs-last-sync').textContent = `Last sync: ${ls}`;
+      bsRenderTradesList();
+      bsStartPolling();
+    }
+  } catch(e) { console.error('loadBrokerSyncPage:', e); }
+}
+
+// ── Helper: get the current user's Supabase JWT ───────────────────────
+async function getSupabaseJWT() {
+  // Use the existing Supabase session from the db layer
+  if (typeof db !== 'undefined' && db.auth) {
+    const { data } = await db.auth.getSession();
+    return data?.session?.access_token || '';
+  }
+  return '';
+}
+
 function openMenuPanel() {
   const panel   = document.getElementById('menu-panel');
   const overlay = document.getElementById('menu-overlay');
