@@ -800,22 +800,18 @@ async function fetchAllPrices() {
   const hotIds     = new Set(Object.values(HOT_LIST).flat());
   const allNeeded  = [...new Set([...watchedIds, ...hotIds])].map(id => ASSET_BY_ID.get(id)).filter(Boolean);
 
-  // Deriv WS handles real-time ticks — this REST fetch fills initial snapshots only.
-  // OANDA: fallback snapshot for assets with oandaSym that Deriv hasn't priced yet
-  const oandaAssets = OANDA_KEY
-    ? allNeeded.filter(a => a.oandaSym && !priceData[a.id]?.price)
+  // CoinGecko: ALL crypto assets — fast, reliable, always refreshed
+  const cgAssets = allNeeded.filter(a => a.sources?.includes('coingecko'));
+
+  // Deriv WS handles real-time ticks for forex/indices/synthetics — no REST needed for those.
+  // OANDA: snapshot for non-Deriv assets only (stocks CFD that don't have a derivSym)
+  const oandaOnly = OANDA_KEY
+    ? allNeeded.filter(a => a.oandaSym && !a.derivSym)
     : [];
 
-  // CoinGecko: for crypto assets without an OANDA symbol, or not yet priced by Deriv
-  const cgAssets = allNeeded.filter(a =>
-    a.sources?.includes('coingecko') &&
-    !a.oandaSym &&
-    !priceData[a.id]?.price
-  );
-
   await Promise.all([
-    oandaAssets.length ? fetchOandaSnapshot(oandaAssets) : Promise.resolve(),
-    cgAssets.length    ? fetchCryptoPrices(cgAssets)     : Promise.resolve(),
+    cgAssets.length  ? fetchCryptoPrices(cgAssets) : Promise.resolve(),
+    oandaOnly.length ? fetchOandaSnapshot(oandaOnly) : Promise.resolve(),
   ]);
 
   checkAlerts();
@@ -826,17 +822,19 @@ async function fetchAllPrices() {
 // ═══════════════════════════════════════════════
 async function fetchSingleAsset(asset) {
   if (!asset) return;
-  // Deriv WS is primary — subscribe for live ticks
+  // Crypto: CoinGecko for instant price, then Deriv WS for live ticks
+  if (asset.sources?.includes('coingecko')) {
+    await fetchCryptoPrices([asset]);
+    if (asset.derivSym) subscribeDerivAsset(asset); // also subscribe for ticks
+    return;
+  }
+  // Forex/indices/synthetics: Deriv WS subscription (ticks_history fires immediately)
   if (asset.derivSym) {
     subscribeDerivAsset(asset); return;
   }
-  // OANDA fallback for assets with no Deriv symbol (some stocks/indices)
+  // Stocks/CFD with no Deriv: OANDA fallback
   if (OANDA_KEY && asset.oandaSym) {
-    await fetchOandaSnapshot([asset]); return;
-  }
-  // CoinGecko fallback for crypto without Deriv or OANDA support
-  if (asset.sources?.includes('coingecko')) {
-    await fetchCryptoPrices([asset]);
+    await fetchOandaSnapshot([asset]);
   }
 }
 
@@ -5272,7 +5270,6 @@ function openMenuAbout()        { openMenuPage('about'); }
 function openMenuSubscription() { openMenuPage('subscription'); }
 function openMenuAffiliate()    { openMenuPage('affiliate'); renderAffiliateDashboard(); }
 function openMenuHelp()         { openMenuPage('help'); }
-function openMenuBrokerSync()   { openMenuPage('brokersync'); initBrokerPlatform(); }
 
 // ── Support bot deep link with user context ───────────────────────────────────
 function openSupportBot() {
@@ -5389,26 +5386,240 @@ function renderPayoutHistory() {
     </div>`).join('');
 }
 
-function selectBrokerPlatform(platform) {
-  localStorage.setItem('broker_platform', platform);
-  const mt4Btn  = document.getElementById('broker-mt4-btn');
-  const mt5Btn  = document.getElementById('broker-mt5-btn');
-  const noteEl  = document.getElementById('broker-platform-note');
-  if (!mt4Btn || !mt5Btn) return;
-  const isMT4 = platform === 'MT4';
-  // Active button
-  mt4Btn.style.border      = isMT4 ? '1.5px solid var(--accent)' : '1.5px solid var(--border)';
-  mt4Btn.style.background  = isMT4 ? 'rgba(0,186,255,0.12)'      : 'var(--surface2)';
-  mt4Btn.style.color       = isMT4 ? 'var(--accent)'             : 'var(--muted)';
-  mt5Btn.style.border      = isMT4 ? '1.5px solid var(--border)' : '1.5px solid var(--accent)';
-  mt5Btn.style.background  = isMT4 ? 'var(--surface2)'           : 'rgba(0,186,255,0.12)';
-  mt5Btn.style.color       = isMT4 ? 'var(--muted)'              : 'var(--accent)';
-  if (noteEl) noteEl.textContent = `MetaTrader ${isMT4 ? '4' : '5'} selected`;
+// ════════════════════════════════════════════════════════════
+// BROKER SYNC — MTAPI.IO integration
+// Connects MT4/MT5 accounts via Supabase Edge Function
+// ════════════════════════════════════════════════════════════
+
+const BS_EDGE = 'https://etugovdinpbqiygsbemc.supabase.co/functions/v1/broker-sync';
+let _bsPlatform     = 'MT4';
+let _bsConnectionId = null;
+let _bsPollInterval = null;
+
+function openMenuBrokerSync() {
+  openMenuPage('brokersync');
+  // Restore saved platform, then try to load any existing connection
+  const saved = localStorage.getItem('broker_platform') || 'MT4';
+  _bsPlatform = saved;
+  bsUpdatePlatformUI(saved);
+  loadBrokerSyncPage();
 }
 
+function bsUpdatePlatformUI(platform) {
+  _bsPlatform = platform;
+  localStorage.setItem('broker_platform', platform);
+  const mt4Btn = document.getElementById('bs-btn-mt4');
+  const mt5Btn = document.getElementById('bs-btn-mt5');
+  if (!mt4Btn || !mt5Btn) return;
+  const isMT4 = platform === 'MT4';
+  mt4Btn.classList.toggle('active', isMT4);
+  mt5Btn.classList.toggle('active', !isMT4);
+}
+
+// Keep old name for compatibility
+function selectBrokerPlatform(p) { bsUpdatePlatformUI(p); }
 function initBrokerPlatform() {
   const saved = localStorage.getItem('broker_platform') || 'MT4';
-  selectBrokerPlatform(saved);
+  bsUpdatePlatformUI(saved);
+}
+
+function bsSelectPlatform(p) { bsUpdatePlatformUI(p); }
+
+function bsTogglePassword() {
+  const inp  = document.getElementById('bs-password');
+  const show = document.getElementById('bs-eye-show');
+  const hide = document.getElementById('bs-eye-hide');
+  if (!inp) return;
+  const isText = inp.type === 'text';
+  inp.type = isText ? 'password' : 'text';
+  if (show) show.style.display = isText ? '' : 'none';
+  if (hide) hide.style.display = isText ? 'none' : '';
+}
+
+async function bsConnect() {
+  const server   = document.getElementById('bs-server')?.value.trim();
+  const login    = document.getElementById('bs-login')?.value.trim();
+  const password = document.getElementById('bs-password')?.value;
+  const broker   = document.getElementById('bs-broker-name')?.value.trim();
+  const errEl    = document.getElementById('bs-error');
+  const btn      = document.getElementById('bs-connect-btn');
+  const label    = document.getElementById('bs-connect-label');
+  const icon     = document.getElementById('bs-connect-icon');
+
+  if (errEl) errEl.style.display = 'none';
+
+  if (!server || !login || !password) {
+    if (errEl) { errEl.textContent = 'Please fill in all required fields.'; errEl.style.display = 'block'; }
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  if (label) label.textContent = 'Connecting…';
+  if (icon) icon.innerHTML = '<circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5" stroke-dasharray="30" stroke-dashoffset="10" style="animation:spin 1s linear infinite;transform-origin:center"/>';
+
+  try {
+    const jwt  = await getSupabaseJWT();
+    const resp = await fetch(`${BS_EDGE}/connect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+      body: JSON.stringify({ platform: _bsPlatform, server, port: 443, login, password, brokerName: broker }),
+    });
+    const data = await resp.json();
+
+    if (!resp.ok || !data.ok) {
+      if (errEl) { errEl.textContent = data.error || 'Connection failed. Check your server address, login, and password.'; errEl.style.display = 'block'; }
+      if (btn) btn.disabled = false;
+      if (label) label.textContent = 'Connect Account';
+      if (icon) icon.innerHTML = '<path d="M8 1v6M8 9v6M1 8h6M9 8h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>';
+      return;
+    }
+
+    _bsConnectionId = data.connection.id;
+    bsShowConnected(data.connection, data.sync);
+    showToast('Broker Connected', `${data.connection.broker || 'Account'} synced successfully.`, 'success');
+    bsStartPolling();
+
+  } catch(e) {
+    if (errEl) { errEl.textContent = 'Network error. Please try again.'; errEl.style.display = 'block'; }
+    if (btn) btn.disabled = false;
+    if (label) label.textContent = 'Connect Account';
+    if (icon) icon.innerHTML = '<path d="M8 1v6M8 9v6M1 8h6M9 8h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>';
+  }
+}
+
+function bsShowConnected(conn, sync) {
+  const viewConnect   = document.getElementById('bs-view-connect');
+  const viewConnected = document.getElementById('bs-view-connected');
+  if (viewConnect)   viewConnect.style.display   = 'none';
+  if (viewConnected) viewConnected.style.display = '';
+
+  const dot    = document.getElementById('bs-conn-dot');
+  const name   = document.getElementById('bs-account-name');
+  const sub    = document.getElementById('bs-account-sub');
+  const plat   = document.getElementById('bs-account-platform');
+  const bal    = document.getElementById('bs-balance');
+  const eq     = document.getElementById('bs-equity');
+  const trades = document.getElementById('bs-open-trades');
+  const sync_  = document.getElementById('bs-last-sync');
+
+  if (dot)    dot.classList.add('live');
+  if (name)   name.textContent    = conn.name || conn.broker || conn.login;
+  if (sub)    sub.textContent     = `Login: ${conn.login}`;
+  if (plat)   plat.textContent    = conn.platform || _bsPlatform;
+  const cur = conn.currency || '';
+  if (bal)    bal.textContent     = conn.balance  != null ? `${cur} ${Number(conn.balance).toFixed(2)}`  : '—';
+  if (eq)     eq.textContent      = conn.equity   != null ? `${cur} ${Number(conn.equity).toFixed(2)}`   : '—';
+  if (trades) trades.textContent  = sync?.orders  != null ? String(sync.orders) : '—';
+  if (sync_)  sync_.textContent   = 'Last sync: just now';
+
+  renderAlerts();
+}
+
+function bsRenderTradesList() {
+  const el = document.getElementById('bs-trades-list');
+  if (!el) return;
+  const synced = alerts.filter(a => { try { return !!JSON.parse(a.note || '{}').brokerTicket; } catch { return false; } });
+  if (!synced.length) {
+    el.innerHTML = '<div style="font-family:var(--mono);font-size:0.68rem;color:var(--muted);padding:12px 0">No trades synced yet.</div>';
+    return;
+  }
+  el.innerHTML = synced.map(a => {
+    let j = {}; try { j = JSON.parse(a.note || '{}'); } catch {}
+    const dir = j.direction || 'long';
+    const profit = typeof j.profit === 'number' ? j.profit : null;
+    const pnlCls = profit === null ? '' : profit >= 0 ? 'pos' : 'neg';
+    const pnlTxt = profit === null ? '' : (profit >= 0 ? '+' : '') + profit.toFixed(2);
+    return `<div class="bs-trade-row">
+      <div class="bs-trade-dir ${dir}">${dir.toUpperCase()}</div>
+      <div class="bs-trade-info"><div class="bs-trade-sym">${a.symbol}</div><div class="bs-trade-detail">#${j.brokerTicket} · ${j.tradeStatus === 'running' ? '● LIVE' : '○ PENDING'} · ${j.lotSize ?? '—'} lots</div></div>
+      ${profit !== null ? `<div class="bs-trade-pnl ${pnlCls}">${pnlTxt}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function bsManualPoll() {
+  try {
+    const jwt  = await getSupabaseJWT();
+    const resp = await fetch(`${BS_EDGE}/poll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+      body: '{}',
+    });
+    const data = await resp.json();
+    if (data.ok) {
+      const sync_ = document.getElementById('bs-last-sync');
+      if (sync_) sync_.textContent = 'Last sync: just now';
+      renderAlerts();
+      bsRenderTradesList();
+      showToast('Synced', 'Trades refreshed from broker.', 'success');
+    }
+  } catch(e) { showToast('Sync Error', 'Sync failed — check connection.', 'error'); }
+}
+
+function bsStartPolling() {
+  if (_bsPollInterval) clearInterval(_bsPollInterval);
+  _bsPollInterval = setInterval(() => {
+    if (_bsConnectionId) bsManualPoll();
+  }, 30000);
+}
+
+async function bsDisconnect() {
+  if (!_bsConnectionId) return;
+  try {
+    const jwt = await getSupabaseJWT();
+    await fetch(`${BS_EDGE}/disconnect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+      body: JSON.stringify({ connectionId: _bsConnectionId }),
+    });
+  } catch {}
+  _bsConnectionId = null;
+  if (_bsPollInterval) { clearInterval(_bsPollInterval); _bsPollInterval = null; }
+  const viewConnect   = document.getElementById('bs-view-connect');
+  const viewConnected = document.getElementById('bs-view-connected');
+  if (viewConnect)   viewConnect.style.display   = '';
+  if (viewConnected) viewConnected.style.display = 'none';
+  const dot = document.getElementById('bs-conn-dot');
+  if (dot) dot.classList.remove('live');
+  showToast('Disconnected', 'Broker account disconnected.', 'info');
+}
+
+async function loadBrokerSyncPage() {
+  try {
+    const jwt  = await getSupabaseJWT();
+    const resp = await fetch(`${BS_EDGE}/list`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${jwt}` },
+      body: '{}',
+    });
+    const data = await resp.json();
+    const active = (data.connections || []).find(c => c.status === 'connected');
+    if (active) {
+      _bsConnectionId = active.id;
+      _bsPlatform     = active.platform;
+      bsUpdatePlatformUI(active.platform);
+      bsShowConnected({
+        id: active.id, platform: active.platform, broker: active.broker_name,
+        login: active.mt_login, balance: active.balance, equity: active.equity,
+        currency: active.currency, name: active.broker_name,
+      }, { orders: active.open_trades });
+      const sync_ = document.getElementById('bs-last-sync');
+      if (sync_ && active.last_sync) {
+        const ls = new Date(active.last_sync).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        sync_.textContent = `Last sync: ${ls}`;
+      }
+      bsRenderTradesList();
+      bsStartPolling();
+    }
+  } catch(e) { console.warn('loadBrokerSyncPage:', e); }
+}
+
+async function getSupabaseJWT() {
+  if (typeof db !== 'undefined' && db.auth) {
+    const { data } = await db.auth.getSession();
+    return data?.session?.access_token || '';
+  }
+  return '';
 }
 
 function openMenuPage(name) {
@@ -6049,19 +6260,13 @@ setInterval(() => {
   updateSessionDisplay();
 }, 8000);
 
-// REST refresh every 60 seconds — fills any gaps Deriv WS hasn't covered
-// Deriv WebSocket is primary for all live ticks; OANDA/CoinGecko fill remaining gaps
+// REST refresh every 60 seconds — keeps CoinGecko crypto prices current
+// Deriv WebSocket handles all real-time ticks for forex/indices/synthetics
 setInterval(() => {
-  // Always refresh CoinGecko for crypto assets that Deriv doesn't cover
-  const cgOnly = Object.values(ASSETS).flat().filter(a =>
-    a.sources?.includes('coingecko') && !a.derivSym
-  );
-  if (cgOnly.length) fetchCryptoPrices(cgOnly);
+  fetchAllPrices();
   // Reconnect / re-subscribe Deriv on every REST cycle to catch any dropped ticks
   if (!_conn1.ws || _conn1.ws.readyState > 1) connectDeriv();
   else resubscribeAllDeriv();
-  checkAlerts();
-  updateSessionDisplay();
 }, 60 * 1000);
 
 // ═══════════════════════════════════════════════
