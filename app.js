@@ -1189,18 +1189,17 @@ function hotListAdd(assetId, cat, e) {
 function switchWLTab(tab) {
   currentWLTab = tab;
   localStorage.setItem('tw_last_wl_tab', tab);
-  document.getElementById('panel-hot').style.display          = tab === 'hot'       ? '' : 'none';
-  document.getElementById('panel-my-watchlist').style.display = tab === 'watchlist' ? '' : 'none';
+  document.getElementById('panel-hot').style.display          = 'none';
+  document.getElementById('panel-my-watchlist').style.display = '';
 
   // Show FAB only on watchlist tab on mobile
   const fab = document.getElementById('wl-fab');
-  if (fab) fab.classList.toggle('visible', tab === 'watchlist' && isMobileLayout());
+  if (fab) fab.classList.toggle('visible', isMobileLayout());
 
   // Sync nav button highlights
   if (isMobileLayout()) {
     document.querySelectorAll('.mobile-nav-btn').forEach(b => b.classList.remove('active'));
-    const btnId = tab === 'watchlist' ? 'mnav-my-watchlist' : 'mnav-watchlist';
-    document.getElementById(btnId)?.classList.add('active');
+    document.getElementById('mnav-my-watchlist')?.classList.add('active');
   }
 }
 
@@ -1478,6 +1477,7 @@ function mobileTab(tab, pushState = true) {
 
   // Hide all panels
   document.getElementById('panel-watchlist').classList.remove('mobile-active');
+  document.getElementById('panel-community')?.classList.remove('mobile-active');
   document.getElementById('panel-main').classList.remove('mobile-active');
   document.getElementById('panel-journal')?.classList.remove('mobile-active');
   document.getElementById('panel-alerts').classList.remove('mobile-active');
@@ -1495,7 +1495,13 @@ function mobileTab(tab, pushState = true) {
   // Hide FAB unless staying on watchlist tab
   const fab = document.getElementById('wl-fab');
 
-  if (tab === 'watchlist') {
+  if (tab === 'community') {
+    if (fab) fab.classList.remove('visible');
+    const panel = document.getElementById('panel-community');
+    if (panel) { panel.classList.add('mobile-active'); panel.scrollTop = 0; }
+    document.getElementById('mnav-community')?.classList.add('active');
+    renderCommunity();
+  } else if (tab === 'watchlist') {
     document.getElementById('panel-watchlist').classList.add('mobile-active');
     // Nav highlight handled by switchWLTab caller
     alertSourceId = null; updateAlertEditBtn();
@@ -6549,6 +6555,70 @@ function updateSessionDisplay() {
 
 // ═══════════════════════════════════════════════
 // INIT
+
+// ═══════════════════════════════════════════════
+// COMMUNITY — LEADERBOARD
+// ═══════════════════════════════════════════════
+const BADGE_SVGS = {
+  consistency: `<span class="badge-icon badge-consistency" title="Consistency Master"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#ffd600" stroke-width="1.3" fill="none"/><polyline points="4,7 6,9 10,5" stroke="#ffd600" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`,
+  discipline:  `<span class="badge-icon badge-discipline" title="Discipline Pro"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1L9 5h4L9.5 7.5 11 12 7 9.5 3 12l1.5-4.5L1 5h4z" stroke="#00d4ff" stroke-width="1.2" stroke-linejoin="round" fill="none"/></svg></span>`,
+  target:      `<span class="badge-icon badge-target" title="Target Hunter"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="6" stroke="#00e676" stroke-width="1.3" fill="none"/><circle cx="7" cy="7" r="3.5" stroke="#00e676" stroke-width="1.2" fill="none"/><circle cx="7" cy="7" r="1.2" fill="#00e676"/></svg></span>`,
+  setup:       `<span class="badge-icon badge-setup" title="Setup Specialist"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1.5" y="2" width="11" height="10" rx="1.5" stroke="#ff6b35" stroke-width="1.3" fill="none"/><line x1="4" y1="5" x2="10" y2="5" stroke="#ff6b35" stroke-width="1.2" stroke-linecap="round"/><line x1="4" y1="7.5" x2="10" y2="7.5" stroke="#ff6b35" stroke-width="1.2" stroke-linecap="round"/><line x1="4" y1="10" x2="7" y2="10" stroke="#ff6b35" stroke-width="1.2" stroke-linecap="round"/></svg></span>`,
+  elite:       `<span class="badge-icon badge-elite" title="Elite Icon"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1.5L3 5H1L3.5 9 2.5 12.5 7 10.5 11.5 12.5 10.5 9 13 5H11L7 1.5Z" stroke="#ffd600" stroke-width="1.2" stroke-linejoin="round" fill="none"/><circle cx="7" cy="6.5" r="1.5" fill="#ffd600" opacity="0.8"/></svg></span>`,
+};
+const LB_CROWN_SVG = `<svg class="lb-crown" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M1 9L2.5 4 5 7 6 2 7 7 9.5 4 11 9H1Z" fill="#ffd600" opacity="0.85" stroke="#ffd600" stroke-width="0.5" stroke-linejoin="round"/></svg>`;
+const LB_MEDAL_SVGS = {
+  1: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="rgba(255,214,0,0.15)" stroke="#ffd600" stroke-width="1.2"/><text x="8" y="12" text-anchor="middle" font-size="8" font-weight="700" fill="#ffd600" font-family="monospace">1</text></svg>`,
+  2: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="rgba(176,184,200,0.15)" stroke="#b0b8c8" stroke-width="1.2"/><text x="8" y="12" text-anchor="middle" font-size="8" font-weight="700" fill="#b0b8c8" font-family="monospace">2</text></svg>`,
+  3: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="rgba(205,127,50,0.15)" stroke="#cd7f32" stroke-width="1.2"/><text x="8" y="12" text-anchor="middle" font-size="8" font-weight="700" fill="#cd7f32" font-family="monospace">3</text></svg>`,
+};
+const MOCK_LEADERBOARD = [
+  { rank:1,  username:'TraderAlpha', score:95, badges:['consistency','elite'], elite:true  },
+  { rank:2,  username:'FXWizard',    score:92, badges:['target','discipline'], elite:false },
+  { rank:3,  username:'CryptoQueen', score:90, badges:['discipline','setup'],  elite:false },
+  { rank:4,  username:'PipMaster',   score:88, badges:['consistency'],         elite:false },
+  { rank:5,  username:'SwingKing',   score:85, badges:['target'],              elite:false },
+  { rank:6,  username:'AlphaEdge',   score:83, badges:['setup','consistency'], elite:false },
+  { rank:7,  username:'RiskManager', score:81, badges:['discipline'],          elite:false },
+  { rank:8,  username:'GoldPips',    score:79, badges:['target','setup'],      elite:false },
+  { rank:9,  username:'DayTrader9',  score:76, badges:['consistency'],         elite:false },
+  { rank:10, username:'MarketOwl',   score:74, badges:['discipline'],          elite:false },
+];
+let _communityRendered = false;
+function renderCommunity() {
+  if (_communityRendered) return;
+  _communityRendered = true;
+  const list = document.getElementById('leaderboard-list');
+  if (!list) return;
+  const data = MOCK_LEADERBOARD;
+  const avg = Math.round(data.reduce((s,r) => s + r.score, 0) / data.length);
+  const avgEl = document.getElementById('community-avg-score');
+  if (avgEl) avgEl.textContent = avg + '%';
+  const totw = data[0];
+  if (totw) {
+    const totwSection = document.getElementById('totw-section');
+    const totwCard    = document.getElementById('totw-card');
+    if (totwSection && totwCard) {
+      totwCard.innerHTML = `
+        <div class="totw-rank-badge">${LB_MEDAL_SVGS[1]}</div>
+        <div class="totw-info">
+          <div class="totw-username${totw.elite ? ' elite' : ''}">${totw.elite ? LB_CROWN_SVG : ''}${totw.username}</div>
+          <div class="totw-score">Consistency score: ${totw.score}%</div>
+        </div>
+        <div class="totw-badges">${totw.badges.map(b => BADGE_SVGS[b]||'').join('')}</div>`;
+      totwSection.style.display = '';
+    }
+  }
+  list.innerHTML = data.map(row => {
+    const rankHtml  = LB_MEDAL_SVGS[row.rank] ? `<span class="lb-rank-medal">${LB_MEDAL_SVGS[row.rank]}</span>` : `<span class="lb-rank">${row.rank}</span>`;
+    const nameHtml  = `<span class="lb-username${row.elite?' elite-user':''}">${row.elite?LB_CROWN_SVG:''}${row.username}</span>`;
+    const scoreHtml = `<span class="${row.score>=90?'lb-score score-high':'lb-score'}">${row.score}%</span>`;
+    const badgeHtml = row.badges.map(b => BADGE_SVGS[b]||'').join('');
+    const rowCls    = ['lb-row', row.rank<=3?'lb-top3':'', row.elite?'lb-elite':''].filter(Boolean).join(' ');
+    return `<div class="${rowCls}"><div class="lb-col-rank">${rankHtml}</div><div class="lb-col-user">${nameHtml}</div><div class="lb-col-score">${scoreHtml}</div><div class="lb-col-badges lb-badges">${badgeHtml}</div></div>`;
+  }).join('');
+}
+
 // ═══════════════════════════════════════════════
 async function init() {
   // Apply saved theme before anything renders
