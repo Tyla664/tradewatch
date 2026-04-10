@@ -627,6 +627,19 @@ function makeDerivWS(symbols, retryRef) {
         };
         prices[asset.id] = newPrice;
 
+        // ── Refresh UI on first tick for this asset ───────────────────────
+        // If this is the first price we've received (prev had no price), update
+        // the chart panel and alert cards so they stop showing "Price loading…"
+        if (!prev?.price) {
+          if (selectedAsset && selectedAsset.id === asset.id) {
+            refreshSelectedAssetPanel();
+          }
+          // Re-render alert cards that were waiting for this asset's price
+          if (alerts.some(al => al.assetId === asset.id)) {
+            renderAlerts();
+          }
+        }
+
         // ── Real-time alert check on every live tick ──────────────────────
         // Setup alerts: checked every tick (throttled 2s) to catch brief wicks.
         // Zone/above/below: also checked on tick so they're not delayed 8s.
