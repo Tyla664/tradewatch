@@ -977,6 +977,21 @@ function refreshSelectedAssetPanel() {
   } else {
     const noteEl = document.getElementById('current-price-note');
     if (noteEl) noteEl.textContent = 'Price loading… enter your target manually';
+
+    // Kick off a snapshot fetch for this asset if price is still missing,
+    // then re-render the panel once data arrives (max one retry per asset).
+    if (!asset._priceFetchPending) {
+      asset._priceFetchPending = true;
+      fetchSingleAsset(asset).then(() => {
+        asset._priceFetchPending = false;
+        // Only refresh if this asset is still selected
+        if (selectedAsset && selectedAsset.id === asset.id) {
+          refreshSelectedAssetPanel();
+          // Also re-render alert cards so current price shows there too
+          renderAlerts();
+        }
+      }).catch(() => { asset._priceFetchPending = false; });
+    }
   }
 }
 
@@ -2500,6 +2515,19 @@ function renderAlerts() {
     const livePriceLine = livePrice
       ? `<span style="opacity:0.55;font-size:0.72rem">Current price: <b style="opacity:0.9">${formatPrice(livePrice, alert.assetId)}</b></span><br>`
       : '';
+
+    // If price is missing for this alert's asset, fetch it in the background
+    if (!livePrice) {
+      const alertAsset = ASSET_BY_ID.get(alert.assetId) || ALL_ASSETS.find(a => a.id === alert.assetId);
+      if (alertAsset && !alertAsset._priceFetchPending) {
+        alertAsset._priceFetchPending = true;
+        fetchSingleAsset(alertAsset).then(() => {
+          alertAsset._priceFetchPending = false;
+          // Re-render alerts so the price line appears
+          if (currentAlertTab === 'active') renderAlerts();
+        }).catch(() => { alertAsset._priceFetchPending = false; });
+      }
+    }
     div.innerHTML = `
       <div class="alert-header-row">
         <div class="alert-symbol">${alert.symbol}</div>
@@ -6338,6 +6366,9 @@ function addAssetToWatchlist(asset) {
   priceData[asset.id] = priceData[asset.id] || null;
   prices[asset.id]    = prices[asset.id]    || null;
 
+  // ── Persist to DB so watchlist survives app close/reopen ──
+  addToWatchlist(asset, asset.cat);
+
   renderWatchlist();
   populateDropdown();
   showToast(`＋ ${asset.symbol} Added`, `${asset.name} is now on your watchlist.`, 'success');
@@ -6347,8 +6378,8 @@ function addAssetToWatchlist(asset) {
   // modal overlay, which triggers closeModalIfBg and closes the modal immediately.
   setTimeout(() => renderLibrary(), 0);
 
-  // Fetch latest price data
-  // Price fetch happens on background interval — no per-click fetch needed
+  // Fetch price immediately so the card shows a live price right away
+  fetchSingleAsset(asset);
 }
 
 
