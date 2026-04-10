@@ -446,7 +446,7 @@ const ASSET_BY_CG     = new Map(ALL_ASSETS.filter(a => a.cgId).map(a => [a.cgId,
 // ═══════════════════════════════════════════════
 let prices    = {};
 let priceData = {};
-let appReady  = false; // true after init first fetchAllPrices
+let appReady  = false;
 let alerts    = [];
 let alertHistory   = [];
 let alertHistoryFilter = '7d';
@@ -978,7 +978,6 @@ function refreshSelectedAssetPanel() {
   } else {
     const noteEl = document.getElementById('current-price-note');
     if (noteEl) noteEl.textContent = 'Price loading… enter your target manually';
-    // After init, fetch missing price then re-render
     if (appReady && !asset._priceFetchPending) {
       asset._priceFetchPending = true;
       fetchSingleAsset(asset).then(() => {
@@ -6367,7 +6366,8 @@ function addAssetToWatchlist(asset) {
   // modal overlay, which triggers closeModalIfBg and closes the modal immediately.
   setTimeout(() => renderLibrary(), 0);
 
-  fetchSingleAsset(asset); // fetch price immediately for the new card
+  // Fetch latest price data
+  // Price fetch happens on background interval — no per-click fetch needed
 }
 
 
