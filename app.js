@@ -6412,6 +6412,8 @@ setInterval(() => {
   if (!userTypingInForm) {
     renderHotList();
     renderWatchlist();
+    renderAlerts();
+    if (currentAlertTab === 'trades') renderTradesTab();
   }
   refreshSelectedAssetPanel();
   checkAlerts();
