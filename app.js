@@ -446,7 +446,6 @@ const ASSET_BY_CG     = new Map(ALL_ASSETS.filter(a => a.cgId).map(a => [a.cgId,
 // ═══════════════════════════════════════════════
 let prices    = {};
 let priceData = {};
-let appReady  = false;
 let alerts    = [];
 let alertHistory   = [];
 let alertHistoryFilter = '7d';
@@ -799,7 +798,9 @@ async function fetchAllPrices() {
   // Collect all assets currently needed
   const watchedIds = new Set(Object.values(ASSETS).flat().map(a => a.id));
   const hotIds     = new Set(Object.values(HOT_LIST).flat());
-  const allNeeded  = [...new Set([...watchedIds, ...hotIds])].map(id => ASSET_BY_ID.get(id)).filter(Boolean);
+  // Also include assets referenced by active alerts so current price shows on alert cards
+  const alertIds   = new Set((typeof alerts !== 'undefined' ? alerts : []).map(a => a.assetId));
+  const allNeeded  = [...new Set([...watchedIds, ...hotIds, ...alertIds])].map(id => ASSET_BY_ID.get(id)).filter(Boolean);
 
   // CoinGecko: ALL crypto — always reliable
   const cgAssets = allNeeded.filter(a => a.sources?.includes('coingecko'));
@@ -978,13 +979,6 @@ function refreshSelectedAssetPanel() {
   } else {
     const noteEl = document.getElementById('current-price-note');
     if (noteEl) noteEl.textContent = 'Price loading… enter your target manually';
-    if (appReady && !asset._priceFetchPending) {
-      asset._priceFetchPending = true;
-      fetchSingleAsset(asset).then(() => {
-        asset._priceFetchPending = false;
-        if (selectedAsset && selectedAsset.id === asset.id) refreshSelectedAssetPanel();
-      }).catch(() => { asset._priceFetchPending = false; });
-    }
   }
 }
 
@@ -2508,16 +2502,6 @@ function renderAlerts() {
     const livePriceLine = livePrice
       ? `<span style="opacity:0.55;font-size:0.72rem">Current price: <b style="opacity:0.9">${formatPrice(livePrice, alert.assetId)}</b></span><br>`
       : '';
-    if (appReady && !livePrice) {
-      const _aa = ASSET_BY_ID.get(alert.assetId) || ALL_ASSETS.find(a => a.id === alert.assetId);
-      if (_aa && !_aa._priceFetchPending) {
-        _aa._priceFetchPending = true;
-        fetchSingleAsset(_aa).then(() => {
-          _aa._priceFetchPending = false;
-          if (currentAlertTab === 'active') renderAlerts();
-        }).catch(() => { _aa._priceFetchPending = false; });
-      }
-    }
     div.innerHTML = `
       <div class="alert-header-row">
         <div class="alert-symbol">${alert.symbol}</div>
@@ -6700,7 +6684,6 @@ async function init() {
 
   // Initial REST fetch
   await fetchAllPrices();
-  appReady = true;
   setStatusPill(true);
 
   // Re-subscribe Deriv with confirmed symbols now that ASSETS is fully populated
