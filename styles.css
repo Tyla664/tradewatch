@@ -3181,3 +3181,153 @@ header {
 [data-theme="light"] .bs-security-note { background: rgba(0,0,0,0.04); }
 [data-theme="light"] .bs-input { background: #f8fafc; border-color: #cbd5e1; }
 [data-theme="light"] .bs-account-card { background: #f8fafc; } 
+
+/* ═══════════════════════════════════════════════
+   altradia — Patch additions
+   ═══════════════════════════════════════════════ */
+
+/* ── PATCH 1: Trail Stop outcome badge ─────────────────────────────────── */
+.joutcome-trail-stop {
+  background: rgba(0, 212, 255, 0.08);
+  color: var(--accent);
+  border: 1px solid rgba(0, 212, 255, 0.25);
+}
+.badge-trail-stop {
+  background: rgba(0, 212, 255, 0.10);
+  color: var(--accent);
+  border: 1px solid rgba(0, 212, 255, 0.3);
+}
+
+/* ── PATCH 5: Export modal option buttons ──────────────────────────────── */
+.export-opt-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.export-opt-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(0, 212, 255, 0.07);
+}
+[data-theme="light"] .export-opt-btn { background: #fff; }
+[data-theme="light"] .export-opt-btn.active {
+  border-color: #025a91;
+  color: #025a91;
+  background: rgba(2, 90, 145, 0.05);
+}
+
+/* ── PATCH 6: Community header — Global Leaderboard style ──────────────── */
+.community-title {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--text);
+  text-transform: uppercase;
+  margin-bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.community-subtitle {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+.community-stats-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.community-stat-label {
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.community-stat-value {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+.community-stat-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--border);
+  flex-shrink: 0;
+}
+[data-theme="light"] .community-title { color: var(--text); }
+
+/* ── Analytics AI loading shimmer ──────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+.ai-loading-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--muted) 25%,
+    rgba(232,244,248,0.3) 50%,
+    var(--muted) 75%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: shimmer 1.6s linear infinite;
+  display: inline-block;
+  min-width: 180px;
+  border-radius: 4px;
+}
+[data-theme="light"] .ai-loading-shimmer {
+  background: linear-gradient(
+    90deg,
+    #9ab 25%,
+    rgba(10,40,70,0.25) 50%,
+    #9ab 75%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 1.6s linear infinite;
+}
+@keyframes aiReveal {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.ai-text-reveal {
+  animation: aiReveal 0.4s ease forwards;
+  -webkit-text-fill-color: unset;
+  color: var(--text);
+}
+.analytics-heatmap-cell.heatmap-today {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 1px;
+}
+.analytics-elite-section-title {
+  color: #ffd600 !important;
+  border-bottom-color: rgba(255,214,0,0.2) !important;
+}
+[data-theme="light"] .analytics-elite-section-title {
+  color: #4a6bb5 !important;
+  border-bottom-color: rgba(74,107,181,0.2) !important;
+}
