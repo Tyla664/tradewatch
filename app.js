@@ -7765,4 +7765,220 @@ function showTgConnectPrompt() {
   // Hide the main app content
   document.querySelector('.app').style.display = 'none';
 
-  // Build and show a full-sc
+  // Build and show a full-screen connect gate
+  const gate = document.createElement('div');
+  gate.id = 'tg-gate';
+  gate.style.cssText = `
+    position:fixed;inset:0;z-index:99999;
+    background:var(--bg);
+    display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    padding:32px;text-align:center;
+  `;
+  gate.innerHTML = `
+    <svg width="56" height="56" viewBox="0 0 56 56" fill="none" style="margin-bottom:24px;opacity:0.9">
+      <circle cx="28" cy="28" r="27" stroke="#2AABEE" stroke-width="2"/>
+      <path d="M38 18L18 25l7 3 2 7 3-4 6 4 2-17z" stroke="#2AABEE" stroke-width="2" stroke-linejoin="round" fill="none"/>
+      <line x1="25" y1="28" x2="30" y2="26" stroke="#2AABEE" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+    <div style="font-size:1.2rem;font-weight:700;letter-spacing:0.08em;margin-bottom:10px;color:var(--text)">CONNECT TELEGRAM</div>
+    <div style="font-size:0.85rem;color:var(--muted);line-height:1.6;max-width:280px;margin-bottom:28px">
+      altradia delivers alerts directly to your Telegram.<br><br>
+      To continue, open the app through the bot so your account can be linked automatically.
+    </div>
+    <a href="https://t.me/tradewatchalert_bot/assistant" target="_blank"
+       style="display:inline-flex;align-items:center;gap:8px;background:#2AABEE;color:#fff;font-weight:700;font-size:0.9rem;letter-spacing:0.06em;padding:14px 28px;border-radius:10px;text-decoration:none;">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M14 2L2 6.5l4 1.5 1.5 4 2-3 3.5 2.5L14 2z" stroke="white" stroke-width="1.3" stroke-linejoin="round" fill="none"/></svg>
+      OPEN @tradewatchalert_bot
+    </a>
+    <div style="margin-top:16px;font-size:0.72rem;color:var(--muted);opacity:0.6">
+      Tap the bot → tap START → open the app link
+    </div>
+  `;
+  document.body.appendChild(gate);
+}
+
+// ── TELEGRAM CONNECTION TOAST ─────────────────────
+function showTgToast(msg) {
+  const el = document.getElementById('tg-toast');
+  if (!el) return;
+  el.innerHTML = msg;
+  el.style.display = 'block';
+  el.style.opacity = '1';
+  setTimeout(() => {
+    el.style.transition = 'opacity 0.6s';
+    el.style.opacity = '0';
+    setTimeout(() => { el.style.display = 'none'; el.style.transition = ''; }, 600);
+  }, 4000);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// iOS-STYLE EDGE BACK SWIPE
+// Handles THREE contexts in priority order:
+//   1. Menu sub-page open (.menu-page.open) — swipe closes topmost sub-page
+//   2. Menu panel open (#menu-panel visible) — swipe closes the menu panel
+//   3. Main nav (navStack.length > 1) — swipe goes back in tab history
+// Swipe must start within 28px of left edge and travel 30% of screen width.
+// ══════════════════════════════════════════════════════════════════════════════
+(function() {
+  const EDGE_ZONE  = 28;
+  const COMMIT_PCT = 0.30;
+
+  let tracking   = false;
+  let startX     = 0;
+  let startY     = 0;
+  let axisLocked = false;
+  let isHoriz    = false;
+  let mode       = null;   // 'subpage' | 'menupanel' | 'nav'
+  let activePage = null;   // for 'subpage' mode
+
+  function snapBack(el) {
+    el.style.transition = 'transform 0.22s ease, opacity 0.22s ease';
+    el.style.transform  = '';
+    el.style.opacity    = '';
+    setTimeout(() => { el.style.transition = ''; }, 230);
+  }
+
+  function slideOut(el, cb) {
+    el.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
+    el.style.transform  = 'translateX(100%)';
+    el.style.opacity    = '0';
+    setTimeout(() => {
+      el.style.display    = 'none';
+      el.style.transform  = '';
+      el.style.opacity    = '';
+      el.style.transition = '';
+      if (cb) cb();
+    }, 260);
+  }
+
+  document.addEventListener('touchstart', e => {
+    startX     = e.touches[0].clientX;
+    startY     = e.touches[0].clientY;
+    tracking   = false;
+    axisLocked = false;
+    isHoriz    = false;
+    mode       = null;
+    activePage = null;
+
+    if (startX > EDGE_ZONE) return;
+
+    // Priority 1: menu sub-page open
+    const openPages = document.querySelectorAll('.menu-page.open');
+    if (openPages.length) {
+      activePage = openPages[openPages.length - 1];
+      mode       = 'subpage';
+      tracking   = true;
+      return;
+    }
+
+    // Priority 2: menu panel visible (uses style.display + transform, not .open class)
+    const menuPanel = document.getElementById('menu-panel');
+    const menuVisible = menuPanel &&
+      menuPanel.style.display === 'flex' &&
+      menuPanel.style.transform !== 'translateX(100%)';
+    if (menuVisible) {
+      mode     = 'menupanel';
+      tracking = true;
+      return;
+    }
+
+    // Priority 3: main nav back
+    if (isMobileLayout() && navStack.length > 1) {
+      const modalOpen = document.getElementById('add-modal')?.style.display !== 'none';
+      const tgOpen    = document.getElementById('tg-modal')?.style.display  !== 'none';
+      if (!modalOpen && !tgOpen) {
+        mode     = 'nav';
+        tracking = true;
+      }
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchmove', e => {
+    if (!tracking) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+
+    if (!axisLocked) {
+      if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+      isHoriz    = Math.abs(dx) > Math.abs(dy);
+      axisLocked = true;
+      if (!isHoriz) { tracking = false; return; }
+    }
+    if (!isHoriz || dx <= 0) { tracking = false; return; }
+
+    // Drag the relevant element with the finger
+    if (mode === 'subpage' && activePage) {
+      const pct = Math.min(dx / window.innerWidth, 1);
+      activePage.style.transition = 'none';
+      activePage.style.transform  = `translateX(${dx}px)`;
+      activePage.style.opacity    = String(1 - pct * 0.25);
+    } else if (mode === 'menupanel') {
+      const panel = document.getElementById('menu-panel');
+      if (panel) {
+        const pct = Math.min(dx / window.innerWidth, 1);
+        panel.style.transition = 'none';
+        panel.style.transform  = `translateX(${dx}px)`;
+        panel.style.opacity    = String(1 - pct * 0.2);
+      }
+    }
+    // nav mode: no visual drag needed — just commit on release
+  }, { passive: true });
+
+  document.addEventListener('touchend', e => {
+    if (!tracking || !isHoriz) { tracking = false; return; }
+    tracking = false;
+
+    const dx        = e.changedTouches[0].clientX - startX;
+    const committed = dx >= window.innerWidth * COMMIT_PCT;
+
+    if (mode === 'subpage' && activePage) {
+      if (committed) {
+        const page = activePage;
+        activePage = null;
+        slideOut(page, () => {
+          page.classList.remove('open');
+          const pageId = page.id;
+          if (pageId === 'menu-page-profile' || pageId === 'menu-page-analytics') {
+            openMenuPanel();
+          }
+        });
+      } else {
+        snapBack(activePage);
+        activePage = null;
+      }
+
+    } else if (mode === 'menupanel') {
+      const panel = document.getElementById('menu-panel');
+      if (panel) {
+        if (committed) {
+          // Use the app's own close function for correct cleanup
+          closeMenuPanel();
+        } else {
+          // Snap back to open position
+          panel.style.transition = 'transform 0.22s ease';
+          panel.style.transform  = 'translateX(0)';
+          setTimeout(() => { panel.style.transition = ''; }, 230);
+        }
+      }
+
+    } else if (mode === 'nav') {
+      if (committed) goBack();
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchcancel', () => {
+    if (activePage) { snapBack(activePage); activePage = null; }
+    if (mode === 'menupanel') {
+      const panel = document.getElementById('menu-panel');
+      if (panel) {
+        panel.style.transition = 'transform 0.22s ease';
+        panel.style.transform  = 'translateX(0)';
+        setTimeout(() => { panel.style.transition = ''; }, 230);
+      }
+    }
+    tracking = false; mode = null;
+  }, { passive: true });
+})();
+
+init();
