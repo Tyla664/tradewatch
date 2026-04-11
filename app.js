@@ -5653,6 +5653,22 @@ function renderCommunity() {
 }
 
 
+function openMenuPage(name) {
+  const page = document.getElementById('menu-page-' + name);
+  if (!page) return;
+  page.style.display = 'flex';
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    page.classList.add('open');
+  }));
+}
+
+function closeMenuPage(name) {
+  const page = document.getElementById('menu-page-' + name);
+  if (!page) return;
+  page.classList.remove('open');
+  setTimeout(() => { page.style.display = 'none'; }, 280);
+}
+
 function toggleSound() {
   soundEnabled = !soundEnabled;
   // sound-btn/waves/mute are gone from header — state synced via updateMenuToggles()
