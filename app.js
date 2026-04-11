@@ -4641,11 +4641,12 @@ async function renderJournal() {
 
   // ── Stats strip ──────────────────────────────────────────────────────────
   const total    = filtered.length;
-  const wins     = filtered.filter(e => ['full_tp','tp2_hit','tp1_hit'].includes(e.outcome)).length;
-  const losses   = filtered.filter(e => e.outcome === 'sl_hit').length;
+  const wins     = filtered.filter(e => ['full_tp','tp2_hit','tp1_hit','breakeven'].includes(e.outcome)).length;
+  const losses   = filtered.filter(e => ['sl_hit','manual_exit'].includes(e.outcome)).length;
   const winRate  = total ? Math.round((wins / total) * 100) : 0;
-  const avgPnl   = filtered.filter(e => e.pnl_pct).length
-    ? (filtered.reduce((s,e) => s + (e.pnl_pct || 0), 0) / filtered.filter(e => e.pnl_pct).length).toFixed(1)
+  const pnlEntries = filtered.filter(e => e.pnl_pct != null);
+  const avgPnl   = pnlEntries.length
+    ? (pnlEntries.reduce((s,e) => s + (e.pnl_pct || 0), 0) / pnlEntries.length).toFixed(1)
     : '—';
 
   if (statsEl) statsEl.innerHTML = `
@@ -4653,7 +4654,7 @@ async function renderJournal() {
     <div class="journal-stat"><span class="journal-stat-value" style="color:var(--green)">${wins}</span><span class="journal-stat-label">WINS</span></div>
     <div class="journal-stat"><span class="journal-stat-value" style="color:var(--red)">${losses}</span><span class="journal-stat-label">LOSSES</span></div>
     <div class="journal-stat"><span class="journal-stat-value" style="color:${winRate >= 50 ? 'var(--green)' : 'var(--red)'}">${winRate}%</span><span class="journal-stat-label">WIN RATE</span></div>
-    <div class="journal-stat"><span class="journal-stat-value" style="color:${parseFloat(avgPnl) >= 0 ? 'var(--green)' : 'var(--red)'}">${avgPnl !== '—' ? avgPnl + '%' : '—'}</span><span class="journal-stat-label">AVG P&L</span></div>`;
+    <div class="journal-stat"><span class="journal-stat-value" style="color:${avgPnl === '—' ? 'var(--muted)' : parseFloat(avgPnl) >= 0 ? 'var(--green)' : 'var(--red)'}">${avgPnl !== '—' ? (parseFloat(avgPnl) >= 0 ? '+' : '') + avgPnl + '%' : '—'}</span><span class="journal-stat-label">AVG P&L</span></div>`;
 
   // ── Entry cards ─────────────────────────────────────────────────────────
   if (!filtered.length) {
@@ -5467,7 +5468,7 @@ function renderPayoutHistory() {
 // ═══════════════════════════════════════════════
 // USER TIER
 // ═══════════════════════════════════════════════
-let currentUserTier = 'free'; // 'free' | 'pro' | 'elite'
+let currentUserTier = 'elite'; // 'free' | 'pro' | 'elite' — set to 'free' in production
 function getUserTier() { return currentUserTier; }
 
 // ═══════════════════════════════════════════════
