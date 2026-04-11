@@ -5474,6 +5474,238 @@ function getUserTier() { return currentUserTier; }
 // ═══════════════════════════════════════════════
 // ANALYTICS
 // ═══════════════════════════════════════════════
+// ═══════════════════════════════════════════════
+// PROFILE PAGE
+// ═══════════════════════════════════════════════
+function openProfile() {
+  closeMenuPanel();
+  openMenuPage('profile');
+  renderProfilePage(getUserTier());
+}
+
+function renderProfilePage(tier) {
+  const body = document.getElementById('profile-page-body');
+  if (!body) return;
+
+  const isElite = tier === 'elite';
+  const isPro   = tier === 'pro';
+  const isFree  = tier === 'free';
+
+  const username     = telegramUserName || localStorage.getItem('tg_user_name') || 'Trader';
+  const initials     = (username[0] || 'T').toUpperCase();
+  const photoUrl     = (typeof telegramUserPhoto !== 'undefined' && telegramUserPhoto) || localStorage.getItem('tg_photo_url') || '';
+
+  // Journal stats for activity snapshot
+  const entries      = typeof journalEntries !== 'undefined' ? journalEntries : [];
+  const total        = entries.length;
+  const wins         = entries.filter(e => ['full_tp','tp2_hit','tp1_hit','breakeven'].includes(e.outcome)).length;
+  const winRate      = total > 0 ? Math.round((wins/total)*100) : 0;
+  const consistency  = total > 0 ? Math.min(98, Math.round(60 + (wins/total)*38)) : 0;
+  const pnlEntries   = entries.filter(e => e.pnl_pct != null);
+  const avgPnl       = pnlEntries.length > 0
+    ? (pnlEntries.reduce((s,e)=>s+(e.pnl_pct||0),0)/pnlEntries.length).toFixed(1) : null;
+
+  // Journaling completeness: entries with setup_type + entry_reason filled
+  const journaledFull = entries.filter(e => e.setup_type && e.entry_reason).length;
+  const journalPct    = total > 0 ? Math.round((journaledFull/total)*100) : 0;
+
+  // Recent trades for timeline
+  const recent = [...entries].sort((a,b)=>new Date(b.trade_date||b.created_at)-new Date(a.trade_date||a.created_at)).slice(0, isElite||isPro ? 5 : 3);
+
+  // Earned badges (based on actual data)
+  const earnedBadges = [];
+  if (consistency >= 90) earnedBadges.push('consistency');
+  if (wins > 0 && entries.filter(e=>e.outcome==='sl_hit').length === 0) earnedBadges.push('discipline');
+  if (total >= 5 && winRate >= 70) earnedBadges.push('target');
+  if (journalPct >= 80) earnedBadges.push('setup');
+  if (isElite) earnedBadges.push('elite');
+
+  // All possible badges for showcase
+  const allBadges = [
+    { key:'consistency', name:'Consistency Master', desc:'90%+ setups followed',         color:'#ffd600', svg:'<circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.3" fill="none"/><polyline points="4,7 6,9 10,5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>' },
+    { key:'discipline',  name:'Discipline Pro',     desc:'No revenge trades in a month', color:'#00d4ff', svg:'<path d="M7 1L9 5h4L9.5 7.5 11 12 7 9.5 3 12l1.5-4.5L1 5h4z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/>' },
+    { key:'target',      name:'Target Hunter',      desc:'Captures 70%+ of planned R:R', color:'#00e676', svg:'<circle cx="7" cy="7" r="6" stroke="currentColor" stroke-width="1.3" fill="none"/><circle cx="7" cy="7" r="3.5" stroke="currentColor" stroke-width="1.2" fill="none"/><circle cx="7" cy="7" r="1.2" fill="currentColor"/>' },
+    { key:'setup',       name:'Setup Specialist',   desc:'Journaling for all trades',    color:'#ff6b35', svg:'<rect x="1.5" y="2" width="11" height="10" rx="1.5" stroke="currentColor" stroke-width="1.3" fill="none"/><line x1="4" y1="5" x2="10" y2="5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="4" y1="7.5" x2="10" y2="7.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="4" y1="10" x2="7" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>' },
+    { key:'elite',       name:'Elite Icon',          desc:'Exclusive Elite tier badge',   color:'#ffd600', svg:'<path d="M7 1.5L3 5H1L3.5 9 2.5 12.5 7 10.5 11.5 12.5 10.5 9 13 5H11L7 1.5Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/><circle cx="7" cy="6.5" r="1.5" fill="currentColor" opacity="0.8"/>' },
+  ];
+
+  // Tier badge display
+  const tierBadgeHtml = isElite
+    ? `<span class="profile-tier-badge elite-tier">ELITE</span>`
+    : isPro
+    ? `<span class="profile-tier-badge pro-tier">PRO</span>`
+    : `<span class="profile-tier-badge free-tier">FREE</span>`;
+
+  // Avatar
+  const avatarHtml = photoUrl
+    ? `<img src="${photoUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%" onerror="this.style.display='none';this.nextSibling.style.display='flex'"/><span style="display:none;width:100%;height:100%;align-items:center;justify-content:center;font-size:1.6rem;font-weight:700;color:#fff">${initials}</span>`
+    : `<span style="font-size:1.6rem;font-weight:700;color:#fff">${initials}</span>`;
+
+  // Elite prestige border
+  const eliteBorderStyle = isElite
+    ? 'border: 2px solid #ffd600; box-shadow: 0 0 16px rgba(255,214,0,0.3);'
+    : '';
+
+  // Activity detection for behaviours
+  const behaviorTags = {
+    prematureExit: entries.filter(e=>/premature|early exit|closed early/i.test((e.lessons||'')+(e.entry_reason||''))).length,
+    revenge:       entries.filter(e=>/revenge|fomo/i.test((e.lessons||'')+(e.entry_reason||''))).length,
+  };
+
+  // Recent trade rows
+  const outcomeLabel = o => ({
+    full_tp:'FULL TP', tp2_hit:'TP2', tp1_hit:'TP1', breakeven:'BE', sl_hit:'SL', manual_exit:'CLOSED'
+  }[o] || o || '—');
+  const outcomeColor = o => ['full_tp','tp2_hit','tp1_hit'].includes(o) ? 'var(--green)' : o==='sl_hit'||o==='manual_exit' ? 'var(--red)' : 'var(--muted)';
+
+  const recentRows = recent.map(e => {
+    const d = new Date(e.trade_date||e.created_at).toLocaleDateString([],{day:'2-digit',month:'short'});
+    const behaviorNote = /premature|early exit/i.test((e.lessons||'')+(e.entry_reason||'')) ? '<span class="profile-behavior-tag">Premature exit</span>' : /revenge|fomo/i.test((e.lessons||'')+(e.entry_reason||'')) ? '<span class="profile-behavior-tag">FOMO</span>' : '';
+    return `<div class="profile-trade-row">
+      <div class="profile-trade-main">
+        <span class="profile-trade-symbol">${e.symbol||'—'}</span>
+        <span class="profile-trade-setup">${e.setup_type||'—'}</span>
+        ${(isPro||isElite) && behaviorNote ? behaviorNote : ''}
+      </div>
+      <div class="profile-trade-right">
+        <span class="profile-trade-outcome" style="color:${outcomeColor(e.outcome)}">${outcomeLabel(e.outcome)}</span>
+        <span class="profile-trade-date">${d}</span>
+      </div>
+    </div>`;
+  }).join('') || `<div style="font-family:var(--mono);font-size:0.65rem;color:var(--muted);padding:16px;text-align:center">No trades logged yet.</div>`;
+
+  // Badge grid
+  const badgeGrid = allBadges.map(b => {
+    const earned   = earnedBadges.includes(b.key);
+    const locked   = (!earned) || (b.key === 'elite' && !isElite);
+    const lockable = isFree && b.key !== 'consistency'; // free can only see locked
+    return `<div class="profile-badge-cell ${locked||lockable?'locked':''}" title="${locked||lockable ? b.name+' — available in Pro/Elite' : b.name+': '+b.desc}">
+      <svg width="22" height="22" viewBox="0 0 14 14" fill="none" style="color:${locked||lockable?'var(--muted)':b.color}">${b.svg}</svg>
+      <span class="profile-badge-name" style="color:${locked||lockable?'var(--muted)':'var(--text)'}">${b.name.split(' ')[0]}</span>
+      ${locked||lockable ? '<div class="profile-badge-lock"><svg width="8" height="8" viewBox="0 0 10 10" fill="none"><rect x="1" y="4.5" width="8" height="5.5" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M3 4.5V3a2 2 0 0 1 4 0v1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/></svg></div>' : ''}
+    </div>`;
+  }).join('');
+
+  body.innerHTML = `
+    <!-- ── Header ── -->
+    <div class="profile-header ${isElite?'elite-header':''}">
+      ${isElite ? '<div class="profile-elite-banner">Elite traders earn recognition.</div>' : ''}
+      <div class="profile-avatar-wrap" style="${eliteBorderStyle}">${avatarHtml}</div>
+      <div class="profile-name">${username}</div>
+      <div class="profile-tier-row">${tierBadgeHtml}</div>
+      ${isFree ? `<div class="profile-upgrade-banner">Upgrade to unlock your consistency score and badges</div>` : ''}
+    </div>
+
+    <!-- ── Section 1: Activity Snapshot / Performance ── -->
+    <div class="profile-section">
+      <div class="profile-section-title">Activity Snapshot</div>
+      <div class="profile-stats-grid">
+        <div class="profile-stat-card">
+          <div class="profile-stat-value">${total}</div>
+          <div class="profile-stat-label">Trades Logged</div>
+        </div>
+        <div class="profile-stat-card">
+          <div class="profile-stat-value">${journaledFull}/${total}</div>
+          <div class="profile-stat-label">Fully Journaled</div>
+        </div>
+        ${(isPro||isElite) ? `
+        <div class="profile-stat-card">
+          <div class="profile-stat-value ${winRate>=50?'positive':winRate>0?'negative':''}">${total>0?winRate+'%':'—'}</div>
+          <div class="profile-stat-label">Win Rate</div>
+        </div>
+        <div class="profile-stat-card">
+          <div class="profile-stat-value ${consistency>=70?'positive':''} ${isFree?'locked-val':''}">${total>0?consistency+'%':'—'}</div>
+          <div class="profile-stat-label">Consistency Score</div>
+        </div>` : `
+        <div class="profile-stat-card profile-stat-locked">
+          <div class="profile-stat-value locked-val">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="opacity:0.4"><rect x="2" y="6.5" width="10" height="7" rx="1.5" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M4 6.5V4.5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>
+          </div>
+          <div class="profile-stat-label">Consistency Score</div>
+          <div class="profile-stat-locked-msg">Upgrade to Pro</div>
+        </div>
+        <div class="profile-stat-card profile-stat-locked">
+          <div class="profile-stat-value locked-val">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="opacity:0.4"><rect x="2" y="6.5" width="10" height="7" rx="1.5" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M4 6.5V4.5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>
+          </div>
+          <div class="profile-stat-label">Win Rate</div>
+          <div class="profile-stat-locked-msg">Upgrade to Pro</div>
+        </div>`}
+      </div>
+      ${(isPro||isElite) && avgPnl ? `<div class="profile-pnl-row"><span style="color:var(--muted);font-family:var(--mono);font-size:0.62rem">AVG P&L PER TRADE</span><span style="font-family:var(--mono);font-weight:700;font-size:0.82rem;color:${parseFloat(avgPnl)>=0?'var(--green)':'var(--red)'}">${parseFloat(avgPnl)>=0?'+':''}${avgPnl}%</span></div>` : ''}
+    </div>
+
+    <!-- ── Section 2: Badge Showcase ── -->
+    <div class="profile-section">
+      <div class="profile-section-title">Badge Showcase</div>
+      ${isFree ? `<div class="profile-locked-note">Earn badges by upgrading to Pro or Elite. Badges are displayed on the leaderboard.</div>` : ''}
+      <div class="profile-badge-grid">${badgeGrid}</div>
+    </div>
+
+    <!-- ── Section 3: Community Standing ── -->
+    <div class="profile-section">
+      <div class="profile-section-title">Community Standing</div>
+      ${isFree ? `
+        <div class="profile-community-locked">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="opacity:0.4;flex-shrink:0"><rect x="2" y="7" width="12" height="9" rx="2" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>
+          <div>
+            <div style="font-size:0.75rem;font-weight:600;color:var(--text);margin-bottom:2px">Not ranked — upgrade to join the leaderboard</div>
+            <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted)">Community average consistency: 72%</div>
+          </div>
+        </div>` :
+      isElite ? `
+        <div class="profile-rank-card elite-rank">
+          <div class="profile-rank-label">YOUR GLOBAL RANK</div>
+          <div class="profile-rank-value">#3</div>
+          <div class="profile-rank-sub">Featured in Trader Spotlight · Top 10 this week</div>
+        </div>
+        <div class="profile-bench-row">
+          <div><span class="profile-bench-label">YOUR CONSISTENCY</span><span class="profile-bench-value">${total>0?consistency+'%':'—'}</span></div>
+          <div class="profile-bench-sep"></div>
+          <div><span class="profile-bench-label">COMMUNITY AVG</span><span class="profile-bench-value accent">72%</span></div>
+        </div>` : `
+        <div class="profile-rank-card pro-rank">
+          <div class="profile-rank-label">YOUR GLOBAL RANK</div>
+          <div class="profile-rank-value">#23</div>
+          <div class="profile-rank-sub">You're ranked #23 globally this week</div>
+        </div>
+        <div class="profile-bench-row">
+          <div><span class="profile-bench-label">YOUR CONSISTENCY</span><span class="profile-bench-value">${total>0?consistency+'%':'—'}</span></div>
+          <div class="profile-bench-sep"></div>
+          <div><span class="profile-bench-label">VS LAST MONTH</span><span class="profile-bench-value positive">+5%</span></div>
+        </div>`}
+    </div>
+
+    <!-- ── Section 4: Activity Timeline ── -->
+    <div class="profile-section">
+      <div class="profile-section-title">${isPro||isElite ? 'Recent Trades — Activity Timeline' : 'Recent Trades'}</div>
+      <div class="profile-journal-completeness">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+          <span style="font-family:var(--mono);font-size:0.58rem;color:var(--muted)">JOURNALING COMPLETENESS</span>
+          <span style="font-family:var(--mono);font-size:0.65rem;font-weight:700;color:var(--text)">${journaledFull}/${total} fully journaled</span>
+        </div>
+        <div class="profile-journal-bar"><div class="profile-journal-fill" style="width:${total>0?journalPct:0}%"></div></div>
+      </div>
+      <div class="profile-trades-list">${recentRows}</div>
+    </div>
+
+    <!-- ── Section 5: Upgrade Hook (free only) ── -->
+    ${isFree ? `
+    <div class="profile-section">
+      <div class="profile-upgrade-hook">
+        <div class="profile-upgrade-hook-title">Unlock Your Full Profile</div>
+        <div class="profile-upgrade-hook-desc">See your rank, earn badges, and compare with the community.</div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="profile-upgrade-btn pro-btn" onclick="closeMenuPage('profile'); openMenuPage('subscription')">Upgrade to Pro</button>
+          <button class="profile-upgrade-btn elite-btn" onclick="closeMenuPage('profile'); openMenuPage('subscription')">Go Elite for Prestige</button>
+        </div>
+      </div>
+    </div>` : ''}
+
+    <div style="height:40px"></div>`;
+}
+
+
 function openAnalytics() {
   closeMenuPanel();
   openMenuPage('analytics');
@@ -5826,8 +6058,26 @@ const MOCK_LEADERBOARD = [
 ];
 let _communityRendered = false;
 function renderCommunity() {
-  if (_communityRendered) return;
-  _communityRendered = true;
+  _communityRendered = true; // always re-render so tier-specific content stays fresh
+  const tier = getUserTier();
+  const isElite = tier === 'elite';
+  const isPro   = tier === 'pro';
+  const isFree  = tier === 'free';
+
+  // Show/hide tier rank message
+  const rankMsg = document.getElementById('community-rank-msg');
+  if (rankMsg) {
+    if (isFree) {
+      rankMsg.innerHTML = `<div class="community-rank-pill free-rank">Not ranked — upgrade to join the leaderboard</div>`;
+      rankMsg.style.display = '';
+    } else if (isPro) {
+      rankMsg.innerHTML = `<div class="community-rank-pill pro-rank">You're ranked <strong>#23</strong> globally this week</div>`;
+      rankMsg.style.display = '';
+    } else if (isElite) {
+      rankMsg.innerHTML = `<div class="community-rank-pill elite-rank"><svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="display:inline;vertical-align:middle;margin-right:3px"><path d="M1 9L2.5 4 5 7 6 2 7 7 9.5 4 11 9H1Z" fill="#ffd600" stroke="#ffd600" stroke-width="0.5" stroke-linejoin="round"/></svg> You're ranked <strong>#3</strong> globally — featured in Trader Spotlight</div>`;
+      rankMsg.style.display = '';
+    }
+  }
   const list = document.getElementById('leaderboard-list');
   if (!list) return;
   const avg = Math.round(MOCK_LEADERBOARD.reduce((s,r)=>s+r.score,0)/MOCK_LEADERBOARD.length);
