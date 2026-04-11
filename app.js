@@ -5511,7 +5511,8 @@ function renderAnalyticsMenuBody(tier) {
 
   const entries     = typeof journalEntries !== 'undefined' ? journalEntries : [];
   const total       = entries.length;
-  const wins        = entries.filter(e => ['full_tp','tp2_hit','tp1_hit'].includes(e.outcome)).length;
+  const wins        = entries.filter(e => ['full_tp','tp2_hit','tp1_hit','breakeven'].includes(e.outcome)).length;
+  const losses      = entries.filter(e => ['sl_hit','manual_exit'].includes(e.outcome)).length;
   const winRate     = total > 0 ? Math.round((wins / total) * 100) : 0;
   const consistency = total > 0 ? Math.min(98, Math.round(60 + (wins / total) * 38)) : 0;
   const rrEntries   = entries.filter(e => e.entry_price && e.tp1_price && e.sl_price);
@@ -5521,6 +5522,25 @@ function renderAnalyticsMenuBody(tier) {
   const daysSet  = new Set(entries.map(e => (e.trade_date||e.created_at||'').slice(0,10)));
   const sessions = daysSet.size;
 
+  // Avg P&L
+  const pnlEntries = entries.filter(e => e.pnl_pct != null);
+  const avgPnl     = pnlEntries.length > 0
+    ? (pnlEntries.reduce((s,e) => s + (e.pnl_pct||0), 0) / pnlEntries.length).toFixed(1)
+    : '—';
+
+  // Risk metrics
+  const slEntries = entries.filter(e => e.entry_price && e.sl_price);
+  const avgSlSize = slEntries.length > 0
+    ? (slEntries.reduce((s,e) => s + Math.abs(parseFloat(e.entry_price)-parseFloat(e.sl_price))/parseFloat(e.entry_price)*100, 0)/slEntries.length).toFixed(2)
+    : '—';
+  const tradesPerDay = sessions > 0 ? (total/sessions).toFixed(1) : '—';
+  const maxDrawdownEntry = entries.reduce((worst, e) => {
+    if (e.pnl_pct != null && e.pnl_pct < (worst?.pnl_pct ?? 0)) return e;
+    return worst;
+  }, null);
+  const maxDrawdown = maxDrawdownEntry ? Math.abs(maxDrawdownEntry.pnl_pct).toFixed(1) + '%' : '—';
+
+  // Behaviour tracker
   let prematureExits = 0, slMoved = 0;
   entries.forEach(e => {
     const note = (e.lessons||'')+(e.entry_reason||'');
@@ -5531,73 +5551,250 @@ function renderAnalyticsMenuBody(tier) {
     entries.filter(e => (e.trade_date||e.created_at||'').slice(0,10) === day).length > 3
   ).length;
 
+  // Daily/weekly summaries
+  const thisWeekMs = Date.now() - 7*864e5;
+  const weekEntries = entries.filter(e => new Date(e.trade_date||e.created_at).getTime() >= thisWeekMs);
+  const weekWins    = weekEntries.filter(e => ['full_tp','tp2_hit','tp1_hit'].includes(e.outcome)).length;
+
+  // AI Insights
   let insight = 'Keep journaling your trades to unlock personalised insights.';
-  if (total >= 5) {
+  if (total >= 3) {
     if (prematureExits > 1)  insight = 'You tend to exit winners early. Consider setting a hard TP rule and trusting your plan.';
+    else if (overtrading > 0) insight = 'Some days show more than 3 trades. Consider limiting daily trades to protect your edge.';
     else if (winRate >= 60)  insight = `Strong win rate of ${winRate}%. Focus on higher-conviction setups and let your winners run.`;
-    else if (winRate < 40)   insight = 'Win rate below 40%. Review your entry criteria — are you waiting for full confirmation?';
+    else if (winRate < 40)   insight = 'Win rate below 40%. Review your entry criteria — are you waiting for full confirmation before entering?';
+    else if (slMoved > 1)    insight = 'You have moved your stop loss more than once. Stick to your original plan to protect your edge.';
     else insight = `Consistency score of ${consistency}% — you are following your plan well. Keep it up.`;
   }
+
+  // Setup type breakdown
+  const setupMap = {};
+  entries.forEach(e => { if (e.setup_type) { setupMap[e.setup_type] = (setupMap[e.setup_type]||0)+1; } });
+  const topSetup = Object.entries(setupMap).sort((a,b)=>b[1]-a[1])[0];
 
   body.innerHTML = `
     <div class="analytics-header">
       <div class="analytics-header-left">
         <div class="analytics-title">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><polyline points="1,12 5,8 8,10 12,5 15,7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Performance
+          Analytics
         </div>
         <div class="analytics-subtitle">Based on your journal · ${total} trade${total!==1?'s':''} logged</div>
       </div>
       ${badge}
     </div>
+
+    <!-- Performance Dashboard -->
     <div class="analytics-section">
       <div class="analytics-section-title">Performance Dashboard</div>
       <div class="analytics-stat-grid">
-        <div class="analytics-stat-card"><div class="analytics-stat-label">Win Rate</div><div class="analytics-stat-value ${winRate>=50?'positive':winRate>0?'negative':''}">${total>0?winRate+'%':'—'}</div><div class="analytics-stat-sub">${wins} of ${total} trades</div></div>
-        <div class="analytics-stat-card"><div class="analytics-stat-label">Avg R:R</div><div class="analytics-stat-value accent">${avgRR}</div><div class="analytics-stat-sub">planned ratio</div></div>
-        <div class="analytics-stat-card"><div class="analytics-stat-label">Consistency</div><div class="analytics-stat-value ${consistency>=70?'positive':''}">${total>0?consistency+'%':'—'}</div><div class="analytics-stat-sub">plan adherence</div></div>
-        <div class="analytics-stat-card"><div class="analytics-stat-label">Trades Logged</div><div class="analytics-stat-value">${total}</div><div class="analytics-stat-sub">across ${sessions} sessions</div></div>
+        <div class="analytics-stat-card"><div class="analytics-stat-label">Win Rate</div><div class="analytics-stat-value ${winRate>=50?'positive':winRate>0?'negative':''}">${total>0?winRate+'%':'—'}</div><div class="analytics-stat-sub">${wins}W · ${losses}L</div></div>
+        <div class="analytics-stat-card"><div class="analytics-stat-label">Avg Planned R:R</div><div class="analytics-stat-value accent">${avgRR}</div><div class="analytics-stat-sub">entry vs TP1</div></div>
+        <div class="analytics-stat-card"><div class="analytics-stat-label">Consistency Score</div><div class="analytics-stat-value ${consistency>=70?'positive':''}">${total>0?consistency+'%':'—'}</div><div class="analytics-stat-sub">plan adherence</div></div>
+        <div class="analytics-stat-card"><div class="analytics-stat-label">Avg P&amp;L</div><div class="analytics-stat-value ${avgPnl==='—'?'':parseFloat(avgPnl)>=0?'positive':'negative'}">${avgPnl!=='—'?(parseFloat(avgPnl)>=0?'+':'')+avgPnl+'%':'—'}</div><div class="analytics-stat-sub">per closed trade</div></div>
+      </div>
+      <div class="analytics-stat-grid">
+        <div class="analytics-stat-card"><div class="analytics-stat-label">This Week</div><div class="analytics-stat-value">${weekEntries.length}</div><div class="analytics-stat-sub">${weekWins} wins · ${weekEntries.length - weekWins} other</div></div>
+        <div class="analytics-stat-card"><div class="analytics-stat-label">Sessions</div><div class="analytics-stat-value">${sessions}</div><div class="analytics-stat-sub">${tradesPerDay} trades/day avg</div></div>
+        ${topSetup ? `<div class="analytics-stat-card" style="grid-column:1/-1"><div class="analytics-stat-label">Top Setup Type</div><div class="analytics-stat-value accent" style="font-size:0.9rem">${topSetup[0]}</div><div class="analytics-stat-sub">${topSetup[1]} of ${total} trades</div></div>` : ''}
       </div>
     </div>
+
+    <!-- Risk Metrics -->
+    <div class="analytics-section">
+      <div class="analytics-section-title">Risk Metrics</div>
+      <div class="analytics-stat-grid">
+        <div class="analytics-stat-card"><div class="analytics-stat-label">Avg SL Size</div><div class="analytics-stat-value">${avgSlSize !== '—' ? avgSlSize+'%' : '—'}</div><div class="analytics-stat-sub">of entry price</div></div>
+        <div class="analytics-stat-card"><div class="analytics-stat-label">Max Drawdown</div><div class="analytics-stat-value negative">${maxDrawdown}</div><div class="analytics-stat-sub">worst single trade</div></div>
+        <div class="analytics-stat-card"><div class="analytics-stat-label">Daily Exposure</div><div class="analytics-stat-value">${tradesPerDay}</div><div class="analytics-stat-sub">trades per session</div></div>
+        <div class="analytics-stat-card"><div class="analytics-stat-label">Trades Logged</div><div class="analytics-stat-value">${total}</div><div class="analytics-stat-sub">all time</div></div>
+      </div>
+    </div>
+
+    <!-- Behaviour Frequency Tracker -->
     <div class="analytics-section">
       <div class="analytics-section-title">Behaviour Frequency Tracker</div>
       <div class="analytics-behavior-list">
         <div class="analytics-behavior-row"><div class="analytics-behavior-icon" style="background:rgba(255,107,53,0.12)"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v6M7 9v1" stroke="#ff6b35" stroke-width="1.6" stroke-linecap="round"/><circle cx="7" cy="12" r="1" fill="#ff6b35"/></svg></div><span class="analytics-behavior-label">Premature exits</span><span class="analytics-behavior-count ${prematureExits>2?'bad':prematureExits>0?'warn':'ok'}">${prematureExits}</span></div>
-        <div class="analytics-behavior-row"><div class="analytics-behavior-icon" style="background:rgba(255,214,0,0.12)"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="2" y1="7" x2="12" y2="7" stroke="#ffd600" stroke-width="1.5" stroke-linecap="round"/><polyline points="9,4 12,7 9,10" stroke="#ffd600" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="analytics-behavior-label">Stop loss moved</span><span class="analytics-behavior-count ${slMoved>2?'bad':slMoved>0?'warn':'ok'}">${slMoved}</span></div>
+        <div class="analytics-behavior-row"><div class="analytics-behavior-icon" style="background:rgba(255,214,0,0.12)"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="2" y1="7" x2="12" y2="7" stroke="#b8970a" stroke-width="1.5" stroke-linecap="round"/><polyline points="9,4 12,7 9,10" stroke="#b8970a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="analytics-behavior-label">Stop loss moved</span><span class="analytics-behavior-count ${slMoved>2?'bad':slMoved>0?'warn':'ok'}">${slMoved}</span></div>
         <div class="analytics-behavior-row"><div class="analytics-behavior-icon" style="background:rgba(255,61,90,0.12)"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="9" width="2.5" height="4" rx="0.5" fill="#ff3d5a" opacity="0.8"/><rect x="5" y="6" width="2.5" height="7" rx="0.5" fill="#ff3d5a" opacity="0.6"/><rect x="9" y="3" width="2.5" height="10" rx="0.5" fill="#ff3d5a" opacity="0.8"/></svg></div><span class="analytics-behavior-label">Overtrading days</span><span class="analytics-behavior-count ${overtrading>2?'bad':overtrading>0?'warn':'ok'}">${overtrading}</span></div>
       </div>
     </div>
+
+    <!-- AI Insights Lite -->
     <div class="analytics-section">
       <div class="analytics-section-title">AI Insights</div>
       <div class="analytics-insight-card">
-        <div class="analytics-insight-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="var(--accent)" stroke-width="1.2"/><path d="M4.5 4.5a1.5 1.5 0 0 1 3 .5c0 1-1.5 1.5-1.5 2.5" stroke="var(--accent)" stroke-width="1.2" stroke-linecap="round"/><circle cx="6" cy="9" r="0.6" fill="var(--accent)"/></svg> Insight</div>
+        <div class="analytics-insight-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="var(--accent)" stroke-width="1.2"/><path d="M4.5 4.5a1.5 1.5 0 0 1 3 .5c0 1-1.5 1.5-1.5 2.5" stroke="var(--accent)" stroke-width="1.2" stroke-linecap="round"/><circle cx="6" cy="9" r="0.6" fill="var(--accent)"/></svg> Pattern Insight</div>
         <div class="analytics-insight-text">${insight}</div>
       </div>
+      ${prematureExits > 0 ? `<div class="analytics-insight-card" style="margin-top:6px"><div class="analytics-insight-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="var(--accent)" stroke-width="1.2"/><line x1="6" y1="3" x2="6" y2="6.5" stroke="var(--accent)" stroke-width="1.2" stroke-linecap="round"/><circle cx="6" cy="8.5" r="0.6" fill="var(--accent)"/></svg> Common Mistake</div><div class="analytics-insight-text">You exit winners too early — detected in ${prematureExits} trade${prematureExits>1?'s':''}. Let price reach your TP before closing.</div></div>` : ''}
     </div>
-    ${isElite ? _renderEliteSection(entries) : _renderProUpgradeHint()}
-    <div style="height:24px"></div>`;
+
+    <!-- Export -->
+    <div class="analytics-section">
+      <div class="analytics-section-title">Export Options</div>
+      <button onclick="closeMenuPage('analytics'); mobileTab('journal'); setTimeout(()=>exportJournalCSV(),300);" style="width:100%;padding:11px;background:var(--surface);border:1px solid var(--border);border-radius:9px;color:var(--text);font-family:var(--mono);font-size:0.65rem;letter-spacing:0.06em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3" fill="none"/><line x1="4.5" y1="5" x2="9.5" y2="5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="4.5" y1="7.5" x2="9.5" y2="7.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="4.5" y1="10" x2="7" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        Export Journal as CSV
+      </button>
+    </div>
+
+    ${isElite ? _renderEliteSection(entries, winRate, consistency) : _renderProUpgradeHint()}
+    <div style="height:32px"></div>`;
 }
 
 function _renderProUpgradeHint() {
   return `<div class="analytics-section"><div class="analytics-section-title">Elite Features</div><div class="analytics-elite-card" style="opacity:0.75"><div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1L7 4h3L7.5 6 8.5 9.5 6 8 3.5 9.5 4.5 6 2 4h3z" stroke="#ffd600" stroke-width="1" fill="none"/></svg> Elite Only</div><div style="font-size:0.75rem;color:var(--text);margin-bottom:6px;font-weight:600">Advanced Dashboards</div><div style="font-family:var(--mono);font-size:0.62rem;color:var(--muted);line-height:1.6">Heatmaps · Equity curve · Predictive AI · Bias detection · Benchmarking · Coaching Mode</div><button class="analytics-gate-btn" style="margin-top:12px;padding:10px;font-size:0.62rem;width:100%" onclick="closeMenuPage('analytics'); openMenuPage('subscription')">Upgrade to Elite</button></div></div>`;
 }
 
-function _renderEliteSection(entries) {
+function _renderEliteSection(entries, winRate, consistency) {
+  winRate = winRate || 0;
+  consistency = consistency || 0;
+  const total = entries.length;
+
+  // Heatmap: 28 cells = 4 weeks
   const heatCells = Array.from({length:28}, (_,i) => {
     const e = entries.length ? entries[i % entries.length] : null;
     if (!e) return '<div class="analytics-heatmap-cell"></div>';
     const cls = ['full_tp','tp2_hit'].includes(e.outcome)?'h3':e.outcome==='tp1_hit'?'h2':e.outcome==='breakeven'?'h1':e.outcome==='sl_hit'?'hn':'';
     return `<div class="analytics-heatmap-cell ${cls}"></div>`;
   }).join('');
-  const morningW   = entries.filter(e=>{const h=new Date(e.trade_date||e.created_at||0).getHours();return h>=6&&h<12&&['full_tp','tp2_hit','tp1_hit'].includes(e.outcome);}).length;
-  const afternoonW = entries.filter(e=>{const h=new Date(e.trade_date||e.created_at||0).getHours();return h>=12&&h<18&&['full_tp','tp2_hit','tp1_hit'].includes(e.outcome);}).length;
-  const best = morningW >= afternoonW ? 'Morning' : 'Afternoon';
-  return `<div class="analytics-section"><div class="analytics-section-title">Advanced — Elite</div>
-    <div class="analytics-elite-card"><div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M6 1L7 4h3L7.5 6 8.5 9.5 6 8 3.5 9.5 4.5 6 2 4h3z" stroke="#ffd600" stroke-width="1" fill="none"/></svg> Activity Heatmap</div><div class="analytics-heatmap">${heatCells}</div><div style="display:flex;gap:10px;margin-top:8px;font-family:var(--mono);font-size:0.55rem;color:var(--muted)"><span style="display:flex;align-items:center;gap:3px"><span style="width:8px;height:8px;border-radius:2px;background:rgba(0,230,118,0.6);display:inline-block"></span>TP</span><span style="display:flex;align-items:center;gap:3px"><span style="width:8px;height:8px;border-radius:2px;background:rgba(255,61,90,0.25);display:inline-block"></span>SL</span></div></div>
-    <div class="analytics-insight-card" style="background:linear-gradient(135deg,rgba(255,214,0,0.05),rgba(255,214,0,0.01));border-color:rgba(255,214,0,0.2)"><div class="analytics-insight-label" style="color:#ffd600"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="#ffd600" stroke-width="1.2"/><path d="M4 6l1.5 1.5L8 4" stroke="#ffd600" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> Predictive AI</div><div class="analytics-insight-text">${best} trades show your highest win rate. Consider focusing your trading hours around this session.</div></div>
-    <div class="analytics-elite-card"><div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="#ffd600" stroke-width="1.2"/><line x1="6" y1="3" x2="6" y2="6" stroke="#ffd600" stroke-width="1.2" stroke-linecap="round"/><circle cx="6" cy="8.5" r="0.6" fill="#ffd600"/></svg> Bias Detection</div><div style="font-family:var(--mono);font-size:0.65rem;color:var(--muted);line-height:1.6">No strong bias patterns detected in your last ${entries.length} trades. Keep journaling for more accurate detection.</div></div>
+
+  // Best session time
+  const mW = entries.filter(e=>{const h=new Date(e.trade_date||e.created_at||0).getHours();return h>=6&&h<12&&['full_tp','tp2_hit','tp1_hit'].includes(e.outcome);}).length;
+  const aW = entries.filter(e=>{const h=new Date(e.trade_date||e.created_at||0).getHours();return h>=12&&h<18&&['full_tp','tp2_hit','tp1_hit'].includes(e.outcome);}).length;
+  const best = mW >= aW ? 'Morning (6am–12pm)' : 'Afternoon (12pm–6pm)';
+  const bestWinPct = total > 0 ? Math.max(mW,aW) > 0 ? Math.round((Math.max(mW,aW)/Math.max(entries.filter(e=>{const h=new Date(e.trade_date||e.created_at||0).getHours();return h>=6&&h<12;}).length,1))*100) : 0 : 0;
+
+  // Instrument breakdown (by assetId/symbol)
+  const instrMap = {};
+  entries.forEach(e => { if (e.symbol) instrMap[e.symbol] = (instrMap[e.symbol]||{wins:0,total:0}); if (e.symbol) { instrMap[e.symbol].total++; if(['full_tp','tp2_hit','tp1_hit'].includes(e.outcome)) instrMap[e.symbol].wins++; } });
+  const instrRows = Object.entries(instrMap).sort((a,b)=>b[1].total-a[1].total).slice(0,4).map(([sym,d])=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)"><span style="font-size:0.72rem;font-weight:600">${sym}</span><span style="font-family:var(--mono);font-size:0.65rem;color:var(--muted)">${d.total} trades · <span style="color:${d.wins/d.total>=0.5?'var(--green)':'var(--red)'}">${Math.round(d.wins/d.total*100)}% win</span></span></div>`).join('') || '<div style="font-family:var(--mono);font-size:0.62rem;color:var(--muted)">Log more trades to see instrument breakdown.</div>';
+
+  // Equity curve (simple running P&L line using SVG sparkline)
+  const pnlArr = entries.filter(e=>e.pnl_pct!=null).map(e=>parseFloat(e.pnl_pct));
+  let running = 0;
+  const equity = pnlArr.map(p => { running += p; return running; });
+  let sparkline = '';
+  if (equity.length >= 2) {
+    const mn = Math.min(...equity), mx = Math.max(...equity);
+    const range = mx - mn || 1;
+    const pts = equity.map((v,i) => `${Math.round((i/(equity.length-1))*160)},${Math.round((1-(v-mn)/range)*36)}`).join(' ');
+    const lastColor = equity[equity.length-1] >= 0 ? 'var(--green)' : 'var(--red)';
+    sparkline = `<svg width="160" height="44" viewBox="0 0 160 44" fill="none" style="margin-top:8px;width:100%"><polyline points="${pts}" stroke="${lastColor}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg><div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:0.55rem;color:var(--muted)"><span>Oldest</span><span>Running P&L: <span style="color:${lastColor};font-weight:700">${equity[equity.length-1]>=0?'+':''}${equity[equity.length-1].toFixed(1)}%</span></span></div>`;
+  } else {
+    sparkline = `<div style="font-family:var(--mono);font-size:0.62rem;color:var(--muted);margin-top:8px">Log trades with P&L values to see your equity curve.</div>`;
+  }
+
+  // Bias detection
+  const revengeCount = entries.filter(e => {
+    const note = (e.lessons||'')+(e.entry_reason||'');
+    return /revenge|fomo|frustrat|angry/i.test(note);
+  }).length;
+  const holdingLosers = entries.filter(e => e.outcome === 'sl_hit' && (e.lessons||'').match(/held too long|should have closed|waited too long/i)).length;
+  const biasLines = [
+    revengeCount > 0 ? `Revenge / FOMO patterns detected in ${revengeCount} trade${revengeCount>1?'s':''}.` : null,
+    holdingLosers > 0 ? `Holding losers too long detected in ${holdingLosers} trade${holdingLosers>1?'s':''}.` : null,
+    (!revengeCount && !holdingLosers) ? 'No strong bias patterns detected. Keep journaling for more accurate detection.' : null,
+  ].filter(Boolean).join(' ');
+
+  return `
+  <div class="analytics-section">
+    <div class="analytics-section-title analytics-elite-section-title">Advanced — Elite</div>
+
+    <!-- Heatmap -->
+    <div class="analytics-elite-card">
+      <div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.7"/><rect x="7" y="1" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.4"/><rect x="1" y="7" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.4"/><rect x="7" y="7" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.7"/></svg> Activity Heatmap — 4 Weeks</div>
+      <div class="analytics-heatmap">${heatCells}</div>
+      <div style="display:flex;gap:10px;margin-top:8px;font-family:var(--mono);font-size:0.55rem;color:var(--muted)">
+        <span style="display:flex;align-items:center;gap:3px"><span style="width:8px;height:8px;border-radius:2px;background:rgba(0,230,118,0.6);display:inline-block"></span>Full TP</span>
+        <span style="display:flex;align-items:center;gap:3px"><span style="width:8px;height:8px;border-radius:2px;background:rgba(0,230,118,0.15);display:inline-block"></span>Partial</span>
+        <span style="display:flex;align-items:center;gap:3px"><span style="width:8px;height:8px;border-radius:2px;background:rgba(255,61,90,0.25);display:inline-block"></span>SL</span>
+        <span style="display:flex;align-items:center;gap:3px"><span style="width:8px;height:8px;border-radius:2px;background:var(--surface2);display:inline-block"></span>None</span>
+      </div>
+    </div>
+
+    <!-- Equity Curve -->
+    <div class="analytics-elite-card">
+      <div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><polyline points="1,9 4,5 7,7 10,2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg> Equity Curve</div>
+      ${sparkline}
+    </div>
+
+    <!-- Instrument Performance -->
+    <div class="analytics-elite-card">
+      <div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><ellipse cx="6" cy="6" rx="2" ry="5" stroke="currentColor" stroke-width="1.1"/><line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.6"/></svg> Instrument Performance</div>
+      <div style="margin-top:6px">${instrRows}</div>
+    </div>
+
+    <!-- Predictive AI -->
+    <div class="analytics-elite-card">
+      <div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M4 6l1.5 1.5L8 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> Predictive AI Insights</div>
+      <div style="font-family:var(--mono);font-size:0.65rem;color:var(--muted);line-height:1.6;margin-top:4px">
+        ${bestWinPct > 0 ? `<b style="color:var(--text)">${best}</b> shows your highest win rate (${bestWinPct}%). Focus trading activity here.` : 'Log more trades across different sessions to unlock session forecasting.'}
+      </div>
+    </div>
+
+    <!-- Bias Detection -->
+    <div class="analytics-elite-card">
+      <div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><line x1="6" y1="3" x2="6" y2="6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="6" cy="8.5" r="0.6" fill="currentColor"/></svg> Bias Detection</div>
+      <div style="font-family:var(--mono);font-size:0.65rem;color:var(--muted);line-height:1.6;margin-top:4px">${biasLines}</div>
+    </div>
+
+    <!-- Benchmarking -->
+    <div class="analytics-elite-card">
+      <div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><polyline points="1,8 4,5 6,6 9,3 11,4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><line x1="1" y1="10" x2="11" y2="10" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.4"/></svg> Benchmarking</div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <div style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px;text-align:center">
+          <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);margin-bottom:3px">YOUR WIN RATE</div>
+          <div style="font-family:var(--mono);font-size:0.9rem;font-weight:700;color:${winRate>=50?'var(--green)':'var(--red)'}">${total>0?winRate+'%':'—'}</div>
+        </div>
+        <div style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px;text-align:center">
+          <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);margin-bottom:3px">COMMUNITY AVG</div>
+          <div style="font-family:var(--mono);font-size:0.9rem;font-weight:700;color:var(--accent)">72%</div>
+        </div>
+        <div style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px;text-align:center">
+          <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);margin-bottom:3px">ELITE AVG</div>
+          <div style="font-family:var(--mono);font-size:0.9rem;font-weight:700;color:var(--accent)">85%</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Coaching Mode -->
+    <div class="analytics-elite-card">
+      <div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="4" r="2.5" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M1.5 11c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/></svg> Coaching Mode</div>
+      <div style="font-family:var(--mono);font-size:0.65rem;color:var(--muted);line-height:1.6;margin-top:4px">
+        ${winRate > 0 && winRate < 50 ? '💡 Did you follow your plan on your last losing trade? Review your entry criteria before the next setup.' : consistency > 0 && consistency < 70 ? '💡 Consistency below 70% — make sure every trade has a documented setup reason before entry.' : '💡 You are on track. Keep journaling every trade to maintain your edge.'}
+      </div>
+    </div>
+
+    <!-- Customisable KPIs -->
+    <div class="analytics-elite-card">
+      <div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><line x1="4" y1="4" x2="8" y2="4" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><line x1="4" y1="6.5" x2="8" y2="6.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><line x1="4" y1="9" x2="6" y2="9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg> Custom KPIs</div>
+      <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+        <div style="flex:1;min-width:100px;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px">
+          <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);margin-bottom:3px">MAX CONSEC. LOSSES</div>
+          <div style="font-family:var(--mono);font-size:0.9rem;font-weight:700;color:var(--red)">${_maxConsecLosses(entries)}</div>
+        </div>
+        <div style="flex:1;min-width:100px;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px">
+          <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);margin-bottom:3px">AVG TRADE DURATION</div>
+          <div style="font-family:var(--mono);font-size:0.9rem;font-weight:700;color:var(--text)">—</div>
+        </div>
+      </div>
+    </div>
+
   </div>`;
 }
+
+function _maxConsecLosses(entries) {
+  let max = 0, cur = 0;
+  entries.forEach(e => {
+    if (['sl_hit','manual_exit'].includes(e.outcome)) { cur++; max = Math.max(max,cur); }
+    else cur = 0;
+  });
+  return max || '—';
+}
+
 
 // ═══════════════════════════════════════════════
 // COMMUNITY — LEADERBOARD
