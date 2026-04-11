@@ -615,7 +615,7 @@ header {
   flex-direction: column;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: calc(140px + env(safe-area-inset-bottom));
+  padding-bottom: calc(160px + env(safe-area-inset-bottom));
 }
 .community-panel.mobile-active { display: flex; }
 
