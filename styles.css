@@ -2347,28 +2347,15 @@ header {
   gap: 20px;
 }
 [data-theme="light"] .app-init-screen { background: #f0f4f8; }
-.app-init-logo {
-  display: flex;
-  align-items: baseline;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif;
-  font-weight: 800;
-  font-size: 2.4rem;
-  letter-spacing: -1px;
-  line-height: 1;
-  margin-bottom: 28px;
-}
-.app-init-logo .alt   { color: #025a91; }
-.app-init-logo .radia { color: #2d8a3e; }
-
-/* ── Spinner ring (matches image clue — conic gradient arc on dark/light) ── */
+/* ── Spinner ring — sole loading indicator ───────────────────────────────── */
 .app-init-spinner {
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
 }
 .app-spinner-ring {
-  width: 56px;
-  height: 56px;
-  animation: spinnerRotate 1s linear infinite;
+  width: 64px;
+  height: 64px;
+  animation: spinnerRotate 0.9s linear infinite;
   transform-origin: center;
 }
 .app-spinner-track {
