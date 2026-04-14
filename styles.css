@@ -2355,29 +2355,36 @@ header {
   font-size: 2.4rem;
   letter-spacing: -1px;
   line-height: 1;
+  margin-bottom: 28px;
 }
 .app-init-logo .alt   { color: #025a91; }
 .app-init-logo .radia { color: #2d8a3e; }
-.app-init-bar {
-  width: 120px;
-  height: 2px;
-  background: rgba(255,255,255,0.08);
-  border-radius: 2px;
-  overflow: hidden;
+
+/* ── Spinner ring (matches image clue — conic gradient arc on dark/light) ── */
+.app-init-spinner {
+  width: 56px;
+  height: 56px;
 }
-[data-theme="light"] .app-init-bar { background: rgba(0,0,0,0.08); }
-.app-init-bar-fill {
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(90deg, #025a91, #2d8a3e);
-  border-radius: 2px;
-  animation: initBarFill 3s ease-in-out infinite;
+.app-spinner-ring {
+  width: 56px;
+  height: 56px;
+  animation: spinnerRotate 1s linear infinite;
+  transform-origin: center;
 }
-@keyframes initBarFill {
-  0%   { width: 0%;   opacity: 1; }
-  70%  { width: 100%; opacity: 1; }
-  90%  { width: 100%; opacity: 0.4; }
-  100% { width: 0%;   opacity: 0; }
+.app-spinner-track {
+  stroke: rgba(255,255,255,0.08);
+}
+.app-spinner-arc {
+  stroke: url(#spinnerGrad);
+  /* fallback if gradient not supported */
+  stroke: #025a91;
+}
+[data-theme="light"] .app-spinner-track { stroke: rgba(0,0,0,0.08); }
+[data-theme="light"] .app-spinner-arc   { stroke: #025a91; }
+
+@keyframes spinnerRotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
 .alert-edit-chart-btn {
@@ -3375,3 +3382,107 @@ header {
 [data-theme="light"] .pro-hero   { background: rgba(0,100,180,0.05); border-color: rgba(0,100,180,0.2); }
 [data-theme="light"] .elite-hero { background: rgba(160,120,0,0.05); border-color: rgba(160,120,0,0.2); }
 [data-theme="light"] .sub-upgrade-nudge { background: rgba(160,120,0,0.04); }
+
+/* ═══════════════════════════════════════════════
+   SUBSCRIPTION BILLING TOGGLE
+   ═══════════════════════════════════════════════ */
+.sub-billing-toggle {
+  display: flex;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+  margin-bottom: 20px;
+  gap: 2px;
+}
+.sub-billing-btn {
+  flex: 1;
+  padding: 9px 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.sub-billing-btn.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+.sub-save-badge {
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  background: rgba(0,230,118,0.15);
+  color: var(--green);
+  border: 1px solid rgba(0,230,118,0.3);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+[data-theme="light"] .sub-billing-toggle { background: #e8edf2; }
+[data-theme="light"] .sub-billing-btn.active { background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+
+/* ═══════════════════════════════════════════════
+   BILLING PERIOD TOGGLE
+   ═══════════════════════════════════════════════ */
+.sub-billing-toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.sub-billing-opt {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.sub-billing-toggle {
+  position: relative;
+  width: 40px; height: 22px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  flex-shrink: 0;
+}
+.sub-billing-toggle.on {
+  background: rgba(0,212,255,0.18);
+  border-color: rgba(0,212,255,0.4);
+}
+.sub-billing-toggle-knob {
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 14px; height: 14px;
+  background: var(--muted);
+  border-radius: 50%;
+  transition: transform 0.22s cubic-bezier(0.4,0,0.2,1), background 0.2s;
+  display: block;
+}
+.sub-billing-toggle.on .sub-billing-toggle-knob {
+  transform: translateX(18px);
+  background: var(--accent);
+}
+.sub-billing-save-badge {
+  display: none;
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #000;
+  background: var(--green);
+  padding: 2px 7px;
+  border-radius: 10px;
+}
