@@ -18,8 +18,6 @@
 
 // ── Broker credentials ────────────────────────
 const DERIV_APP_ID     = '3FgUMWdvlyFOxPW';
-// Paystack public key — safe to expose client-side (not the secret key)
-const PAYSTACK_PUBLIC_KEY = 'YOUR_PAYSTACK_PUBLIC_KEY_HERE'; // replace with pk_live_...
 // SUPABASE_URL and SUPABASE_ANON_KEY are defined in db.js — do not redeclare here
 const OANDA_KEY     = 'bc279adfd3ef94ce554a110a9e555d05-7e712cb0ac8809392b3f4bfca9768b8b';
 const OANDA_ACCOUNT = '101-001-38834231-001';
@@ -2135,7 +2133,7 @@ function deleteAlert(id) {
 }
 
 // ── Generic confirmation modal ────────────────────
-function showConfirm(title, bodyHtml, onConfirm) {
+function showConfirm(title, bodyHtml, onConfirm, opts = {}) {
   // Remove any existing confirm modal
   const existing = document.getElementById('confirm-modal');
   if (existing) existing.remove();
@@ -2171,7 +2169,7 @@ function showConfirm(title, bodyHtml, onConfirm) {
           background:rgba(255,61,90,0.15);border:1px solid rgba(255,61,90,0.4);
           color:var(--red);font-family:var(--mono);font-size:0.7rem;
           letter-spacing:0.08em;cursor:pointer;font-weight:700;
-        ">DELETE</button>
+        ">${opts.confirmLabel || 'DELETE'}</button>
       </div>
     </div>
   `;
@@ -6343,6 +6341,8 @@ function openMenuPage(name) {
   page.style.display = 'flex';
   requestAnimationFrame(() => requestAnimationFrame(() => {
     page.classList.add('open');
+    // Always populate dynamic pages when opened
+    if (name === 'subscription') _renderSubscriptionPage();
   }));
 }
 
@@ -7237,13 +7237,30 @@ function initPullToRefresh() {
 
 // ═══════════════════════════════════════════════
 // SUBSCRIPTION & PAYMENTS
-// Paystack (card) + NOWPayments (crypto)
+// Paddle (card) + NOWPayments (crypto)
 // ═══════════════════════════════════════════════
 
-// Plan config — keep in sync with Paystack dashboard plan codes
+// ── Paddle credentials (set your real values here) ────────────────────────
+const PADDLE_SELLER_ID  = '56788';   // e.g. 12345
+const PADDLE_ENV        = 'sandbox';                   // 'sandbox' or 'production'
+
+// Plan config — Paddle price IDs from your Paddle dashboard
+// Monthly and annual price IDs for each plan
 const PLANS = {
-  pro:   { label: 'Pro',   price: 9,  paystackPlanCode: 'PLN_pro_monthly'   },
-  elite: { label: 'Elite', price: 19, paystackPlanCode: 'PLN_elite_monthly' },
+  pro: {
+    label:          'Pro',
+    priceMonthly:   4.99,
+    priceAnnual:    49,
+    paddleMonthly:  'pri_01kp3g6kqr2284wv1mp3hbm76k',   // replace with real price ID
+    paddleAnnual:   'pri_01kp3ggzhhjxy02b9y2fepytfn',
+  },
+  elite: {
+    label:          'Elite',
+    priceMonthly:   9,
+    priceAnnual:    90,
+    paddleMonthly:  'pri_01kp3gnkp903c4zkbxs25x6m99',
+    paddleAnnual:   'pri_01kp3grxwyzzvrmj8pjn408dyp',
+  },
 };
 
 // ── Sync the subscription card on the menu panel (always in DOM) ──────────
@@ -7271,7 +7288,6 @@ function _syncSubscriptionCard() {
   }
 }
 
-
 // ── Open subscription page ────────────────────────────────────────────────
 function openSubscriptionPage() {
   openMenuPage('subscription');
@@ -7289,25 +7305,19 @@ function _renderSubscriptionPage() {
   const isElite = tier === 'elite';
   const isFree  = tier === 'free';
 
-  // Update page title
-  if (title) title.textContent = isElite ? 'Your Plan' : isPro ? 'Your Plan' : 'Choose a Plan';
-
-  // Keep menu card in sync
+  if (title) title.textContent = (isElite || isPro) ? 'Your Plan' : 'Choose a Plan';
   _syncSubscriptionCard();
 
-  // ── ELITE view: current plan summary ────────────────────────────────────
+  // ── ELITE view ───────────────────────────────────────────────────────────
   if (isElite) {
     body.innerHTML = `
       <div style="padding:20px 16px 0">
         <div class="sub-current-hero elite-hero">
-          <div class="sub-hero-crown">
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M2 20L5 9l6.5 6L14 4l2.5 11L23 9l3 11H2z" stroke="#ffd600" stroke-width="1.6" stroke-linejoin="round" fill="rgba(255,214,0,0.12)"/></svg>
-          </div>
+          <div class="sub-hero-crown"><svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M2 20L5 9l6.5 6L14 4l2.5 11L23 9l3 11H2z" stroke="#ffd600" stroke-width="1.6" stroke-linejoin="round" fill="rgba(255,214,0,0.12)"/></svg></div>
           <div class="sub-hero-label">ELITE PLAN</div>
-          <div class="sub-hero-price">$19<span class="sub-hero-period">/month</span></div>
+          <div class="sub-hero-price">$9<span class="sub-hero-period">/month</span></div>
           <div class="sub-hero-status">Active — renews automatically</div>
         </div>
-
         <div class="sub-section-title">What you have</div>
         <div class="sub-feature-list">
           ${_subFeature('Unlimited active alerts', true)}
@@ -7318,8 +7328,7 @@ function _renderSubscriptionPage() {
           ${_subFeature('Priority server-side monitoring 24/7', true)}
           ${_subFeature('Priority support', true)}
         </div>
-
-        <button onclick="showToast('Manage Plan','To cancel, your plan will remain active until the current period ends. Contact support to proceed.','info')"
+        <button onclick="showToast('Manage Plan','To cancel, your plan stays active until the period ends. Contact support to proceed.','info')"
           style="width:100%;padding:12px;background:transparent;border:1px solid var(--border);border-radius:9px;color:var(--muted);font-family:var(--mono);font-size:0.62rem;letter-spacing:0.08em;cursor:pointer;margin-top:4px;margin-bottom:24px">
           MANAGE SUBSCRIPTION
         </button>
@@ -7327,46 +7336,42 @@ function _renderSubscriptionPage() {
     return;
   }
 
-  // ── PRO view: current plan + Elite nudge ─────────────────────────────────
+  // ── PRO view + Elite nudge ───────────────────────────────────────────────
   if (isPro) {
     body.innerHTML = `
       <div style="padding:20px 16px 0">
         <div class="sub-current-hero pro-hero">
           <div class="sub-hero-label">PRO PLAN</div>
-          <div class="sub-hero-price">$9<span class="sub-hero-period">/month</span></div>
+          <div class="sub-hero-price">$4.99<span class="sub-hero-period">/month</span></div>
           <div class="sub-hero-status">Active — renews automatically</div>
         </div>
-
         <div class="sub-section-title">Your Pro features</div>
         <div class="sub-feature-list">
           ${_subFeature('Up to 25 active alerts', true)}
           ${_subFeature('All alert types — setup, zone, tap, lifecycle', true)}
           ${_subFeature('Full trade journal with screenshots', true)}
-          ${_subFeature('Analytics & AI insights', true)}
+          ${_subFeature('Performance analytics dashboard', true)}
           ${_subFeature('Server-side monitoring 24/7', true)}
+          ${_subFeature('Advanced analytics & Elite AI insights', false)}
           ${_subFeature('Elite leaderboard & prestige badges', false)}
-          ${_subFeature('Priority server-side monitoring', false)}
           ${_subFeature('Priority support', false)}
         </div>
-
-        <!-- Elite nudge -->
         <div class="sub-upgrade-nudge">
           <div class="sub-nudge-header">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 11L2.8 5l4 4L7 1l1.5 8L12 5l1 6H1z" stroke="#ffd600" stroke-width="1.3" stroke-linejoin="round" fill="rgba(255,214,0,0.1)"/></svg>
-            Unlock Elite for $10 more
+            Unlock Elite for just $4 more/month
           </div>
           <div class="sub-nudge-features">
+            <div>⭐ AI insights that analyse your actual trade patterns</div>
             <div>⭐ Elite leaderboard ranking &amp; prestige badges</div>
             <div>⭐ Unlimited alerts (vs your current 25)</div>
-            <div>⭐ Elite AI coaching &amp; advanced analytics</div>
-            <div>⭐ Priority server-side monitoring &amp; support</div>
+            <div>⭐ Priority monitoring &amp; support</div>
           </div>
-          <button class="sub-cta-btn sub-cta-elite" onclick="openPaymentModal('elite')" style="margin-top:14px">
-            Upgrade to Elite — $19/mo
+          <button class="sub-cta-btn sub-cta-elite" onclick="openPaymentModal('elite','monthly')" style="margin-top:14px">
+            Upgrade to Elite — $9/mo
           </button>
         </div>
-
-        <button onclick="showToast('Manage Plan','To cancel, your plan will remain active until the current period ends. Contact support to proceed.','info')"
+        <button onclick="showToast('Manage Plan','To cancel, your plan stays active until the period ends. Contact support to proceed.','info')"
           style="width:100%;padding:12px;background:transparent;border:1px solid var(--border);border-radius:9px;color:var(--muted);font-family:var(--mono);font-size:0.62rem;letter-spacing:0.08em;cursor:pointer;margin-top:10px;margin-bottom:24px">
           MANAGE SUBSCRIPTION
         </button>
@@ -7374,12 +7379,19 @@ function _renderSubscriptionPage() {
     return;
   }
 
-  // ── FREE view: all three plan cards with CTAs ─────────────────────────────
+  // ── FREE view: billing toggle + all 3 plans ───────────────────────────────
   body.innerHTML = `
     <div style="padding:16px 16px 0">
-      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:18px;line-height:1.5">
-        Upgrade to unlock the full altradia experience. Cancel anytime.
-      </p>
+      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:16px;line-height:1.5">Upgrade to unlock the full altradia experience.</p>
+
+      <!-- Monthly / Annual toggle -->
+      <div class="sub-billing-toggle" id="sub-billing-toggle">
+        <button class="sub-billing-btn active" id="sub-btn-monthly" onclick="setSubBilling('monthly')">Monthly</button>
+        <button class="sub-billing-btn" id="sub-btn-annual" onclick="setSubBilling('annual')">
+          Annual
+          <span class="sub-save-badge">Save 18%</span>
+        </button>
+      </div>
     </div>
 
     <!-- FREE -->
@@ -7391,17 +7403,14 @@ function _renderSubscriptionPage() {
         </div>
         <div class="plan-features">
           ${_planFeat('Up to 5 active alerts', true)}
-          ${_planFeat('Above / Below price alerts', true)}
-          ${_planFeat('Zone & Tap alerts', true)}
+          ${_planFeat('Above / Below & Zone alerts', true)}
           ${_planFeat('Telegram notifications', true)}
           ${_planFeat('Trade setup lifecycle alerts', false)}
           ${_planFeat('Trade journal & screenshots', false)}
           ${_planFeat('Analytics & AI insights', false)}
           ${_planFeat('Server-side monitoring', false)}
         </div>
-        <div style="margin-top:12px;padding:8px 0;font-family:var(--mono);font-size:0.6rem;color:var(--muted);text-align:center">
-          YOUR CURRENT PLAN
-        </div>
+        <div style="margin-top:12px;padding:8px 0;font-family:var(--mono);font-size:0.6rem;color:var(--muted);text-align:center">YOUR CURRENT PLAN</div>
       </div>
     </div>
 
@@ -7411,20 +7420,23 @@ function _renderSubscriptionPage() {
         <div class="plan-badge">POPULAR</div>
         <div class="plan-card-header">
           <span class="plan-name">PRO</span>
-          <span class="plan-price">$9<span class="plan-period">/mo</span></span>
+          <div>
+            <span class="plan-price" id="pro-price-display">$4.99<span class="plan-period">/mo</span></span>
+            <div id="pro-annual-note" style="display:none;font-family:var(--mono);font-size:0.58rem;color:var(--muted);margin-top:2px">$49/year · 2 months free</div>
+          </div>
         </div>
         <div class="plan-features">
           ${_planFeat('Up to 25 active alerts', true)}
           ${_planFeat('All alert types incl. setup lifecycle', true)}
           ${_planFeat('Full trade journal with screenshots', true)}
-          ${_planFeat('Analytics & AI pattern insights', true)}
+          ${_planFeat('Performance analytics dashboard', true)}
           ${_planFeat('Server-side monitoring 24/7', true)}
-          ${_planFeat('Telegram notifications for all events', true)}
+          ${_planFeat('AI insights & advanced analytics', false)}
           ${_planFeat('Elite leaderboard & badges', false)}
           ${_planFeat('Priority support', false)}
         </div>
-        <button class="sub-cta-btn sub-cta-pro" onclick="openPaymentModal('pro')">
-          Get Pro — $9/mo
+        <button class="sub-cta-btn sub-cta-pro" id="pro-cta-btn" onclick="openPaymentModal('pro','monthly')">
+          Get Pro — $4.99/mo
         </button>
       </div>
     </div>
@@ -7437,138 +7449,176 @@ function _renderSubscriptionPage() {
             <span class="plan-name">ELITE</span>
             <span style="font-family:var(--mono);font-size:0.55rem;color:#ffd600;margin-left:6px;letter-spacing:0.08em">BEST VALUE</span>
           </div>
-          <span class="plan-price">$19<span class="plan-period">/mo</span></span>
+          <div>
+            <span class="plan-price" id="elite-price-display">$9<span class="plan-period">/mo</span></span>
+            <div id="elite-annual-note" style="display:none;font-family:var(--mono);font-size:0.58rem;color:var(--muted);margin-top:2px">$90/year · 2 months free</div>
+          </div>
         </div>
         <div class="plan-features">
           ${_planFeat('Unlimited active alerts', true)}
           ${_planFeat('All alert types incl. setup lifecycle', true)}
           ${_planFeat('Full trade journal with screenshots', true)}
-          ${_planFeat('Advanced analytics & Elite AI coaching', true)}
+          ${_planFeat('Advanced analytics & Elite AI insights', true)}
           ${_planFeat('Elite leaderboard ranking & prestige badges', true)}
           ${_planFeat('Priority server-side monitoring 24/7', true)}
           ${_planFeat('Priority support', true)}
         </div>
-        <button class="sub-cta-btn sub-cta-elite" onclick="openPaymentModal('elite')">
-          Get Elite — $19/mo
+        <button class="sub-cta-btn sub-cta-elite" id="elite-cta-btn" onclick="openPaymentModal('elite','monthly')">
+          Get Elite — $9/mo
         </button>
       </div>
     </div>
 
     <p style="font-family:var(--mono);font-size:0.56rem;color:var(--muted);text-align:center;padding:0 16px 28px;line-height:1.6">
-      Billed monthly · Cancel anytime<br>Secure payments via Paystack &amp; NOWPayments
+      Billed in USD · Cancel anytime<br>Secure payments via Paddle &amp; NOWPayments
     </p>`;
+
+  // Init billing toggle state
+  window._subBilling = 'monthly';
+}
+
+// ── Billing toggle ─────────────────────────────────────────────────────────
+function setSubBilling(billing) {
+  window._subBilling = billing;
+  const isAnnual = billing === 'annual';
+
+  document.getElementById('sub-btn-monthly')?.classList.toggle('active', !isAnnual);
+  document.getElementById('sub-btn-annual')?.classList.toggle('active', isAnnual);
+
+  // Update Pro price display
+  const proPrice = document.getElementById('pro-price-display');
+  const proNote  = document.getElementById('pro-annual-note');
+  const proBtn   = document.getElementById('pro-cta-btn');
+  if (proPrice) proPrice.innerHTML = isAnnual ? '$4.08<span class="plan-period">/mo</span>' : '$4.99<span class="plan-period">/mo</span>';
+  if (proNote)  proNote.style.display = isAnnual ? '' : 'none';
+  if (proBtn)   { proBtn.textContent = isAnnual ? 'Get Pro Annual — $49/yr' : 'Get Pro — $4.99/mo'; proBtn.onclick = () => openPaymentModal('pro', billing); }
+
+  // Update Elite price display
+  const elitePrice = document.getElementById('elite-price-display');
+  const eliteNote  = document.getElementById('elite-annual-note');
+  const eliteBtn   = document.getElementById('elite-cta-btn');
+  if (elitePrice) elitePrice.innerHTML = isAnnual ? '$7.50<span class="plan-period">/mo</span>' : '$9<span class="plan-period">/mo</span>';
+  if (eliteNote)  eliteNote.style.display = isAnnual ? '' : 'none';
+  if (eliteBtn)   { eliteBtn.textContent = isAnnual ? 'Get Elite Annual — $90/yr' : 'Get Elite — $9/mo'; eliteBtn.onclick = () => openPaymentModal('elite', billing); }
 }
 
 // ── Feature row helpers ────────────────────────────────────────────────────
 function _subFeature(text, on) {
-  return `<div class="sub-feat-row${on ? '' : ' sub-feat-off'}">
-    <span class="sub-feat-dot"></span>${text}
-  </div>`;
+  return `<div class="sub-feat-row${on ? '' : ' sub-feat-off'}"><span class="sub-feat-dot"></span>${text}</div>`;
 }
 function _planFeat(text, on) {
   return `<div class="plan-feature${on ? ' on' : ' off'}">${text}</div>`;
 }
 
 // ── Payment method picker modal ───────────────────────────────────────────
-function openPaymentModal(plan) {
+function openPaymentModal(plan, billing) {
+  billing = billing || window._subBilling || 'monthly';
   const existing = document.getElementById('payment-modal-overlay');
   if (existing) existing.remove();
 
-  const { label, price } = PLANS[plan];
+  const p         = PLANS[plan];
+  const isAnnual  = billing === 'annual';
+  const price     = isAnnual ? p.priceAnnual : p.priceMonthly;
+  const period    = isAnnual ? '/year' : '/month';
   const ov = document.createElement('div');
   ov.id = 'payment-modal-overlay';
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99995;display:flex;align-items:flex-end;justify-content:center';
   ov.innerHTML = `
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;box-sizing:border-box">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-        <div style="font-family:var(--mono);font-size:0.68rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--text)">${label} Plan</div>
+        <div style="font-family:var(--mono);font-size:0.68rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--text)">${p.label} Plan</div>
         <button onclick="document.getElementById('payment-modal-overlay').remove()" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:4px">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="3" y1="3" x2="13" y2="13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="13" y1="3" x2="3" y2="13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
         </button>
       </div>
-      <div style="font-family:var(--mono);font-size:0.62rem;color:var(--muted);margin-bottom:22px">$${price}/month · Cancel anytime</div>
-
+      <div style="font-family:var(--mono);font-size:0.62rem;color:var(--muted);margin-bottom:22px">
+        $${price}${period} · ${isAnnual ? '2 months free · ' : ''}Cancel anytime
+      </div>
       <div style="font-family:var(--mono);font-size:0.56rem;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;margin-bottom:10px">Choose Payment Method</div>
-
-      <button onclick="_startPaystack('${plan}')" style="width:100%;display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);cursor:pointer;margin-bottom:10px;text-align:left">
+      <button onclick="_startPaddle('${plan}','${billing}')" style="width:100%;display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);cursor:pointer;margin-bottom:10px;text-align:left">
         <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="1" y="5" width="20" height="14" rx="3" stroke="currentColor" stroke-width="1.4" fill="none"/><line x1="1" y1="9" x2="21" y2="9" stroke="currentColor" stroke-width="1.4"/><rect x="4" y="12" width="4" height="2" rx="0.5" fill="currentColor" opacity="0.6"/></svg>
         <div>
           <div style="font-size:0.82rem;font-weight:600;margin-bottom:2px">Pay with Card</div>
-          <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted)">Visa, Mastercard · Powered by Paystack</div>
+          <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted)">Visa, Mastercard · Powered by Paddle</div>
         </div>
         <svg style="margin-left:auto;flex-shrink:0" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-
-      <button onclick="_startNowPayments('${plan}')" style="width:100%;display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);cursor:pointer;text-align:left">
+      <button onclick="_startNowPayments('${plan}','${billing}')" style="width:100%;display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);cursor:pointer;text-align:left">
         <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="9" stroke="currentColor" stroke-width="1.4" fill="none"/><path d="M8 11h3m0 0h1.5a1.5 1.5 0 0 0 0-3H11m0 3v3m0-3V8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
         <div>
           <div style="font-size:0.82rem;font-weight:600;margin-bottom:2px">Pay with Crypto</div>
-          <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted)">BTC, ETH, USDT & more · Powered by NOWPayments</div>
+          <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted)">BTC, ETH, USDT & more · NOWPayments</div>
         </div>
         <svg style="margin-left:auto;flex-shrink:0" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-
       <p style="font-family:var(--mono);font-size:0.56rem;color:var(--muted);text-align:center;margin-top:16px;line-height:1.6">
-        Payments are processed securely. Your plan activates instantly after confirmation.
+        Secure checkout. Your plan activates instantly after confirmation.
       </p>
     </div>`;
-
   document.body.appendChild(ov);
   ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
 }
 
-// ── Paystack card payment ─────────────────────────────────────────────────
-function _startPaystack(plan) {
+// ── Paddle card payment ────────────────────────────────────────────────────
+function _startPaddle(plan, billing) {
   document.getElementById('payment-modal-overlay')?.remove();
+  billing = billing || 'monthly';
 
-  // Load Paystack inline script if not already loaded
-  if (!window.PaystackPop) {
-    const script = document.createElement('script');
-    script.src   = 'https://js.paystack.co/v1/inline.js';
-    script.onload = () => _launchPaystackPopup(plan);
+  // Load Paddle.js if not already loaded
+  if (!window.Paddle) {
+    const script   = document.createElement('script');
+    script.src     = 'https://cdn.paddle.com/paddle/v2/paddle.js';
+    script.onload  = () => _launchPaddleCheckout(plan, billing);
+    script.onerror = () => showToast('Error', 'Could not load payment provider. Check connection.', 'error');
     document.head.appendChild(script);
   } else {
-    _launchPaystackPopup(plan);
+    _launchPaddleCheckout(plan, billing);
   }
 }
 
-function _launchPaystackPopup(plan) {
-  const { label, price, paystackPlanCode } = PLANS[plan];
-  const email = `user_${telegramChatId}@altradia.app`; // synthetic email for Paystack
+function _launchPaddleCheckout(plan, billing) {
+  const isAnnual = billing === 'annual';
+  const p        = PLANS[plan];
+  const priceId  = isAnnual ? p.paddleAnnual : p.paddleMonthly;
 
-  const handler = window.PaystackPop.setup({
-    key:      PAYSTACK_PUBLIC_KEY,
-    email,
-    amount:   price * 100, // in kobo/cents
-    currency: 'USD',
-    plan:     paystackPlanCode, // Paystack plan code for recurring billing
-    metadata: {
-      telegram_id:   telegramChatId,
-      telegram_name: telegramUserName || '',
-      plan,
-    },
-    channels: ['card'],
-    label:    `altradia ${label}`,
-
-    callback(response) {
-      // Payment successful — webhook handles DB update; poll for UI update
-      showToast('Payment Successful!', `Welcome to altradia ${label}. Your plan is activating…`, 'success');
-      _pollTierUpdate(plan, 10);
-      // Optionally redirect to callback page for visual confirmation
-      window.Telegram?.WebApp?.openLink(`${APP_BASE_URL}/payment-callback.html?status=success&plan=${plan}&gateway=card`);
-    },
-    onClose() {
-      // User closed the popup without paying — do nothing
+  // Initialise Paddle with seller ID and environment
+  Paddle.Initialize({
+    token:  PADDLE_SELLER_ID,
+    ...(PADDLE_ENV === 'sandbox' ? { environment: 'sandbox' } : {}),
+    eventCallback(ev) {
+      if (ev.name === 'checkout.completed') {
+        document.getElementById('payment-modal-overlay')?.remove();
+        showToast('Payment Successful!', `Welcome to altradia ${p.label}. Your plan is activating…`, 'success');
+        _pollTierUpdate(plan, 12);
+      }
+      if (ev.name === 'checkout.closed') {
+        // User closed without paying — nothing to do
+      }
     },
   });
 
-  handler.openIframe();
+  Paddle.Checkout.open({
+    items: [{ priceId, quantity: 1 }],
+    customData: {
+      telegram_id:   telegramChatId,
+      telegram_name: telegramUserName || '',
+      plan,
+      billing,
+    },
+    settings: {
+      displayMode:    'overlay',
+      theme:          document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
+      locale:         'en',
+      successUrl:     `${APP_BASE_URL}/payment-callback.html?status=success&plan=${plan}&gateway=card`,
+    },
+  });
 }
 
-// ── NOWPayments crypto payment ────────────────────────────────────────────
-async function _startNowPayments(plan) {
+// ── NOWPayments crypto payment ─────────────────────────────────────────────
+async function _startNowPayments(plan, billing) {
   const btn = document.querySelector('#payment-modal-overlay button[onclick*="NowPayments"]');
-  if (btn) { btn.textContent = 'Creating invoice…'; btn.disabled = true; }
+  if (btn) { btn.innerHTML = '<span style="opacity:0.6">Creating invoice…</span>'; btn.disabled = true; }
+  billing = billing || 'monthly';
 
   try {
     const res = await fetch(`${SUPABASE_URL}/functions/v1/create-nowpayments-invoice`, {
@@ -7578,25 +7628,20 @@ async function _startNowPayments(plan) {
         apikey:           SUPABASE_ANON_KEY,
         Authorization:   `Bearer ${SUPABASE_ANON_KEY}`,
       },
-      body: JSON.stringify({ plan, telegram_id: telegramChatId }),
+      body: JSON.stringify({ plan, billing, telegram_id: telegramChatId }),
     });
 
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || 'Invoice creation failed');
-
     document.getElementById('payment-modal-overlay')?.remove();
 
-    // Open the NOWPayments hosted invoice in external browser
     if (window.Telegram?.WebApp?.openLink) {
       window.Telegram.WebApp.openLink(data.invoice_url);
     } else {
       window.open(data.invoice_url, '_blank');
     }
-
-    // Show confirmation prompt and start polling
-    showToast('Invoice Created', 'Complete your crypto payment in the browser. Your plan will activate automatically once confirmed.', 'info');
-    _pollTierUpdate(plan, 30); // crypto confirmations can take longer — poll for up to 90s
-
+    showToast('Invoice Created', 'Complete your crypto payment in the browser. Your plan activates automatically once confirmed.', 'info');
+    _pollTierUpdate(plan, 30);
   } catch (err) {
     console.error('NOWPayments error:', err);
     showToast('Error', 'Could not create crypto invoice. Please try again.', 'error');
@@ -7626,6 +7671,1419 @@ async function _pollTierUpdate(expectedTier, maxAttempts = 10) {
   setTimeout(poll, 2000); // first check after 2s
 }
 
+
+// ═══════════════════════════════════════════════
+// FEEDBACK FORM
+// ═══════════════════════════════════════════════
+function openFeedbackForm() {
+  const existing = document.getElementById('feedback-overlay');
+  if (existing) existing.remove();
+
+  const ov = document.createElement('div');
+  ov.id = 'feedback-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99995;display:flex;align-items:flex-end;justify-content:center';
+
+  ov.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;box-sizing:border-box">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <div style="font-family:var(--mono);font-size:0.68rem;font-weight:700;letter-spacing:0.12em;color:var(--text);text-transform:uppercase">Send Feedback</div>
+        <button onclick="document.getElementById('feedback-overlay').remove()" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:4px">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="3" y1="3" x2="13" y2="13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="13" y1="3" x2="3" y2="13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
+      <div style="font-family:var(--mono);font-size:0.56rem;letter-spacing:0.1em;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Category</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px" id="fb-category-btns">
+        ${['Bug Report','Feature Request','UI/UX Feedback','Performance','Other'].map((c,i) =>
+          `<button onclick="setFbCategory(this,'${c}')" class="export-opt-btn${i===0?' active':''}" style="flex:none;padding:6px 12px;font-size:0.6rem">${c}</button>`
+        ).join('')}
+      </div>
+
+      <div style="font-family:var(--mono);font-size:0.56rem;letter-spacing:0.1em;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Rating</div>
+      <div style="display:flex;gap:8px;margin-bottom:18px" id="fb-rating-row">
+        ${[1,2,3,4,5].map(n =>
+          `<button onclick="setFbRating(${n})" id="fb-star-${n}"
+            style="width:36px;height:36px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--muted);font-size:1rem;cursor:pointer;transition:all 0.15s">
+            ${n <= 3 ? '😐' : n === 4 ? '🙂' : '😍'}
+          </button>`
+        ).join('')}
+      </div>
+
+      <div style="font-family:var(--mono);font-size:0.56rem;letter-spacing:0.1em;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Your feedback</div>
+      <textarea id="fb-text" placeholder="Tell us what you think, what's broken, or what you'd love to see…"
+        style="width:100%;min-height:100px;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--sans);font-size:0.78rem;padding:12px 14px;border-radius:9px;box-sizing:border-box;resize:vertical;margin-bottom:16px;line-height:1.5"></textarea>
+
+      <button id="fb-submit-btn" onclick="submitFeedback()"
+        style="width:100%;padding:14px;background:var(--accent);color:#000;font-family:var(--mono);font-size:0.72rem;font-weight:700;letter-spacing:0.1em;border:none;border-radius:10px;cursor:pointer;text-transform:uppercase">
+        Send Feedback
+      </button>
+    </div>`;
+
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+
+  // Init state
+  ov._category = 'Bug Report';
+  ov._rating   = 0;
+}
+
+function setFbCategory(btn, cat) {
+  const ov = document.getElementById('feedback-overlay');
+  if (ov) ov._category = cat;
+  document.querySelectorAll('#fb-category-btns button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+function setFbRating(n) {
+  const ov = document.getElementById('feedback-overlay');
+  if (ov) ov._rating = n;
+  for (let i = 1; i <= 5; i++) {
+    const btn = document.getElementById(`fb-star-${i}`);
+    if (btn) {
+      btn.style.borderColor = i <= n ? 'var(--accent)' : 'var(--border)';
+      btn.style.background  = i <= n ? 'rgba(0,212,255,0.08)' : 'var(--bg)';
+    }
+  }
+}
+
+async function submitFeedback() {
+  const ov       = document.getElementById('feedback-overlay');
+  const text     = document.getElementById('fb-text')?.value?.trim();
+  const category = ov?._category || 'General';
+  const rating   = ov?._rating   || 0;
+
+  if (!text) {
+    showToast('Add feedback', 'Please write something before sending.', 'error');
+    return;
+  }
+
+  const btn = document.getElementById('fb-submit-btn');
+  if (btn) { btn.textContent = 'Sending…'; btn.disabled = true; }
+
+  try {
+    // Store feedback in Supabase feedback table (create table if needed)
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/feedback`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        apikey:           SUPABASE_ANON_KEY,
+        Authorization:   `Bearer ${SUPABASE_ANON_KEY}`,
+        Prefer:          'return=minimal',
+      },
+      body: JSON.stringify({
+        user_id:      currentUserId   || null,
+        telegram_id:  telegramChatId  || null,
+        username:     telegramUserName || null,
+        tier:         getUserTier(),
+        category,
+        rating,
+        message:      text,
+        app_version:  '1.0',
+        created_at:   new Date().toISOString(),
+      }),
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+    ov?.remove();
+    showToast('Thank you!', 'Your feedback has been received. We read every message.', 'success');
+  } catch (err) {
+    console.error('Feedback error:', err);
+    if (btn) { btn.textContent = 'Send Feedback'; btn.disabled = false; }
+    showToast('Failed to send', 'Could not submit feedback. Please try again.', 'error');
+  }
+}
+
+// ═══════════════════════════════════════════════
+// DELETE ACCOUNT
+// ═══════════════════════════════════════════════
+function openDeleteAccount() {
+  showConfirm(
+    'Delete Account',
+    `<div style="font-size:0.8rem;color:var(--muted);line-height:1.6;margin-bottom:8px">
+      This will permanently delete:
+      <ul style="margin:8px 0 0 16px;display:flex;flex-direction:column;gap:4px">
+        <li>All your alerts and trade setups</li>
+        <li>Your trade journal and screenshots</li>
+        <li>Your watchlist and preferences</li>
+        <li>Your account and subscription data</li>
+      </ul>
+    </div>
+    <div style="font-family:var(--mono);font-size:0.62rem;color:var(--red);margin-top:12px;padding:10px;background:rgba(255,61,90,0.06);border:1px solid rgba(255,61,90,0.2);border-radius:8px">
+      ⚠ This action cannot be undone.
+    </div>`,
+    async () => {
+      await _performDeleteAccount();
+    },
+    { confirmLabel: 'Delete My Account', confirmClass: 'confirm-btn-danger' }
+  );
+}
+
+async function _performDeleteAccount() {
+  if (!currentUserId) return;
+
+  try {
+    showToast('Deleting account…', 'Please wait while we remove your data.', 'info');
+
+    // Delete in order: screenshots (storage), journal, alerts, watchlist, preferences, user row
+    const headers = {
+      apikey:        SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    };
+    const base = SUPABASE_URL + '/rest/v1';
+
+    await Promise.allSettled([
+      fetch(`${base}/trade_journal?user_id=eq.${currentUserId}`,     { method: 'DELETE', headers }),
+      fetch(`${base}/alerts?user_id=eq.${currentUserId}`,            { method: 'DELETE', headers }),
+      fetch(`${base}/watchlist?user_id=eq.${currentUserId}`,         { method: 'DELETE', headers }),
+      fetch(`${base}/user_preferences?user_id=eq.${currentUserId}`,  { method: 'DELETE', headers }),
+      fetch(`${base}/feedback?user_id=eq.${currentUserId}`,          { method: 'DELETE', headers }),
+    ]);
+
+    // Delete user row last
+    await fetch(`${base}/users?id=eq.${currentUserId}`, { method: 'DELETE', headers });
+
+    // Clear local state
+    localStorage.clear();
+    alerts         = [];
+    journalEntries = [];
+
+    showToast('Account Deleted', 'Your account has been permanently removed.', 'success');
+    setTimeout(() => {
+      // Reload to reset the app state
+      window.location.reload();
+    }, 2000);
+  } catch (err) {
+    console.error('Delete account error:', err);
+    showToast('Error', 'Could not delete account. Please contact support.', 'error');
+  }
+}
+
+
+async function init() {
+  // Apply saved theme before anything renders
+  initTheme();
+
+  // Restore persisted feature settings
+  slStreakWarningEnabled = localStorage.getItem('sl_streak_enabled')   === '1';
+  slStreakThreshold      = parseInt(localStorage.getItem('sl_streak_threshold') || '3', 10);
+  watchlistGrouped       = localStorage.getItem('wl_grouped') !== '0'; // default true
+  loadTgNotifPrefs();
+
+  // Push initial history state so Android back button is interceptable from the start
+  window.history.replaceState({ twTab: 'chart' }, '', '');
+
+  await getOrCreateUser(currentTelegramId);
+
+  const prefs = await loadPreferencesFromDB();
+  const isTelegramApp = !!window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+
+  // ── Load user tier from DB ─────────────────────────────────────
+  // Reads tier + subscription_end from the users table.
+  // Falls back to 'free' if expired or not set.
+  await refreshUserTier();
+
+  if (isTelegramApp) {
+    soundEnabled = prefs?.sound_enabled ?? true;
+    savePreferencesDB({
+      telegram_chat_id: telegramChatId,
+      telegram_enabled: true,
+      sound_enabled:    soundEnabled,
+      timezone:         Intl.DateTimeFormat().resolvedOptions().timeZone,
+      utc_offset_mins:  -new Date().getTimezoneOffset(),
+    });
+
+    // ── New user onboarding: show linking screen, auto send test ──
+    const hasOnboarded = localStorage.getItem('tw_onboarded');
+    if (!hasOnboarded) {
+      // Show consent disclaimer first — user must agree before proceeding
+      const consented = await showConsentDisclaimer();
+      if (!consented) return; // user declined — halt
+      revealApp();
+  initPullToRefresh();
+      const onboardOk = await showOnboardingScreen();
+      if (!onboardOk) return;
+      localStorage.setItem('tw_onboarded', '1');
+    }
+  } else {
+    revealApp();
+    soundEnabled = prefs?.sound_enabled ?? true;
+    showTgConnectPrompt();
+    return;
+  }
+  updateTgBtn();
+
+  const dbAlerts = await loadAlertsFromDB();
+  if (dbAlerts !== null) alerts = dbAlerts;
+
+  await initAlertHistory();
+
+  // ── Load user's personal watchlist from DB ──────
+  Object.keys(ASSETS).forEach(cat => { ASSETS[cat] = []; });
+
+  const dbWatchlist = await loadWatchlist();
+  if (dbWatchlist && dbWatchlist.length > 0) {
+    dbWatchlist.forEach(row => {
+      const cat = row.category;
+      if (!cat) return;
+      if (!ASSETS[cat]) ASSETS[cat] = [];
+      if (ASSETS[cat].some(a => a.id === row.asset_id)) return;
+      const meta = ALL_ASSETS.find(a => a.id === row.asset_id);
+      ASSETS[cat].push(meta || {
+        id:       row.asset_id,
+        symbol:   row.symbol,
+        name:     row.name,
+        derivSym: row.td_symbol || null,
+        sources:  row.sources  || ['deriv'],
+        cat,
+      });
+    });
+  }
+
+  populateDropdown();
+  renderWatchlist();
+  renderAlerts();
+
+  // Restore last timeframe
+  const _lastTF = localStorage.getItem('altradia_last_tf');
+  if (_lastTF) {
+    lwCurrentTF = _lastTF;
+    document.querySelectorAll('.chart-tf-btn').forEach(b => {
+      b.classList.toggle('active', b.textContent.trim() === _lastTF);
+    });
+  }
+  // Restore last viewed asset, or default to EUR/USD for new users
+  const _lastAssetId = localStorage.getItem('altradia_last_asset') || 'EUR/USD';
+  const _defaultAsset = ALL_ASSETS.find(a => a.id === _lastAssetId)
+                     || ALL_ASSETS.find(a => a.id === 'EUR/USD');
+  if (_defaultAsset) selectAsset(_defaultAsset);
+
+  // Connect Deriv WebSocket
+  connectDeriv();
+  setTimeout(resubscribeAllDeriv, 3000);
+
+  // ── Alert form focus tracking ─────────────────────────────────────────────
+  const alertFormInputs = [
+    'alert-price', 'alert-zone-low', 'alert-zone-high',
+    'alert-note', 'alert-note-zone', 'alert-tap-custom',
+    'setup-entry', 'setup-sl', 'setup-tp1', 'setup-tp2', 'setup-tp3',
+    'setup-entry-reason', 'setup-htf-context',
+  ];
+  alertFormInputs.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('focus', () => { userTypingInForm = true; });
+    el.addEventListener('blur',  () => {
+      setTimeout(() => { userTypingInForm = false; }, 300);
+    });
+  });
+  ['alert-condition','alert-timeframe','alert-repeat','alert-tap-tolerance',
+   'setup-type','setup-timeframe','setup-emotion-before'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('focus', () => { userTypingInForm = true; });
+    el.addEventListener('blur',  () => { setTimeout(() => { userTypingInForm = false; }, 300); });
+  });
+
+  // Initial REST fetch
+  await fetchAllPrices();
+  setStatusPill(true);
+
+  // Re-subscribe Deriv with confirmed symbols now that ASSETS is fully populated
+  resubscribeAllDeriv();
+
+  refreshSelectedAssetPanel();
+
+  // ── Auto-growing textareas ────────────────────────────────────────────────
+  initAutoGrowTextareas();
+
+  // ── Start SESSION ticker ──────────────────────────────────────────────────
+  updateSessionDisplay();
+  setInterval(updateSessionDisplay, 10000);
+
+  // Navigate straight to chart on load
+  mobileTab('chart', false);
+  revealApp();
+
+}
+
+function setStatusPill(isLive) {
+  // Status pill removed from UI — function kept as no-op to avoid errors
+}
+
+window.addEventListener('resize', () => {
+  // Mobile-only: re-fit chart canvas when keyboard opens/closes
+  // (do NOT call mobileTab here — it resets scroll position mid-input)
+  if (lwChart) {
+    try {
+      lwChart.resize(
+        document.getElementById('lw-chart').clientWidth,
+        document.getElementById('lw-chart').clientHeight
+      );
+    } catch(e) {}
+  }
+});
+
+// Refresh prices when user returns to the tab
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    fetchAllPrices();
+    // Reconnect both WS connections if they dropped
+    if (!_conn1.ws || _conn1.ws.readyState > 1) connectDeriv();
+    if (!_conn2.ws || _conn2.ws.readyState > 1) connectDerivSynthetics();
+    // Don't re-init the chart tab if user is actively filling a form —
+    // mobileTab('chart') calls loadTVChart which resets scroll position
+    if (isMobileLayout() && !userTypingInForm) mobileTab(navStack[navStack.length-1], false);
+  }
+});
+
+// ═══════════════════════════════════════════════
+// ONBOARDING SCREEN — shown once for new users
+// Automatically links Telegram and sends a test
+// message. Dismisses only when confirmed sent.
+// ═══════════════════════════════════════════════
+
+function cancelEditAlert() {
+  if (!editingAlertId) return;
+  userTypingInForm = false;
+  editingAlertId = null;
+  const setBtn = document.getElementById('set-alert-btn');
+  if (setBtn) {
+    setBtn.textContent = 'SET ALERT';
+    setBtn.style.background = '';
+    setBtn.style.borderColor = '';
+  }
+  // Clear form
+  ['alert-price','alert-zone-low','alert-zone-high','alert-note','alert-note-zone'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.value = ''; delete el.dataset.userEdited; }
+  });
+}
+
+// ═══════════════════════════════════════════════
+// CONSENT DISCLAIMER
+// Shown once to new users before onboarding.
+// They must tick a checkbox to proceed.
+// ═══════════════════════════════════════════════
+function showConsentDisclaimer() {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.id = 'consent-overlay';
+
+    overlay.innerHTML = `
+      <div class="consent-scroll">
+        <div style="margin-bottom:24px">
+          <svg viewBox="0 0 240 44" xmlns="http://www.w3.org/2000/svg" height="28" aria-label="altradia" style="display:block;margin-bottom:20px">
+            <defs>
+              <linearGradient id="consent-radia-grad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#2d8a3e"/>
+                <stop offset="100%" stop-color="#115c28"/>
+              </linearGradient>
+            </defs>
+            <text y="36" font-family="-apple-system,BlinkMacSystemFont,'SF Pro Display','Helvetica Neue',Arial,sans-serif" font-weight="800" font-size="40">
+              <tspan fill="#025a91">alt</tspan><tspan fill="url(#consent-radia-grad)">radia</tspan>
+            </text>
+          </svg>
+          <div style="font-size:1.3rem;font-weight:800;color:var(--text);margin-bottom:6px">Before You Continue</div>
+          <div style="font-size:0.82rem;color:var(--muted);line-height:1.5">When creating an account or using Altradia's Telegram Mini App, you will be asked to confirm your agreement with our legal policies. This consent ensures transparency and compliance with data protection standards.</div>
+        </div>
+
+        <hr style="border:none;border-top:1px solid var(--border);margin:0 0 20px">
+
+        <div style="font-size:1rem;font-weight:700;color:var(--text);margin-bottom:8px">Consent Statement</div>
+        <div style="font-size:0.82rem;color:var(--muted);margin-bottom:12px">By continuing, you acknowledge and agree to the following:</div>
+        <ul style="padding-left:18px;margin:0 0 16px;display:flex;flex-direction:column;gap:8px">
+          <li style="font-size:0.82rem;color:var(--text);line-height:1.5">You have read and understood Altradia's <strong>Terms of Use</strong>, <strong>Privacy Policy</strong>, and <strong>Cookies Policy</strong>.</li>
+          <li style="font-size:0.82rem;color:var(--text);line-height:1.5">You consent to Altradia processing your data as described in these policies, including the use of session identifiers, broker integration data, and alert preferences.</li>
+          <li style="font-size:0.82rem;color:var(--text);line-height:1.5">You understand that Altradia does not provide financial advice and that alerts are informational only.</li>
+          <li style="font-size:0.82rem;color:var(--text);line-height:1.5">You may withdraw consent at any time by discontinuing use of the app or requesting account deletion.</li>
+        </ul>
+
+        <hr style="border:none;border-top:1px solid var(--border);margin:0 0 20px">
+
+        <div style="font-size:1rem;font-weight:700;color:var(--text);margin-bottom:8px">User Action</div>
+        <div style="font-size:0.82rem;color:var(--muted);margin-bottom:12px">To proceed, you must check the box below:</div>
+      </div>
+
+      <div class="consent-footer">
+        <div class="consent-check-row" id="consent-check-row">
+          <div class="consent-checkbox" id="consent-checkbox"></div>
+          <div class="consent-check-label">I agree to Altradia's Terms of Use, Privacy Policy, and Cookies Policy.</div>
+        </div>
+        <button class="consent-proceed-btn" id="consent-proceed-btn">CONTINUE TO ALTRADIA</button>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    let agreed = false;
+
+    const checkRow = overlay.querySelector('#consent-check-row');
+    const checkbox = overlay.querySelector('#consent-checkbox');
+    const proceedBtn = overlay.querySelector('#consent-proceed-btn');
+
+    checkRow.addEventListener('click', () => {
+      agreed = !agreed;
+      checkbox.classList.toggle('checked', agreed);
+      proceedBtn.classList.toggle('enabled', agreed);
+    });
+
+    proceedBtn.addEventListener('click', () => {
+      if (!agreed) return;
+      localStorage.setItem('tw_consented', '1');
+      overlay.style.transition = 'opacity 0.3s ease';
+      overlay.style.opacity = '0';
+      setTimeout(() => {
+        overlay.remove();
+        resolve(true);
+      }, 320);
+    });
+  });
+}
+
+function showOnboardingScreen() {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.id = 'onboarding-overlay';
+    overlay.style.cssText = `
+      position:fixed;inset:0;z-index:99999;
+      background:var(--bg);
+      display:flex;flex-direction:column;
+      align-items:center;justify-content:center;
+      padding:32px;text-align:center;
+    `;
+
+    // ── Phase 1: Linking splash ──────────────────
+    // Inject spin keyframe once
+    if (!document.getElementById('tw-spin-style')) {
+      const s = document.createElement('style');
+      s.id = 'tw-spin-style';
+      s.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+      document.head.appendChild(s);
+    }
+
+    function showLinking() {
+      overlay.innerHTML = `
+        <div style="margin-bottom:28px">
+          <svg width="52" height="52" viewBox="0 0 52 52" fill="none">
+            <circle cx="26" cy="26" r="25" stroke="var(--accent)" stroke-width="2" stroke-dasharray="157" stroke-dashoffset="0" opacity="0.2"/>
+            <circle cx="26" cy="26" r="25" stroke="var(--accent)" stroke-width="2" stroke-dasharray="40 117"
+              style="animation:spin 1.2s linear infinite;transform-origin:center"/>
+          </svg>
+        </div>
+        <div style="font-size:1rem;font-weight:700;letter-spacing:0.1em;color:var(--text);margin-bottom:10px;">LINKING YOUR ACCOUNT</div>
+        <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;max-width:260px;">
+          Connecting altradia to your Telegram.<br>This only takes a moment…
+        </div>`;
+      document.body.appendChild(overlay);
+
+      // Auto-send test message after a brief linking pause
+      setTimeout(() => attemptTestMessage(), 1800);
+    }
+
+    // ── Phase 2: Test message ─────────────────────
+    async function attemptTestMessage() {
+      const msg = '<b>ALTRADIA CONNECTED</b>\n\nYour account is linked. You\'ll receive instant alerts here the moment a price target is hit.\n\n<i>You\'re all set. </i>';
+      const ok  = await sendTelegram(msg);
+
+      if (ok) {
+        showSuccess();
+      } else {
+        showError();
+      }
+    }
+
+    // ── Phase 3a: Success — auto-dismiss ──────────
+    function showSuccess() {
+      overlay.innerHTML = `
+        <div style="margin-bottom:24px">
+          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+            <circle cx="28" cy="28" r="27" stroke="var(--green)" stroke-width="2" fill="none" opacity="0.2"/>
+            <circle cx="28" cy="28" r="27" stroke="var(--green)" stroke-width="2" fill="none"/>
+            <polyline points="16,28 24,36 40,20" stroke="var(--green)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          </svg>
+        </div>
+        <div style="font-size:1rem;font-weight:700;letter-spacing:0.1em;color:var(--green);margin-bottom:10px;">TELEGRAM CONNECTED</div>
+        <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;max-width:260px;margin-bottom:20px;">
+          Check your Telegram — a confirmation message has been sent.<br>Taking you to the app…
+        </div>`;
+
+      // Dismiss after 2 seconds and continue into app
+      setTimeout(() => {
+        overlay.remove();
+        resolve(true);
+      }, 2000);
+    }
+
+    // ── Phase 3b: Error — show retry ─────────────
+    function showError() {
+      overlay.innerHTML = `
+        <div style="margin-bottom:24px">
+          <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
+            <circle cx="28" cy="28" r="27" stroke="var(--red)" stroke-width="2" fill="none" opacity="0.2"/>
+            <circle cx="28" cy="28" r="27" stroke="var(--red)" stroke-width="2" fill="none"/>
+            <line x1="18" y1="18" x2="38" y2="38" stroke="var(--red)" stroke-width="2.5" stroke-linecap="round"/>
+            <line x1="38" y1="18" x2="18" y2="38" stroke="var(--red)" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div style="font-size:1rem;font-weight:700;letter-spacing:0.1em;color:var(--red);margin-bottom:10px;">CONNECTION FAILED</div>
+        <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;max-width:270px;margin-bottom:28px;">
+          We couldn't send a test message to your Telegram.<br>
+          Make sure you've started a conversation with<br>
+          <b style="color:var(--text)">@tradewatchalert_bot</b> and try again.
+        </div>
+        <button onclick="window.__onboardRetry()" style="
+          background:var(--accent);color:#000;
+          font-weight:700;font-size:0.85rem;
+          letter-spacing:0.08em;padding:14px 32px;
+          border:none;border-radius:10px;cursor:pointer;
+          margin-bottom:12px;width:100%;max-width:260px;
+        ">RETRY</button>
+        <a href="https://t.me/tradewatchalert_bot" target="_blank" style="
+          font-size:0.75rem;color:var(--muted);text-decoration:none;
+        ">Open @tradewatchalert_bot →</a>`;
+
+      window.__onboardRetry = () => {
+        showLinking();
+      };
+    }
+
+    showLinking();
+  });
+}
+
+// ═══════════════════════════════════════════════
+// EDIT ALERT — opens prefilled alert form for
+// an existing alert. Saves changes to DB.
+// ═══════════════════════════════════════════════
+// (declared in app-config.js)
+
+function editAlert(id) {
+  const alert = alerts.find(a => a.id === id);
+  if (!alert) return;
+
+  // Select the alert's asset so the form targets the right asset
+  const asset = ASSET_BY_ID.get(alert.assetId);
+  if (asset) {
+    // Navigate to chart page (where form lives) and select asset
+    navigateToChartOnSelect = true;
+    selectAsset(asset);
+  }
+
+  // Mark edit mode
+  editingAlertId = id;
+
+  // Populate form fields with existing alert values
+  const condEl = document.getElementById('alert-condition');
+  if (condEl) { condEl.value = alert.condition; onConditionChange(); }
+
+  const tfEl = document.getElementById('alert-timeframe');
+  if (tfEl) tfEl.value = alert.timeframe || '';
+
+  if (alert.condition === 'zone') {
+    const lowEl  = document.getElementById('alert-zone-low');
+    const highEl = document.getElementById('alert-zone-high');
+    const noteEl = document.getElementById('alert-note-zone');
+    const repEl  = document.getElementById('alert-repeat');
+    if (lowEl)  { lowEl.value  = alert.zoneLow;  lowEl.dataset.userEdited  = '1'; }
+    if (highEl) { highEl.value = alert.zoneHigh; highEl.dataset.userEdited = '1'; }
+    if (noteEl) noteEl.value = alert.note || '';
+    if (repEl)  repEl.value  = alert.repeatInterval || 0;
+  } else {
+    const priceEl = document.getElementById('alert-price');
+    const noteEl  = document.getElementById('alert-note');
+    if (priceEl) { priceEl.value = alert.targetPrice; priceEl.dataset.userEdited = '1'; }
+    if (noteEl)  noteEl.value = alert.note || '';
+    if (alert.condition === 'tap') {
+      const tolEl = document.getElementById('alert-tap-tolerance');
+      if (tolEl) tolEl.value = alert.tapTolerance || 0.2;
+    }
+  }
+
+  // Change the SET ALERT button label to UPDATE ALERT
+  const setBtn = document.getElementById('set-alert-btn');
+  if (setBtn) {
+    setBtn.textContent = 'UPDATE ALERT';
+    setBtn.style.background = 'rgba(0,212,255,0.15)';
+    setBtn.style.borderColor = 'rgba(0,212,255,0.5)';
+  }
+
+  // Show a toast so user knows they're in edit mode
+  showToast('Edit Mode', `Editing ${alert.symbol} alert — adjust values and tap UPDATE ALERT.`, 'alert');
+
+  // Switch to chart panel on mobile
+  if (isMobileLayout()) mobileTab('chart');
+}
+
+async function saveEditedAlert() {
+  if (!editingAlertId) return createAlert();
+
+  const alert = alerts.find(a => a.id === editingAlertId);
+  if (!alert) { editingAlertId = null; return createAlert(); }
+
+  const condition = document.getElementById('alert-condition').value;
+
+  // Safety: if somehow a setup alert reaches here, route correctly
+  if (condition === 'setup' || alert.condition === 'setup') return createSetupAlert();
+  const timeframe = document.getElementById('alert-timeframe').value;
+  const isZone    = condition === 'zone';
+  const isTap     = condition === 'tap';
+
+  let targetPrice = 0, zoneLow = 0, zoneHigh = 0, note = '', repeatInterval = 0, tapTolerance = 0.2;
+
+  if (isZone) {
+    zoneLow        = parseFloat(document.getElementById('alert-zone-low').value);
+    zoneHigh       = parseFloat(document.getElementById('alert-zone-high').value);
+    note           = document.getElementById('alert-note-zone').value.trim();
+    repeatInterval = parseInt(document.getElementById('alert-repeat').value) || 0;
+    if (isNaN(zoneLow) || isNaN(zoneHigh) || zoneLow <= 0 || zoneHigh <= 0)
+      return showToast('Invalid Zone', 'Enter valid zone low and high prices.', 'error');
+    if (zoneLow >= zoneHigh)
+      return showToast('Invalid Zone', 'Zone low must be less than zone high.', 'error');
+    targetPrice = zoneLow;
+  } else if (isTap) {
+    targetPrice  = parseFloat(document.getElementById('alert-price').value);
+    note         = document.getElementById('alert-note').value.trim();
+    if (isNaN(targetPrice) || targetPrice <= 0)
+      return showToast('Invalid Price', 'Enter a valid target price.', 'error');
+    const tolSel = document.getElementById('alert-tap-tolerance').value;
+    tapTolerance = tolSel === 'custom'
+      ? parseFloat(document.getElementById('alert-tap-custom').value) || 0.2
+      : parseFloat(tolSel);
+  } else {
+    targetPrice = parseFloat(document.getElementById('alert-price').value);
+    note        = document.getElementById('alert-note').value.trim();
+    if (isNaN(targetPrice) || targetPrice <= 0)
+      return showToast('Invalid Price', 'Enter a valid target price.', 'error');
+  }
+
+  // For setup alerts: preserve the JSON note, only update entry/timeframe
+  const isSetup = alert.condition === 'setup';
+  if (isSetup) {
+    const j = getJournal(alert);
+    j.tradeStatus = j.tradeStatus || 'watching';
+    Object.assign(alert, {
+      condition: 'setup',
+      timeframe: timeframe || alert.timeframe || null,
+      targetPrice,
+      note: JSON.stringify(j), // preserve all journal fields
+      status: 'active',
+    });
+  }
+
+  // Apply changes locally (non-setup alerts)
+  if (!isSetup) Object.assign(alert, {
+    condition, timeframe: timeframe || null,
+    targetPrice, note,
+    zoneLow:       isZone ? zoneLow      : null,
+    zoneHigh:      isZone ? zoneHigh     : null,
+    tapTolerance:  isTap  ? tapTolerance : null,
+    repeatInterval,
+    status: 'active',
+    zoneTriggeredOnce: false,
+  });
+
+  // Save to DB
+  await updateAlert(editingAlertId, {
+    condition,
+    target_price:    targetPrice,
+    zone_low:        isZone ? zoneLow      : null,
+    zone_high:       isZone ? zoneHigh     : null,
+    tap_tolerance:   isTap  ? tapTolerance : null,
+    timeframe:       timeframe || null,
+    repeat_interval: repeatInterval,
+    note,
+    status:          'active',
+    last_triggered_at: null,
+    proximity_warn_count: 0,
+  });
+
+  // Exit edit mode
+  editingAlertId = null;
+
+  // Reset button
+  const setBtn = document.getElementById('set-alert-btn');
+  if (setBtn) {
+    setBtn.textContent = 'SET ALERT';
+    setBtn.style.background = '';
+    setBtn.style.borderColor = '';
+  }
+
+  // Reset form
+  document.getElementById('alert-price').value         = '';
+  document.getElementById('alert-zone-low').value      = '';
+  document.getElementById('alert-zone-high').value     = '';
+  document.getElementById('alert-note').value          = '';
+  document.getElementById('alert-note-zone').value     = '';
+  document.getElementById('alert-timeframe').value     = '';
+  document.getElementById('alert-repeat').value        = '0';
+  delete document.getElementById('alert-price').dataset.userEdited;
+  delete document.getElementById('alert-zone-low').dataset.userEdited;
+  delete document.getElementById('alert-zone-high').dataset.userEdited;
+
+  renderAlerts();
+  renderWatchlist();
+  showToast('Alert Updated', `${alert.symbol} alert has been updated.`, 'success');
+
+  // Telegram notification — inform user their alert was updated
+  if (telegramEnabled && telegramChatId && tgNotifPrefs.confirmation) {
+    sendTelegram(tgEditedMessage(
+      alert.symbol, condition, targetPrice, alert.assetId,
+      note, timeframe, zoneLow, zoneHigh, repeatInterval, tapTolerance
+    ));
+  }
+
+  // Switch to alerts panel to show the updated alert
+  if (isMobileLayout()) {
+    switchAlertTab('active');
+    mobileTab('alerts');
+  }
+}
+
+// ── TELEGRAM CONNECT PROMPT (blocks app if not in Telegram) ──
+function showTgConnectPrompt() {
+  // Hide the main app content
+  document.querySelector('.app').style.display = 'none';
+
+  // Build and show a full-screen connect gate
+  const gate = document.createElement('div');
+  gate.id = 'tg-gate';
+  gate.style.cssText = `
+    position:fixed;inset:0;z-index:99999;
+    background:var(--bg);
+    display:flex;flex-direction:column;
+    align-items:center;justify-content:center;
+    padding:32px;text-align:center;
+  `;
+  gate.innerHTML = `
+    <svg width="56" height="56" viewBox="0 0 56 56" fill="none" style="margin-bottom:24px;opacity:0.9">
+      <circle cx="28" cy="28" r="27" stroke="#2AABEE" stroke-width="2"/>
+      <path d="M38 18L18 25l7 3 2 7 3-4 6 4 2-17z" stroke="#2AABEE" stroke-width="2" stroke-linejoin="round" fill="none"/>
+      <line x1="25" y1="28" x2="30" y2="26" stroke="#2AABEE" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>
+    <div style="font-size:1.2rem;font-weight:700;letter-spacing:0.08em;margin-bottom:10px;color:var(--text)">CONNECT TELEGRAM</div>
+    <div style="font-size:0.85rem;color:var(--muted);line-height:1.6;max-width:280px;margin-bottom:28px">
+      altradia delivers alerts directly to your Telegram.<br><br>
+      To continue, open the app through the bot so your account can be linked automatically.
+    </div>
+    <a href="https://t.me/tradewatchalert_bot/assistant" target="_blank"
+       style="display:inline-flex;align-items:center;gap:8px;background:#2AABEE;color:#fff;font-weight:700;font-size:0.9rem;letter-spacing:0.06em;padding:14px 28px;border-radius:10px;text-decoration:none;">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M14 2L2 6.5l4 1.5 1.5 4 2-3 3.5 2.5L14 2z" stroke="white" stroke-width="1.3" stroke-linejoin="round" fill="none"/></svg>
+      OPEN @tradewatchalert_bot
+    </a>
+    <div style="margin-top:16px;font-size:0.72rem;color:var(--muted);opacity:0.6">
+      Tap the bot → tap START → open the app link
+    </div>
+  `;
+  document.body.appendChild(gate);
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// iOS-STYLE EDGE BACK SWIPE
+// Handles THREE contexts in priority order:
+//   1. Menu sub-page open (.menu-page.open) — swipe closes topmost sub-page
+//   2. Menu panel open (#menu-panel visible) — swipe closes the menu panel
+//   3. Main nav (navStack.length > 1) — swipe goes back in tab history
+// Swipe must start within 28px of left edge and travel 30% of screen width.
+// ══════════════════════════════════════════════════════════════════════════════
+(function() {
+  const EDGE_ZONE  = 28;
+  const COMMIT_PCT = 0.30;
+
+  let tracking   = false;
+  let startX     = 0;
+  let startY     = 0;
+  let axisLocked = false;
+  let isHoriz    = false;
+  let mode       = null;   // 'subpage' | 'menupanel' | 'nav'
+  let activePage = null;   // for 'subpage' mode
+
+  function snapBack(el) {
+    el.style.transition = 'transform 0.22s ease, opacity 0.22s ease';
+    el.style.transform  = '';
+    el.style.opacity    = '';
+    setTimeout(() => { el.style.transition = ''; }, 230);
+  }
+
+  function slideOut(el, cb) {
+    el.style.transition = 'transform 0.25s ease, opacity 0.25s ease';
+    el.style.transform  = 'translateX(100%)';
+    el.style.opacity    = '0';
+    setTimeout(() => {
+      el.style.display    = 'none';
+      el.style.transform  = '';
+      el.style.opacity    = '';
+      el.style.transition = '';
+      if (cb) cb();
+    }, 260);
+  }
+
+  document.addEventListener('touchstart', e => {
+    startX     = e.touches[0].clientX;
+    startY     = e.touches[0].clientY;
+    tracking   = false;
+    axisLocked = false;
+    isHoriz    = false;
+    mode       = null;
+    activePage = null;
+
+    if (startX > EDGE_ZONE) return;
+
+    // Priority 1: menu sub-page open
+    const openPages = document.querySelectorAll('.menu-page.open');
+    if (openPages.length) {
+      activePage = openPages[openPages.length - 1];
+      mode       = 'subpage';
+      tracking   = true;
+      return;
+    }
+
+    // Priority 2: menu panel visible (uses style.display + transform, not .open class)
+    const menuPanel = document.getElementById('menu-panel');
+    const menuVisible = menuPanel &&
+      menuPanel.style.display === 'flex' &&
+      menuPanel.style.transform !== 'translateX(100%)';
+    if (menuVisible) {
+      mode     = 'menupanel';
+      tracking = true;
+      return;
+    }
+
+    // Priority 3: main nav back
+    if (isMobileLayout() && navStack.length > 1) {
+      const modalOpen = document.getElementById('add-modal')?.style.display !== 'none';
+      const tgOpen    = document.getElementById('tg-modal')?.style.display  !== 'none';
+      if (!modalOpen && !tgOpen) {
+        mode     = 'nav';
+        tracking = true;
+      }
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchmove', e => {
+    if (!tracking) return;
+    const dx = e.touches[0].clientX - startX;
+    const dy = e.touches[0].clientY - startY;
+
+    if (!axisLocked) {
+      if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+      isHoriz    = Math.abs(dx) > Math.abs(dy);
+      axisLocked = true;
+      if (!isHoriz) { tracking = false; return; }
+    }
+    if (!isHoriz || dx <= 0) { tracking = false; return; }
+
+    // Drag the relevant element with the finger
+    if (mode === 'subpage' && activePage) {
+      const pct = Math.min(dx / window.innerWidth, 1);
+      activePage.style.transition = 'none';
+      activePage.style.transform  = `translateX(${dx}px)`;
+      activePage.style.opacity    = String(1 - pct * 0.25);
+    } else if (mode === 'menupanel') {
+      const panel = document.getElementById('menu-panel');
+      if (panel) {
+        const pct = Math.min(dx / window.innerWidth, 1);
+        panel.style.transition = 'none';
+        panel.style.transform  = `translateX(${dx}px)`;
+        panel.style.opacity    = String(1 - pct * 0.2);
+      }
+    }
+    // nav mode: no visual drag needed — just commit on release
+  }, { passive: true });
+
+  document.addEventListener('touchend', e => {
+    if (!tracking || !isHoriz) { tracking = false; return; }
+    tracking = false;
+
+    const dx        = e.changedTouches[0].clientX - startX;
+    const committed = dx >= window.innerWidth * COMMIT_PCT;
+
+    if (mode === 'subpage' && activePage) {
+      if (committed) {
+        const page = activePage;
+        activePage = null;
+        slideOut(page, () => {
+          page.classList.remove('open');
+          const pageId = page.id;
+          if (pageId === 'menu-page-profile' ||
+              pageId === 'menu-page-analytics' ||
+              pageId === 'menu-page-subscription') {
+            openMenuPanel();
+          }
+        });
+      } else {
+        snapBack(activePage);
+        activePage = null;
+      }
+
+    } else if (mode === 'menupanel') {
+      const panel = document.getElementById('menu-panel');
+      if (panel) {
+        if (committed) {
+          // Use the app's own close function for correct cleanup
+          closeMenuPanel();
+        } else {
+          // Snap back to open position
+          panel.style.transition = 'transform 0.22s ease';
+          panel.style.transform  = 'translateX(0)';
+          setTimeout(() => { panel.style.transition = ''; }, 230);
+        }
+      }
+
+    } else if (mode === 'nav') {
+      if (committed) goBack();
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchcancel', () => {
+    if (activePage) { snapBack(activePage); activePage = null; }
+    if (mode === 'menupanel') {
+      const panel = document.getElementById('menu-panel');
+      if (panel) {
+        panel.style.transition = 'transform 0.22s ease';
+        panel.style.transform  = 'translateX(0)';
+        setTimeout(() => { panel.style.transition = ''; }, 230);
+      }
+    }
+    tracking = false; mode = null;
+  }, { passive: true });
+})();
+
+init();// ═══════════════════════════════════════════════
+// SUBSCRIPTION & PAYMENTS
+// Paddle (card) + NOWPayments (crypto)
+// Monthly and annual billing
+// ═══════════════════════════════════════════════
+
+// Paddle seller ID — safe to use client-side
+const PADDLE_SELLER_ID = 'YOUR_PADDLE_SELLER_ID'; // replace with your numeric seller ID
+
+// Plan config — price IDs from Paddle dashboard
+// Create products in Paddle: Pro Monthly, Pro Annual, Elite Monthly, Elite Annual
+const PLANS = {
+  pro: {
+    label: 'Pro',
+    monthly: { price: 4.99,  paddlePriceId: 'pri_pro_monthly_test'  },
+    annual:  { price: 49.00, paddlePriceId: 'pri_pro_annual_test'   },
+  },
+  elite: {
+    label: 'Elite',
+    monthly: { price: 9.00,  paddlePriceId: 'pri_elite_monthly_test' },
+    annual:  { price: 90.00, paddlePriceId: 'pri_elite_annual_test'  },
+  },
+};
+
+
+// ── Sync the subscription card on the menu panel (always in DOM) ──────────
+function _syncSubscriptionCard() {
+  const tier    = getUserTier();
+  const isPro   = tier === 'pro';
+  const isElite = tier === 'elite';
+
+  const subLabel = document.getElementById('menu-sub-label');
+  const subSub   = document.getElementById('menu-sub-sub');
+  const subCard  = document.getElementById('menu-sub-card');
+
+  if (subLabel) subLabel.textContent = isElite ? 'Elite' : isPro ? 'Pro' : 'Subscription';
+  if (subSub)   subSub.textContent   = isElite ? 'Elite plan active'
+                                     : isPro   ? 'Pro plan active'
+                                     : 'Plans & billing';
+  if (subCard) {
+    subCard.style.borderColor = isElite ? 'rgba(255,214,0,0.35)'
+                              : isPro   ? 'rgba(0,212,255,0.35)' : '';
+    subCard.style.background  = isElite
+      ? 'linear-gradient(135deg,rgba(255,214,0,0.07),rgba(255,214,0,0.02))'
+      : isPro
+        ? 'linear-gradient(135deg,rgba(0,212,255,0.07),rgba(0,212,255,0.02))'
+        : '';
+  }
+}
+
+// ── Open subscription page ────────────────────────────────────────────────
+function openSubscriptionPage() {
+  openMenuPage('subscription');
+  _renderSubscriptionPage();
+}
+
+// ── Tier-aware subscription page renderer ─────────────────────────────────
+function _renderSubscriptionPage() {
+  const body  = document.getElementById('sub-page-body');
+  const title = document.getElementById('sub-page-title');
+  if (!body) return;
+
+  const tier    = getUserTier();
+  const isPro   = tier === 'pro';
+  const isElite = tier === 'elite';
+
+  if (title) title.textContent = (isElite || isPro) ? 'Your Plan' : 'Choose a Plan';
+
+  // Keep menu card in sync
+  _syncSubscriptionCard();
+
+  if (isElite) {
+    body.innerHTML = `
+      <div style="padding:20px 16px 0">
+        <div class="sub-current-hero elite-hero">
+          <div class="sub-hero-crown"><svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M2 20L5 9l6.5 6L14 4l2.5 11L23 9l3 11H2z" stroke="#ffd600" stroke-width="1.6" stroke-linejoin="round" fill="rgba(255,214,0,0.12)"/></svg></div>
+          <div class="sub-hero-label">ELITE PLAN</div>
+          <div class="sub-hero-price">$9<span class="sub-hero-period">/month</span></div>
+          <div class="sub-hero-status">Active — renews automatically</div>
+        </div>
+        <div class="sub-section-title">What you have</div>
+        <div class="sub-feature-list">
+          ${_subFeature('Unlimited active alerts', true)}
+          ${_subFeature('All alert types — setup, zone, tap, lifecycle', true)}
+          ${_subFeature('Full trade journal with screenshots', true)}
+          ${_subFeature('Advanced analytics & Elite AI insights', true)}
+          ${_subFeature('Elite leaderboard ranking & prestige badges', true)}
+          ${_subFeature('Priority server-side monitoring 24/7', true)}
+          ${_subFeature('Priority support', true)}
+        </div>
+        <button onclick="showToast('Manage Plan','To cancel, your plan will remain active until the current period ends. Visit paddle.com/billing to manage.','info')"
+          style="width:100%;padding:12px;background:transparent;border:1px solid var(--border);border-radius:9px;color:var(--muted);font-family:var(--mono);font-size:0.62rem;letter-spacing:0.08em;cursor:pointer;margin-top:4px;margin-bottom:24px">
+          MANAGE SUBSCRIPTION
+        </button>
+      </div>`;
+    return;
+  }
+
+  if (isPro) {
+    body.innerHTML = `
+      <div style="padding:20px 16px 0">
+        <div class="sub-current-hero pro-hero">
+          <div class="sub-hero-label">PRO PLAN</div>
+          <div class="sub-hero-price">$4.99<span class="sub-hero-period">/month</span></div>
+          <div class="sub-hero-status">Active — renews automatically</div>
+        </div>
+        <div class="sub-section-title">Your Pro features</div>
+        <div class="sub-feature-list">
+          ${_subFeature('Up to 25 active alerts', true)}
+          ${_subFeature('All alert types — setup, zone, tap, lifecycle', true)}
+          ${_subFeature('Full trade journal with screenshots', true)}
+          ${_subFeature('Performance analytics dashboard', true)}
+          ${_subFeature('Server-side monitoring 24/7', true)}
+          ${_subFeature('Advanced analytics & Elite AI insights', false)}
+          ${_subFeature('Elite leaderboard & prestige badges', false)}
+          ${_subFeature('Priority support', false)}
+        </div>
+        <div class="sub-upgrade-nudge">
+          <div class="sub-nudge-header">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 11L2.8 5l4 4L7 1l1.5 8L12 5l1 6H1z" stroke="#ffd600" stroke-width="1.3" stroke-linejoin="round" fill="rgba(255,214,0,0.1)"/></svg>
+            Unlock Elite for $4 more/month
+          </div>
+          <div class="sub-nudge-features">
+            <div>⭐ Elite AI coaching &amp; advanced analytics</div>
+            <div>⭐ Elite leaderboard ranking &amp; prestige badges</div>
+            <div>⭐ Unlimited alerts (vs your current 25)</div>
+            <div>⭐ Priority monitoring &amp; support</div>
+          </div>
+          <button class="sub-cta-btn sub-cta-elite" onclick="openPaymentModal('elite')" style="margin-top:14px">
+            Upgrade to Elite — $9/mo
+          </button>
+        </div>
+        <button onclick="showToast('Manage Plan','To cancel, your plan will remain active until the current period ends. Visit paddle.com/billing to manage.','info')"
+          style="width:100%;padding:12px;background:transparent;border:1px solid var(--border);border-radius:9px;color:var(--muted);font-family:var(--mono);font-size:0.62rem;letter-spacing:0.08em;cursor:pointer;margin-top:10px;margin-bottom:24px">
+          MANAGE SUBSCRIPTION
+        </button>
+      </div>`;
+    return;
+  }
+
+  // Free — billing period toggle
+  const billingToggleId = 'sub-billing-toggle';
+  body.innerHTML = `
+    <div style="padding:16px 16px 0">
+      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:16px;line-height:1.5">
+        Upgrade to unlock the full altradia experience.
+      </p>
+      <!-- Annual/Monthly toggle -->
+      <div class="sub-billing-toggle-wrap">
+        <span class="sub-billing-opt" id="sub-opt-monthly" style="font-weight:700;color:var(--text)">Monthly</span>
+        <button class="sub-billing-toggle" id="${billingToggleId}" onclick="_toggleBilling()" aria-label="Toggle annual billing">
+          <span class="sub-billing-toggle-knob" id="sub-toggle-knob"></span>
+        </button>
+        <span class="sub-billing-opt" id="sub-opt-annual">Annual</span>
+        <span class="sub-billing-save-badge" id="sub-save-badge">Save 18%</span>
+      </div>
+    </div>
+
+    <!-- FREE -->
+    <div style="padding:0 16px">
+      <div class="plan-card" style="margin-bottom:12px">
+        <div class="plan-card-header">
+          <span class="plan-name">FREE</span>
+          <span class="plan-price">$0<span class="plan-period">/mo</span></span>
+        </div>
+        <div class="plan-features">
+          ${_planFeat('Up to 5 active alerts', true)}
+          ${_planFeat('Above / Below price alerts', true)}
+          ${_planFeat('Zone & Tap alerts', true)}
+          ${_planFeat('Telegram notifications', true)}
+          ${_planFeat('Trade setup lifecycle alerts', false)}
+          ${_planFeat('Trade journal & screenshots', false)}
+          ${_planFeat('Performance analytics', false)}
+          ${_planFeat('Server-side monitoring', false)}
+        </div>
+        <div style="margin-top:12px;padding:8px 0;font-family:var(--mono);font-size:0.6rem;color:var(--muted);text-align:center">YOUR CURRENT PLAN</div>
+      </div>
+    </div>
+
+    <!-- PRO -->
+    <div style="padding:0 16px">
+      <div class="plan-card plan-card-pro" style="margin-bottom:12px">
+        <div class="plan-badge">POPULAR</div>
+        <div class="plan-card-header">
+          <span class="plan-name">PRO</span>
+          <span class="plan-price" id="pro-price-display">$4.99<span class="plan-period">/mo</span></span>
+        </div>
+        <div id="pro-annual-note" style="display:none;font-family:var(--mono);font-size:0.58rem;color:var(--green);margin-bottom:8px">$49/year · save $10.88</div>
+        <div class="plan-features">
+          ${_planFeat('Up to 25 active alerts', true)}
+          ${_planFeat('All alert types incl. setup lifecycle', true)}
+          ${_planFeat('Full trade journal with screenshots', true)}
+          ${_planFeat('Performance analytics dashboard', true)}
+          ${_planFeat('Server-side monitoring 24/7', true)}
+          ${_planFeat('Telegram notifications for all events', true)}
+          ${_planFeat('Advanced AI insights', false)}
+          ${_planFeat('Elite leaderboard & badges', false)}
+        </div>
+        <button class="sub-cta-btn sub-cta-pro" id="pro-cta-btn" onclick="openPaymentModal('pro')">
+          Get Pro — $4.99/mo
+        </button>
+      </div>
+    </div>
+
+    <!-- ELITE -->
+    <div style="padding:0 16px">
+      <div class="plan-card plan-card-elite" style="margin-bottom:12px">
+        <div class="plan-card-header">
+          <div>
+            <span class="plan-name">ELITE</span>
+            <span style="font-family:var(--mono);font-size:0.55rem;color:#ffd600;margin-left:6px;letter-spacing:0.08em">BEST VALUE</span>
+          </div>
+          <span class="plan-price" id="elite-price-display">$9<span class="plan-period">/mo</span></span>
+        </div>
+        <div id="elite-annual-note" style="display:none;font-family:var(--mono);font-size:0.58rem;color:var(--green);margin-bottom:8px">$90/year · save $18</div>
+        <div class="plan-features">
+          ${_planFeat('Unlimited active alerts', true)}
+          ${_planFeat('All alert types incl. setup lifecycle', true)}
+          ${_planFeat('Full trade journal with screenshots', true)}
+          ${_planFeat('Advanced analytics & Elite AI insights', true)}
+          ${_planFeat('Elite leaderboard ranking & prestige badges', true)}
+          ${_planFeat('Priority server-side monitoring 24/7', true)}
+          ${_planFeat('Priority support', true)}
+        </div>
+        <button class="sub-cta-btn sub-cta-elite" id="elite-cta-btn" onclick="openPaymentModal('elite')">
+          Get Elite — $9/mo
+        </button>
+      </div>
+    </div>
+
+    <p style="font-family:var(--mono);font-size:0.56rem;color:var(--muted);text-align:center;padding:0 16px 28px;line-height:1.6">
+      Billed monthly or annually · Cancel anytime<br>
+      Secure card payments via Paddle &amp; crypto via NOWPayments
+    </p>`;
+
+  // Init toggle state
+  window._subBillingAnnual = false;
+}
+
+// ── Billing period toggle ─────────────────────────────────────────────────
+function _toggleBilling() {
+  window._subBillingAnnual = !window._subBillingAnnual;
+  const annual  = window._subBillingAnnual;
+  const knob    = document.getElementById('sub-toggle-knob');
+  const toggle  = document.getElementById('sub-billing-toggle');
+  const optM    = document.getElementById('sub-opt-monthly');
+  const optA    = document.getElementById('sub-opt-annual');
+  const badge   = document.getElementById('sub-save-badge');
+  const proNote   = document.getElementById('pro-annual-note');
+  const eliteNote = document.getElementById('elite-annual-note');
+  const proPrice  = document.getElementById('pro-price-display');
+  const elitePrice = document.getElementById('elite-price-display');
+  const proBtn    = document.getElementById('pro-cta-btn');
+  const eliteBtn  = document.getElementById('elite-cta-btn');
+
+  if (toggle) toggle.classList.toggle('on', annual);
+  if (optM)   { optM.style.fontWeight = annual ? '400' : '700'; optM.style.color = annual ? 'var(--muted)' : 'var(--text)'; }
+  if (optA)   { optA.style.fontWeight = annual ? '700' : '400'; optA.style.color = annual ? 'var(--text)'  : 'var(--muted)'; }
+  if (badge)  badge.style.display = annual ? '' : 'none';
+  if (proNote)   proNote.style.display   = annual ? '' : 'none';
+  if (eliteNote) eliteNote.style.display = annual ? '' : 'none';
+  if (proPrice)  proPrice.innerHTML  = annual ? '$49<span class="plan-period">/yr</span>' : '$4.99<span class="plan-period">/mo</span>';
+  if (elitePrice) elitePrice.innerHTML = annual ? '$90<span class="plan-period">/yr</span>' : '$9<span class="plan-period">/mo</span>';
+  if (proBtn)   proBtn.textContent  = annual ? 'Get Pro — $49/yr'   : 'Get Pro — $4.99/mo';
+  if (eliteBtn) eliteBtn.textContent = annual ? 'Get Elite — $90/yr' : 'Get Elite — $9/mo';
+}
+
+// ── Feature row helpers ────────────────────────────────────────────────────
+function _subFeature(text, on) {
+  return `<div class="sub-feat-row${on ? '' : ' sub-feat-off'}">
+    <span class="sub-feat-dot"></span>${text}
+  </div>`;
+}
+function _planFeat(text, on) {
+  return `<div class="plan-feature${on ? ' on' : ' off'}">${text}</div>`;
+}
+
+// ── Payment method picker modal ───────────────────────────────────────────
+function openPaymentModal(plan) {
+  const existing = document.getElementById('payment-modal-overlay');
+  if (existing) existing.remove();
+
+  const annual   = window._subBillingAnnual || false;
+  const planData = PLANS[plan];
+  const billing  = annual ? planData.annual : planData.monthly;
+  const { label } = planData;
+  const { price } = billing;
+  const periodLabel = annual ? '/year' : '/month';
+
+  const ov = document.createElement('div');
+  ov.id = 'payment-modal-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:99995;display:flex;align-items:flex-end;justify-content:center';
+  ov._plan   = plan;
+  ov._annual = annual;
+
+  ov.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;box-sizing:border-box">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <div style="font-family:var(--mono);font-size:0.68rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--text)">${label} Plan</div>
+        <button onclick="document.getElementById('payment-modal-overlay').remove()" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:4px">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="3" y1="3" x2="13" y2="13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="13" y1="3" x2="3" y2="13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div style="font-family:var(--mono);font-size:0.62rem;color:var(--muted);margin-bottom:22px">$${price}${periodLabel} · Cancel anytime</div>
+
+      <div style="font-family:var(--mono);font-size:0.56rem;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;margin-bottom:10px">Choose Payment Method</div>
+
+      <button onclick="_startPaddle('${plan}', ${annual})" style="width:100%;display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);cursor:pointer;margin-bottom:10px;text-align:left">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="1" y="5" width="20" height="14" rx="3" stroke="currentColor" stroke-width="1.4" fill="none"/><line x1="1" y1="9" x2="21" y2="9" stroke="currentColor" stroke-width="1.4"/><rect x="4" y="12" width="4" height="2" rx="0.5" fill="currentColor" opacity="0.6"/></svg>
+        <div>
+          <div style="font-size:0.82rem;font-weight:600;margin-bottom:2px">Pay with Card</div>
+          <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted)">Visa, Mastercard · Powered by Paddle</div>
+        </div>
+        <svg style="margin-left:auto;flex-shrink:0" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+
+      <button onclick="_startNowPayments('${plan}', ${annual})" style="width:100%;display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);cursor:pointer;text-align:left">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="9" stroke="currentColor" stroke-width="1.4" fill="none"/><path d="M8 11h3m0 0h1.5a1.5 1.5 0 0 0 0-3H11m0 3v3m0-3V8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        <div>
+          <div style="font-size:0.82rem;font-weight:600;margin-bottom:2px">Pay with Crypto</div>
+          <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted)">BTC, ETH, USDT & more · Powered by NOWPayments</div>
+        </div>
+        <svg style="margin-left:auto;flex-shrink:0" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+
+      <p style="font-family:var(--mono);font-size:0.56rem;color:var(--muted);text-align:center;margin-top:16px;line-height:1.6">
+        Payments processed securely. Plan activates instantly after confirmation.
+      </p>
+    </div>`;
+
+  document.body.appendChild(ov);
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+}
+
+// ── Paddle card payment ───────────────────────────────────────────────────
+function _startPaddle(plan, annual) {
+  document.getElementById('payment-modal-overlay')?.remove();
+
+  const planData  = PLANS[plan];
+  const billing   = annual ? planData.annual : planData.monthly;
+  const priceId   = billing.paddlePriceId;
+  const email     = `user_${telegramChatId}@altradia.app`;
+
+  // Load Paddle.js v2 if not already present
+  const loadAndOpen = () => {
+    window.Paddle.Environment.set('sandbox'); // remove this line when going live
+    window.Paddle.Initialize({
+      token: PADDLE_SELLER_ID,
+      eventCallback(data) {
+        if (data.name === 'checkout.completed') {
+          showToast('Payment Successful!', `Welcome to altradia ${planData.label}. Your plan is activating…`, 'success');
+          _pollTierUpdate(plan, 12);
+        }
+      },
+    });
+    window.Paddle.Checkout.open({
+      items:            [{ priceId, quantity: 1 }],
+      customer:         { email },
+      customData:       { telegram_id: telegramChatId, plan, annual: String(annual) },
+      settings: {
+        displayMode:    'overlay',
+        theme:          document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
+        locale:         'en',
+        successUrl:     `${window.location.origin}/payment-callback.html?status=success&plan=${plan}&gateway=card`,
+      },
+    });
+  };
+
+  if (window.Paddle?.Checkout) {
+    loadAndOpen();
+  } else {
+    const script  = document.createElement('script');
+    script.src    = 'https://cdn.paddle.com/paddle/v2/paddle.js';
+    script.onload = loadAndOpen;
+    document.head.appendChild(script);
+  }
+}
+
+// ── NOWPayments crypto payment ────────────────────────────────────────────
+async function _startNowPayments(plan, annual = false) {
+  const allBtns = document.querySelectorAll('#payment-modal-overlay button');
+  allBtns.forEach(b => { b.disabled = true; });
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/create-nowpayments-invoice`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey:          SUPABASE_ANON_KEY,
+        Authorization:  `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ plan, telegram_id: telegramChatId, annual }),
+    });
+
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'Invoice creation failed');
+
+    document.getElementById('payment-modal-overlay')?.remove();
+
+    if (window.Telegram?.WebApp?.openLink) {
+      window.Telegram.WebApp.openLink(data.invoice_url);
+    } else {
+      window.open(data.invoice_url, '_blank');
+    }
+
+    showToast('Invoice Created', 'Complete your crypto payment in the browser. Your plan activates automatically once confirmed.', 'info');
+    _pollTierUpdate(plan, 30);
+
+  } catch (err) {
+    console.error('NOWPayments error:', err);
+    showToast('Error', 'Could not create invoice. Please try again.', 'error');
+    document.getElementById('payment-modal-overlay')?.remove();
+  }
+}
+
+// ── Poll Supabase until tier updates (after payment webhook fires) ────────
+async function _pollTierUpdate(expectedTier, maxAttempts = 10) {
+  let attempts = 0;
+  const poll = async () => {
+    attempts++;
+    await refreshUserTier();
+    if (getUserTier() === expectedTier) {
+      const { label } = PLANS[expectedTier] || { label: expectedTier };
+      showToast(`${label} Active!`, `You now have full ${label} access. Enjoy!`, 'success');
+      const subBody = document.getElementById('sub-page-body');
+      if (subBody) _renderSubscriptionPage();
+      return;
+    }
+    if (attempts < maxAttempts) {
+      setTimeout(poll, 3000);
+    }
+  };
+  setTimeout(poll, 2000);
+}
 
 async function init() {
   // Apply saved theme before anything renders
