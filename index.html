@@ -476,19 +476,42 @@
         <div class="form-row">
           <div class="form-group">
             <label>ENTRY PRICE</label>
-            <input type="number" id="setup-entry" placeholder="e.g. 1.08500" step="any" oninput="this.dataset.userEdited='1'">
+            <input type="number" id="setup-entry" placeholder="e.g. 1.08500" step="any"
+              oninput="this.dataset.userEdited='1'; autoCalcTP1FromRR()">
           </div>
           <div class="form-group">
             <label>STOP LOSS</label>
-            <input type="number" id="setup-sl" placeholder="e.g. 1.08200" step="any" oninput="this.dataset.userEdited='1'">
+            <input type="number" id="setup-sl" placeholder="e.g. 1.08200" step="any"
+              oninput="this.dataset.userEdited='1'; autoCalcTP1FromRR()">
           </div>
         </div>
+
+        <!-- MIN R:R RATIO — discipline enforcement -->
+        <div class="form-row" style="margin-bottom:4px">
+          <div class="form-group" style="flex:1">
+            <label style="display:flex;align-items:center;gap:6px">
+              MIN R:R RATIO
+              <span style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);font-weight:400;letter-spacing:0.04em">(auto-fills TP1)</span>
+            </label>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+              <button class="rr-btn setup-dir-btn" data-rr="1"   onclick="setSetupMinRR('1')">1:1</button>
+              <button class="rr-btn setup-dir-btn" data-rr="1.5" onclick="setSetupMinRR('1.5')">1.5:1</button>
+              <button class="rr-btn setup-dir-btn" data-rr="2"   onclick="setSetupMinRR('2')">2:1</button>
+              <button class="rr-btn setup-dir-btn" data-rr="2.5" onclick="setSetupMinRR('2.5')">2.5:1</button>
+              <button class="rr-btn setup-dir-btn" data-rr="3"   onclick="setSetupMinRR('3')">3:1</button>
+              <button class="rr-btn setup-dir-btn" data-rr="0"   onclick="setSetupMinRR(null)" style="color:var(--muted)">None</button>
+            </div>
+          </div>
+        </div>
+        <!-- R:R compliance warning / confirmation -->
+        <div id="rr-warning" style="display:none;font-family:var(--mono);font-size:0.65rem;padding:7px 10px;border-radius:7px;margin-bottom:10px;line-height:1.4"></div>
 
         <!-- TP1, TP2, TP3 -->
         <div class="form-row">
           <div class="form-group">
             <label>TP 1 <span style="color:var(--green);font-size:0.6rem">REQUIRED</span></label>
-            <input type="number" id="setup-tp1" placeholder="e.g. 1.08900" step="any" oninput="this.dataset.userEdited='1'">
+            <input type="number" id="setup-tp1" placeholder="e.g. 1.08900" step="any"
+              oninput="this.dataset.userEdited='1'; autoCalcTP1FromRR()">
           </div>
           <div class="form-group">
             <label>TP 2 <span style="color:var(--muted);font-size:0.6rem">OPTIONAL</span></label>
