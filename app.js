@@ -880,12 +880,10 @@ let _wlActiveSubTab = 'assets'; // 'assets' | 'strength'
 
 function _applyWlTabStyle(btn, isActive) {
   if (!btn) return;
-  // Use CSS custom properties — they resolve correctly once DOM is in document
-  btn.style.color        = isActive ? 'var(--accent)' : 'var(--muted)';
-  btn.style.borderBottom = isActive ? '2px solid var(--accent)' : '2px solid transparent';
-  btn.style.fontWeight   = isActive ? '700' : '500';
-  btn.style.background   = isActive ? 'rgba(0,212,255,0.06)' : 'transparent';
+  // Drive state purely via data-active attribute — CSS handles all visual styling
   btn.setAttribute('data-active', isActive ? '1' : '0');
+  // Clear any residual inline styles from previous JS-driven approach
+  btn.style.cssText = '';
 }
 
 function switchWlSubTab(tab) {
@@ -919,20 +917,20 @@ function renderStrengthTab() {
 
   if (tier === 'free') {
     el.innerHTML = `
-      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 24px;text-align:center;gap:14px">
-        <div style="width:52px;height:52px;border-radius:50%;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center">
+      <div class="cs-gate">
+        <div class="cs-gate-icon">
           <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="5" y="9" width="12" height="10" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M8 9V6a3 3 0 0 1 6 0v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
         </div>
-        <div style="font-weight:700;font-size:0.95rem;color:var(--text)">Currency Strength</div>
-        <div style="font-family:var(--mono);font-size:0.65rem;color:var(--muted);line-height:1.6;max-width:240px">See which currencies are strong or weak right now. Available on Pro and Elite.</div>
-        <button onclick="closeMenuPanel?.();openMenuPage('subscription')" style="background:var(--accent);color:#000;font-family:var(--mono);font-weight:700;font-size:0.68rem;letter-spacing:0.08em;padding:12px 24px;border:none;border-radius:10px;cursor:pointer;margin-top:4px">UPGRADE TO PRO</button>
+        <div class="cs-gate-title">Currency Strength</div>
+        <div class="cs-gate-desc">See which currencies are strong or weak right now. Available on Pro and Elite.</div>
+        <button onclick="closeMenuPanel?.();openMenuPage('subscription')" class="cs-gate-btn">UPGRADE TO PRO</button>
       </div>`;
     return;
   }
 
   const result = calcCurrencyStrength();
   if (!result) {
-    el.innerHTML = `<div style="padding:32px;text-align:center;font-family:var(--mono);font-size:0.68rem;color:var(--muted)">Waiting for price data…<br><span style="font-size:0.6rem;opacity:0.6">Add forex pairs to your watchlist to populate the strength meter.</span></div>`;
+    el.innerHTML = `<div class="cs-empty">Waiting for price data…<br><span class="cs-empty-sub">Add forex pairs to your watchlist to populate the strength meter.</span></div>`;
     return;
   }
 
@@ -944,7 +942,7 @@ function renderStrengthTab() {
   const relevantCurrs = CS_CURRENCIES.filter(c => watchlistCurrs.has(c) && scores[c] !== undefined);
 
   if (!relevantCurrs.length) {
-    el.innerHTML = `<div style="padding:32px;text-align:center;font-family:var(--mono);font-size:0.68rem;color:var(--muted)">No forex pairs in your watchlist.<br><span style="font-size:0.6rem;opacity:0.6">Add major forex pairs to see currency strength scores.</span></div>`;
+    el.innerHTML = `<div class="cs-empty">No forex pairs in your watchlist.<br><span class="cs-empty-sub">Add major forex pairs to see currency strength scores.</span></div>`;
     return;
   }
 
@@ -953,11 +951,7 @@ function renderStrengthTab() {
 
   const updatedAt = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
 
-  let html = `<div style="padding:12px 16px 6px;border-bottom:1px solid var(--border)">
-    <div style="font-family:var(--mono);font-size:0.55rem;letter-spacing:0.1em;color:var(--muted);text-transform:uppercase;margin-bottom:2px">CURRENCY STRENGTH</div>
-    <div style="font-family:var(--mono);font-size:0.58rem;color:var(--muted)">Updated ${updatedAt} · Based on 28 major pairs</div>
-  </div>
-  <div style="padding:10px 16px 0">`;
+  let html = `<div class="cs-header"><div class="cs-header-label">CURRENCY STRENGTH</div><div class="cs-header-sub">Updated ${updatedAt} · Based on 28 major pairs</div></div><div class="cs-rows">`;
 
   sorted.forEach(c => {
     const score = scores[c] ?? 50;
@@ -967,14 +961,7 @@ function renderStrengthTab() {
     const momStr = mom === 0 ? '' : (mom > 0 ? `+${mom}` : `${mom}`);
     const momCol = mom > 0 ? 'var(--green)' : mom < 0 ? 'var(--red)' : 'var(--muted)';
 
-    html += `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)">
-      <div style="font-family:var(--mono);font-weight:700;font-size:0.85rem;color:var(--text);width:36px;flex-shrink:0">${c}</div>
-      <div style="flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
-        <div style="height:100%;width:${score}%;background:${color};border-radius:3px;transition:width 0.4s ease"></div>
-      </div>
-      <div style="font-family:var(--mono);font-size:0.75rem;font-weight:700;color:${color};width:28px;text-align:right;flex-shrink:0">${score}</div>
-      ${tier === 'elite' && momStr ? `<div style="font-family:var(--mono);font-size:0.6rem;color:${momCol};width:24px;flex-shrink:0">${momStr}</div>` : '<div style="width:24px;flex-shrink:0"></div>'}
-    </div>`;
+    html += `<div class="cs-row"><div class="cs-row-label">${c}</div><div class="cs-bar-track"><div class="cs-bar-fill" style="width:${score}%;background:${color}"></div></div><div class="cs-row-score" style="color:${color}">${score}</div>${tier === 'elite' && momStr ? `<div class="cs-row-mom" style="color:${momCol}">${momStr}</div>` : '<div class="cs-row-mom"></div>'}</div>`;
   });
 
   html += `</div>`;
@@ -982,33 +969,23 @@ function renderStrengthTab() {
   // Elite: divergence signals
   if (tier === 'elite' && divergences.length > 0) {
     const topDivs = divergences.slice(0, 4);
-    html += `<div style="margin:12px 16px 0;background:rgba(255,214,0,0.04);border:1px solid rgba(255,214,0,0.2);border-radius:10px;padding:12px">
-      <div style="font-family:var(--mono);font-size:0.55rem;letter-spacing:0.1em;color:#ffd600;text-transform:uppercase;margin-bottom:8px;display:flex;align-items:center;gap:5px">
+    html += `<div class="cs-div-card">
+      <div class="cs-div-label">
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><polygon points="5,1 6.2,3.8 9.5,3.8 6.9,5.8 7.9,9 5,7.1 2.1,9 3.1,5.8 0.5,3.8 3.8,3.8" fill="#ffd600"/></svg>
         BREAKOUT SIGNALS
       </div>`;
     topDivs.forEach(d => {
-      html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,214,0,0.1)">
-        <div>
-          <span style="font-family:var(--mono);font-size:0.75rem;font-weight:700;color:var(--text)">${d.pair}</span>
-          <span style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);margin-left:8px">${d.strong} strong · ${d.weak} weak</span>
-        </div>
-        <div style="font-family:var(--mono);font-size:0.68rem;font-weight:700;color:#ffd600">${d.divergence}pts</div>
-      </div>`;
+      html += `<div class="cs-div-row"><div><span class="cs-div-pair">${d.pair}</span><span class="cs-div-meta">${d.strong} strong · ${d.weak} weak</span></div><div class="cs-div-pts">${d.divergence}pts</div></div>`;
     });
     html += `</div>`;
 
     // AI bias button (on-demand — one Claude call per session)
     const aiAge = _csAiCache ? Math.round((Date.now() - _csAiCache.ts) / 60000) : null;
-    html += `<div id="cs-ai-section" style="margin:10px 16px 0">`;
+    html += `<div id="cs-ai-section" class="cs-ai-section">`;
     if (_csAiCache && (Date.now() - _csAiCache.ts) < 3600000) {
-      html += `<div style="background:rgba(0,212,255,0.04);border:1px solid rgba(0,212,255,0.15);border-radius:9px;padding:11px 12px">
-        <div style="font-family:var(--mono);font-size:0.52rem;color:var(--accent);margin-bottom:5px;letter-spacing:0.1em">AI BIAS INSIGHT · ${aiAge}m ago</div>
-        <div style="font-size:0.78rem;color:var(--text);line-height:1.5">${_csAiCache.text}</div>
-      </div>`;
+      html += `<div class="cs-ai-result"><div class="cs-ai-label">AI BIAS INSIGHT · ${aiAge}m ago</div><div class="cs-ai-text">${_csAiCache.text}</div></div>`;
     } else {
-      html += `<button onclick="fetchStrengthAiInsight()" id="cs-ai-btn"
-        style="width:100%;padding:10px;background:rgba(0,212,255,0.06);border:1px solid rgba(0,212,255,0.2);border-radius:9px;color:var(--accent);font-family:var(--mono);font-size:0.65rem;font-weight:700;letter-spacing:0.08em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px">
+      html += `<button onclick="fetchStrengthAiInsight()" id="cs-ai-btn" class="cs-ai-btn">
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1C3.46 1 1 3.46 1 6.5S3.46 12 6.5 12 12 9.54 12 6.5 9.54 1 6.5 1z" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 5.5A2 2 0 0 1 8.5 6c0 1.2-1.5 1.5-2 2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="6.5" cy="10" r="0.6" fill="currentColor"/></svg>
         GET AI DIRECTIONAL BIAS
       </button>`;
@@ -1016,7 +993,7 @@ function renderStrengthTab() {
     html += `</div>`;
   }
 
-  html += `<div style="height:16px"></div>`;
+  html += `<div class="cs-spacer"></div>`;
   el.innerHTML = html;
 }
 
@@ -1178,33 +1155,34 @@ async function fetchDerivSnapshots(assets) {
   if (!assets.length) return;
   // Use a single one-shot WS and batch all requests
   return new Promise(resolve => {
-    let pending = assets.length;
-    const done = () => { if (--pending <= 0) resolve(); };
+    // Use unique symbols as the unit of tracking — avoids mismatch if any assets
+    // share a derivSym, which would cause pending to never reach 0.
+    const _pendingSyms = new Set(assets.map(a => a.derivSym).filter(Boolean));
+    let pending = _pendingSyms.size;
+    if (pending === 0) { resolve(); return; }
+
+    const done = () => { if (--pending <= 0) { clearTimeout(timeout); resolve(); } };
     const timeout = setTimeout(resolve, 8000); // 8s max wait
 
     try {
       const ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}`);
       ws.onopen = () => {
         assets.forEach(a => {
+          if (!a.derivSym) return;
           ws.send(JSON.stringify({
             ticks_history: a.derivSym,
             end: 'latest', count: 1, style: 'ticks',
           }));
         });
       };
-      // Track which derivSym symbols we're still waiting on — only count down
-      // when we get a response that corresponds to one of our own requests.
-      // This prevents stray Deriv messages (pings, echoes) from decrementing
-      // pending prematurely and resolving before all prices arrive.
-      const _pendingSyms = new Set(assets.map(a => a.derivSym));
 
       ws.onmessage = (evt) => {
         try {
           const msg = JSON.parse(evt.data);
           const sym = msg.echo_req?.ticks_history;
-          // Only act on messages that correspond to one of our requests
+          // Only process responses to our own requests; ignore pings/echoes/acks
           if (!sym || !_pendingSyms.has(sym)) return;
-          _pendingSyms.delete(sym); // mark as received so duplicates don't double-count
+          _pendingSyms.delete(sym); // prevent double-counting duplicate responses
 
           if (msg.history?.prices?.length) {
             const asset = ASSET_BY_DERIV.get(sym);
@@ -1223,11 +1201,17 @@ async function fetchDerivSnapshots(assets) {
                     vol: '—', mcap: '—', live: true, src: 'deriv_snap',
                   };
                   prices[asset.id] = price;
+                  // If this is the currently selected asset, refresh the panel immediately
+                  // so "Price loading…" disappears as soon as this asset's tick arrives
+                  // rather than waiting for ALL assets to complete
+                  if (selectedAsset && selectedAsset.id === asset.id) {
+                    refreshSelectedAssetPanel();
+                  }
                 }
               }
             }
           }
-          done(); // decrement only for our own requests, whether success or error
+          done(); // counts down only for our own requests, success or error
         } catch(e) { done(); }
       };
       ws.onerror = () => { clearTimeout(timeout); resolve(); };
@@ -1430,8 +1414,8 @@ function renderWatchlist() {
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0">
           ${hasAlert ? '<div class="alert-dot" title="Alert active" style="position:static;top:auto;right:auto"></div>' : ''}
-          <span style="font-family:var(--mono);font-size:0.5rem;letter-spacing:0.08em;color:var(--muted);background:var(--surface2);padding:2px 6px;border-radius:4px;white-space:nowrap">${catLabel}</span>
-          <button style="background:none;border:none;color:var(--red);cursor:pointer;padding:6px;display:flex;align-items:center;flex-shrink:0;-webkit-tap-highlight-color:transparent" onclick="removeAssetFromWatchlist('${asset.id}','${cat}',event)"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+          <span class="wl-cat-badge">${catLabel}</span>
+          <button class="wl-remove-btn" onclick="removeAssetFromWatchlist('${asset.id}','${cat}',event)"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
         </div>`;
       card.onclick = (e) => {
         if (e.target.classList.contains('asset-remove') || e.target.closest('.asset-remove')) return;
@@ -2613,23 +2597,23 @@ function dismissAlert(id) {
 // ── Alert condition SVG icons ─────────────────────────
 // Used in badge labels and detail lines throughout the alert card UI.
 const ALERT_ICONS = {
-  above:     `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><polyline points="1,7 5,3 9,7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  below:     `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><polyline points="1,3 5,7 9,3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  zone:      `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><rect x="1" y="3" width="8" height="4" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><line x1="1" y1="5" x2="9" y2="5" stroke="currentColor" stroke-width="0.8" stroke-dasharray="1.5 1.5"/></svg>`,
-  tap:       `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><circle cx="5" cy="5" r="3.5" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="5" r="1" fill="currentColor"/></svg>`,
-  paused:    `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><rect x="1.5" y="1" width="2.5" height="8" rx="1" fill="currentColor" opacity="0.7"/><rect x="6" y="1" width="2.5" height="8" rx="1" fill="currentColor" opacity="0.7"/></svg>`,
-  triggered: `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><polyline points="1,5 3.5,7.5 9,2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
-  inzone:    `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><rect x="1" y="3" width="8" height="4" rx="1" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity="0.2"/><circle cx="5" cy="5" r="1.2" fill="currentColor"/></svg>`,
-  near:      `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><circle cx="5" cy="5" r="4" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2 1.5"/><circle cx="5" cy="5" r="1.5" fill="currentColor" opacity="0.8"/></svg>`,
-  active:    `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:3px"><circle cx="5" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="5" r="1" fill="currentColor"/></svg>`,
+  above:     `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" class="icon-inline"><polyline points="1,7 5,3 9,7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  below:     `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" class="icon-inline"><polyline points="1,3 5,7 9,3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  zone:      `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" class="icon-inline"><rect x="1" y="3" width="8" height="4" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><line x1="1" y1="5" x2="9" y2="5" stroke="currentColor" stroke-width="0.8" stroke-dasharray="1.5 1.5"/></svg>`,
+  tap:       `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" class="icon-inline"><circle cx="5" cy="5" r="3.5" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="5" r="1" fill="currentColor"/></svg>`,
+  paused:    `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" class="icon-inline"><rect x="1.5" y="1" width="2.5" height="8" rx="1" fill="currentColor" opacity="0.7"/><rect x="6" y="1" width="2.5" height="8" rx="1" fill="currentColor" opacity="0.7"/></svg>`,
+  triggered: `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" class="icon-inline"><polyline points="1,5 3.5,7.5 9,2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  inzone:    `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" class="icon-inline"><rect x="1" y="3" width="8" height="4" rx="1" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity="0.2"/><circle cx="5" cy="5" r="1.2" fill="currentColor"/></svg>`,
+  near:      `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" class="icon-inline"><circle cx="5" cy="5" r="4" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2 1.5"/><circle cx="5" cy="5" r="1.5" fill="currentColor" opacity="0.8"/></svg>`,
+  active:    `<svg width="10" height="10" viewBox="0 0 10 10" fill="none" class="icon-inline"><circle cx="5" cy="5" r="3" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="5" r="1" fill="currentColor"/></svg>`,
 };
 
 // ── Button SVG icons for alert actions ───────────────────────────────────────
-const SVG_DELETE  = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:4px"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
-const SVG_DISMISS = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:4px"><polyline points="1,5 3.5,7.5 9,2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-const SVG_RESUME  = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:4px"><polygon points="1,1 9,5 1,9" fill="currentColor"/></svg>';
-const SVG_PAUSE   = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:4px"><rect x="1.5" y="1" width="2.5" height="8" rx="1" fill="currentColor"/><rect x="6" y="1" width="2.5" height="8" rx="1" fill="currentColor"/></svg>';
-const SVG_EDIT    = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="display:inline-block;vertical-align:middle;margin-right:4px"><path d="M1 7.5L2.5 9 8 3.5 6.5 2 1 7.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="none"/><line x1="5.5" y1="2.5" x2="7.5" y2="4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+const SVG_DELETE  = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" class="icon-inline"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+const SVG_DISMISS = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" class="icon-inline"><polyline points="1,5 3.5,7.5 9,2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const SVG_RESUME  = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" class="icon-inline"><polygon points="1,1 9,5 1,9" fill="currentColor"/></svg>';
+const SVG_PAUSE   = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" class="icon-inline"><rect x="1.5" y="1" width="2.5" height="8" rx="1" fill="currentColor"/><rect x="6" y="1" width="2.5" height="8" rx="1" fill="currentColor"/></svg>';
+const SVG_EDIT    = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" class="icon-inline"><path d="M1 7.5L2.5 9 8 3.5 6.5 2 1 7.5z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" fill="none"/><line x1="5.5" y1="2.5" x2="7.5" y2="4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
 
 function renderAlerts() {
   const container = document.getElementById('alerts-list');
@@ -2741,17 +2725,17 @@ function renderAlerts() {
       ? (() => {
           if (alert.condition === 'zone') {
             if (isCurrentlyInZone) {
-              return `<span style="color:var(--accent);font-size:0.78rem;">Price inside zone · triggered at ${formatPrice(alert.triggeredPrice, alert.assetId)}</span><br>`;
+              return `<span class="alert-zone-active-line">Price inside zone · triggered at ${formatPrice(alert.triggeredPrice, alert.assetId)}</span><br>`;
             } else {
               const side = currentLivePrice < alert.zoneLow ? 'below' : 'above';
-              return `<span style="color:#e88a00;font-size:0.78rem;">Price crossed ${side} zone at ${formatPrice(alert.triggeredPrice, alert.assetId)}</span><br>`;
+              return `<span class="alert-zone-crossed-line">Price crossed ${side} zone at ${formatPrice(alert.triggeredPrice, alert.assetId)}</span><br>`;
             }
           }
           const col = dir === 'above' || alert.condition === 'tap' ? 'var(--green)' : 'var(--red)';
           return `<span style="color:${col}">Hit ${formatPrice(alert.triggeredPrice, alert.assetId)} at ${formatTriggeredAt(alert.triggeredAt)}</span><br>`;
         })()
       : (zoneInProgress && isCurrentlyInZone)
-        ? `<span style="color:var(--accent);font-size:0.78rem;">Price inside zone · alerting every ${alert.repeatInterval}m</span><br>`
+        ? `<span class="alert-zone-active-line">Price inside zone · alerting every ${alert.repeatInterval}m</span><br>`
       : (zoneInProgress && !isCurrentlyInZone)
         ? (() => {
             const cpa = alert.zoneCreatedAbove;
@@ -2759,18 +2743,18 @@ function renderAlerts() {
               (cpa === true  && currentLivePrice < alert.zoneLow) ||
               (cpa === false && currentLivePrice > alert.zoneHigh);
             return crossedExpected
-              ? `<span style="color:var(--green);font-size:0.78rem;">Zone crossed — alert triggered ✓</span><br>`
-              : `<span style="color:var(--red);font-size:0.78rem;">Price exited zone · watching for re-entry</span><br>`;
+              ? `<span class="alert-zone-triggered-line">Zone crossed — alert triggered ✓</span><br>`
+              : `<span class="alert-zone-exited-line">Price exited zone · watching for re-entry</span><br>`;
           })()
       : '';
 
     let detailLine;
     if (alert.condition === 'zone') {
-      detailLine = `<strong>${ALERT_ICONS.zone}ZONE</strong> ${formatPrice(alert.zoneLow, alert.assetId)} – ${formatPrice(alert.zoneHigh, alert.assetId)}${alert.timeframe ? ` <span style="opacity:0.6;font-size:0.75em">· ${alert.timeframe}</span>` : ''}${alert.repeatInterval ? ` <span style="opacity:0.6;font-size:0.75em">· every ${alert.repeatInterval}m</span>` : ''}`;
+      detailLine = `<strong>${ALERT_ICONS.zone}ZONE</strong> ${formatPrice(alert.zoneLow, alert.assetId)} – ${formatPrice(alert.zoneHigh, alert.assetId)}${alert.timeframe ? ` <span class="alert-detail-muted">· ${alert.timeframe}</span>` : ''}${alert.repeatInterval ? ` <span class="alert-detail-muted">· every ${alert.repeatInterval}m</span>` : ''}`;
     } else if (alert.condition === 'tap') {
-      detailLine = `<strong>${ALERT_ICONS.tap}TAP LEVEL</strong> ${formatPrice(alert.targetPrice, alert.assetId)} <span style="opacity:0.6;font-size:0.75em">· ±${alert.tapTolerance}% tolerance</span>${alert.timeframe ? ` <span style="opacity:0.6;font-size:0.75em">· ${alert.timeframe}</span>` : ''}`;
+      detailLine = `<strong>${ALERT_ICONS.tap}TAP LEVEL</strong> ${formatPrice(alert.targetPrice, alert.assetId)} <span class="alert-detail-muted">· ±${alert.tapTolerance}% tolerance</span>${alert.timeframe ? ` <span class="alert-detail-muted">· ${alert.timeframe}</span>` : ''}`;
     } else {
-      detailLine = `<strong>${alert.condition === 'above' ? ALERT_ICONS.above + 'ABOVE' : ALERT_ICONS.below + 'BELOW'}</strong> ${formatPrice(alert.targetPrice, alert.assetId)}${alert.timeframe ? ` <span style="opacity:0.6;font-size:0.75em">· ${alert.timeframe}</span>` : ''}`;
+      detailLine = `<strong>${alert.condition === 'above' ? ALERT_ICONS.above + 'ABOVE' : ALERT_ICONS.below + 'BELOW'}</strong> ${formatPrice(alert.targetPrice, alert.assetId)}${alert.timeframe ? ` <span class="alert-detail-muted">· ${alert.timeframe}</span>` : ''}`;
     }
 
     const isRepeat     = (alert.condition === 'zone' || alert.condition === 'tap') && (alert.repeatInterval || 0) > 0;
@@ -2788,7 +2772,7 @@ function renderAlerts() {
 
     const livePrice = priceData[alert.assetId]?.price;
     const livePriceLine = livePrice
-      ? `<span style="opacity:0.55;font-size:0.72rem">Current price: <b style="opacity:0.9">${formatPrice(livePrice, alert.assetId)}</b></span><br>`
+      ? `<span class="text-sm-muted">Current price: <b class="opacity-90">${formatPrice(livePrice, alert.assetId)}</b></span><br>`
       : '';
     div.innerHTML = `
       <div class="alert-header-row">
@@ -2849,14 +2833,14 @@ function renderTradesTab() {
 
   if (setupAlerts.length === 0) {
     container.innerHTML = `<div class="empty-state" style="padding:40px 20px;text-align:center">
-      <div class="icon" style="margin-bottom:12px">
+      <div class="icon" class="mb-12">
         <svg width="40" height="40" viewBox="0 0 40 40" fill="none" opacity="0.4">
           <rect x="6" y="10" width="28" height="22" rx="3" stroke="currentColor" stroke-width="2" fill="none"/>
           <line x1="12" y1="18" x2="28" y2="18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
           <line x1="12" y1="23" x2="22" y2="23" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
         </svg>
       </div>
-      <p style="font-family:var(--mono);font-size:0.75rem;color:var(--muted)">No trade setups yet.<br>Create a <b style="color:var(--text)">Trade SETUP</b> alert<br>to track it here.</p>
+      <p style="font-family:var(--mono);font-size:0.75rem;color:var(--muted)">No trade setups yet.<br>Create a <b class="txt-default">Trade SETUP</b> alert<br>to track it here.</p>
     </div>`;
     return;
   }
@@ -2913,14 +2897,14 @@ function clearAlertHistory() {
     saveAlertHistory();
     clearAlertHistoryFromDB(); // also clear from DB
     renderHistory();
-    btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="display:inline-block;vertical-align:middle;margin-right:5px"><polyline points="1,3 11,3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M2.5 3l.7 7h5.6l.7-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><polyline points="4.5,3 4.5,1.5 7.5,1.5 7.5,3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Clear History`;
+    btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" class="svg-icon-sm"><polyline points="1,3 11,3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M2.5 3l.7 7h5.6l.7-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><polyline points="4.5,3 4.5,1.5 7.5,1.5 7.5,3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Clear History`;
     btn.classList.remove('confirming');
   } else {
     btn.textContent = 'Tap again to confirm';
     btn.classList.add('confirming');
     setTimeout(() => {
       if (btn.classList.contains('confirming')) {
-        btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" style="display:inline-block;vertical-align:middle;margin-right:5px"><polyline points="1,3 11,3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M2.5 3l.7 7h5.6l.7-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><polyline points="4.5,3 4.5,1.5 7.5,1.5 7.5,3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Clear History`;
+        btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" class="svg-icon-sm"><polyline points="1,3 11,3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M2.5 3l.7 7h5.6l.7-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><polyline points="4.5,3 4.5,1.5 7.5,1.5 7.5,3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Clear History`;
         btn.classList.remove('confirming');
       }
     }, 3000);
@@ -3026,7 +3010,7 @@ function renderHistory() {
           <div class="hist-asset-name">${group.symbol}</div>
           <div class="hist-asset-meta">
             <span class="hist-count">${group.entries.length} alert${group.entries.length !== 1 ? 's' : ''}</span>
-            <span style="font-family:var(--mono);font-size:0.6rem;color:var(--muted)">${lastTrigger}</span>
+            <span class="txt-mono-muted">${lastTrigger}</span>
             <svg class="hist-chevron${isOpen ? ' open' : ''}" width="12" height="12" viewBox="0 0 12 12" fill="none">
               <polyline points="2,4 6,8 10,4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
@@ -3972,18 +3956,18 @@ function renderSetupCard(alert, div) {
   div.className = `alert-item ${liveCardClass}`;
 
   const levels = [
-    `<span style="color:var(--muted);font-size:0.72rem">Entry</span> <b>${formatPrice(alert.targetPrice, alert.assetId)}</b>`,
-    `<span style="color:var(--red);font-size:0.72rem">SL</span> <b>${formatPrice(j.sl, alert.assetId)}</b>`,
-    `<span style="color:var(--green);font-size:0.72rem">TP1</span> <b>${formatPrice(j.tp1, alert.assetId)}</b>`,
-    j.tp2 ? `<span style="color:var(--green);font-size:0.72rem">TP2</span> <b>${formatPrice(j.tp2, alert.assetId)}</b>` : null,
-    j.tp3 ? `<span style="color:var(--green);font-size:0.72rem">TP3</span> <b>${formatPrice(j.tp3, alert.assetId)}</b>` : null,
+    `<span class="level-label-muted">Entry</span> <b>${formatPrice(alert.targetPrice, alert.assetId)}</b>`,
+    `<span class="level-label-red">SL</span> <b>${formatPrice(j.sl, alert.assetId)}</b>`,
+    `<span class="level-label-green">TP1</span> <b>${formatPrice(j.tp1, alert.assetId)}</b>`,
+    j.tp2 ? `<span class="level-label-green">TP2</span> <b>${formatPrice(j.tp2, alert.assetId)}</b>` : null,
+    j.tp3 ? `<span class="level-label-green">TP3</span> <b>${formatPrice(j.tp3, alert.assetId)}</b>` : null,
   ].filter(Boolean).join('  ');
 
   const journalLines = [
-    j.setupType    ? `<span style="opacity:0.6">Setup:</span> ${j.setupType}` : null,
-    j.entryReason  ? `<span style="opacity:0.6">Reason:</span> ${j.entryReason}` : null,
-    j.htfContext   ? `<span style="opacity:0.6">HTF:</span> ${j.htfContext}` : null,
-    j.emotionBefore ? `<span style="opacity:0.6">Emotion:</span> ${j.emotionBefore}` : null,
+    j.setupType    ? `<span class="txt-muted-06">Setup:</span> ${j.setupType}` : null,
+    j.entryReason  ? `<span class="txt-muted-06">Reason:</span> ${j.entryReason}` : null,
+    j.htfContext   ? `<span class="txt-muted-06">HTF:</span> ${j.htfContext}` : null,
+    j.emotionBefore ? `<span class="txt-muted-06">Emotion:</span> ${j.emotionBefore}` : null,
 
   ].filter(Boolean).join('<br>');
 
@@ -4000,9 +3984,9 @@ function renderSetupCard(alert, div) {
 
   // Quick SL management buttons for live trades
   const btnBreakeven = isLiveTrade ? `<button class="alert-action-btn be-btn" onclick="moveSlToBreakeven('${alert.id}')" title="Move SL to entry (breakeven)">
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="margin-right:3px;vertical-align:middle"><line x1="1" y1="5" x2="9" y2="5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><polyline points="6,2 9,5 6,8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>BE</button>` : '';
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" class="icon-inline"><line x1="1" y1="5" x2="9" y2="5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><polyline points="6,2 9,5 6,8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>BE</button>` : '';
   const btnTrail = isLiveTrade ? `<button class="alert-action-btn trail-btn" onclick="showTrailStopDialog('${alert.id}')" title="Set trailing stop">
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style="margin-right:3px;vertical-align:middle"><path d="M1 8 L4 5 L6 7 L9 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="9" cy="2" r="1" fill="currentColor"/></svg>TRAIL</button>` : '';
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" class="icon-inline"><path d="M1 8 L4 5 L6 7 L9 2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="9" cy="2" r="1" fill="currentColor"/></svg>TRAIL</button>` : '';
 
   // Button layout by state:
   const btnCloseRunning = `<button class="alert-action-btn toggle" onclick="showCloseTradeChoice('${alert.id}')">CLOSE</button>`;
@@ -4016,9 +4000,9 @@ function renderSetupCard(alert, div) {
       <div class="alert-symbol">${alert.symbol} <span style="color:${dirColor};font-size:0.65rem;font-weight:700">${dir}</span>${rr ? `<span style="color:var(--muted);font-size:0.62rem"> ${rr}</span>` : ''}</div>
       <div class="alert-badge ${badge.cls}">${badge.label}</div>
     </div>
-    <div class="alert-detail" style="font-size:0.75rem;line-height:1.9">
+    <div class="alert-detail" class="alert-detail-setup">
       ${levels}
-      ${(() => { const lp = priceData[alert.assetId]?.price; return lp ? `<br><span style="opacity:0.55;font-size:0.72rem">Current price: <b style="opacity:0.9">${formatPrice(lp, alert.assetId)}</b></span>` : ''; })()}
+      ${(() => { const lp = priceData[alert.assetId]?.price; return lp ? `<br><span class="text-sm-muted">Current price: <b class="opacity-90">${formatPrice(lp, alert.assetId)}</b></span>` : ''; })()}
       ${alert.timeframe ? `<br><span style="opacity:0.5;font-size:0.68rem">· ${alert.timeframe}</span>` : ''}
       ${journalLines ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);font-size:0.72rem;line-height:1.7">${journalLines}</div>` : ''}
       <div style="margin-top:6px;opacity:0.45;font-size:0.68rem">Set ${alert.createdAt}</div>
@@ -4057,18 +4041,18 @@ function showCloseTradeChoice(id) {
   ov.id = 'close-choice-modal';
   ov.style.cssText = 'position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,0.6);display:flex;align-items:flex-end;justify-content:center;padding:0 0 env(safe-area-inset-bottom);backdrop-filter:blur(4px)';
   ov.innerHTML = `
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;width:100%;max-width:480px;padding:20px 20px calc(20px + env(safe-area-inset-bottom))">
-      <div style="font-family:var(--mono);font-size:0.62rem;letter-spacing:0.12em;color:var(--muted);text-align:center;margin-bottom:16px">CLOSE TRADE — ${alert.symbol}</div>
-      <div style="display:flex;flex-direction:column;gap:10px">
+    <div class="bottom-sheet-inner">
+      <div class="modal-section-label">CLOSE TRADE — ${alert.symbol}</div>
+      <div class="flex-col-sm">
         <button onclick="document.getElementById('close-choice-modal').remove(); logTradeFromAlert('${id}')"
           style="width:100%;padding:14px;background:rgba(0,230,118,0.12);border:1px solid rgba(0,230,118,0.4);color:var(--green);font-family:var(--mono);font-size:0.75rem;font-weight:700;letter-spacing:0.08em;border-radius:10px;cursor:pointer">
           LOG TRADE
-          <div style="font-size:0.6rem;opacity:0.7;font-weight:400;margin-top:2px">Save this trade to your journal</div>
+          <div class="text-xs-muted-sub">Save this trade to your journal</div>
         </button>
         <button onclick="document.getElementById('close-choice-modal').remove(); dismissSetupToHistory('${id}')"
           style="width:100%;padding:14px;background:rgba(0,212,255,0.08);border:1px solid rgba(0,212,255,0.25);color:var(--accent);font-family:var(--mono);font-size:0.75rem;font-weight:700;letter-spacing:0.08em;border-radius:10px;cursor:pointer">
           DISMISS
-          <div style="font-size:0.6rem;opacity:0.7;font-weight:400;margin-top:2px">Move to history without logging</div>
+          <div class="text-xs-muted-sub">Move to history without logging</div>
         </button>
         <button onclick="document.getElementById('close-choice-modal').remove()"
           style="width:100%;padding:11px;background:transparent;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:0.68rem;letter-spacing:0.06em;border-radius:10px;cursor:pointer">
@@ -4222,36 +4206,36 @@ function showTrailStopDialog(id) {
   ov.style.cssText = 'position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,0.65);display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(4px)';
   ov.innerHTML = `
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;width:100%;max-width:480px;padding:20px 20px calc(24px + env(safe-area-inset-bottom))">
-      <div style="font-family:var(--mono);font-size:0.62rem;letter-spacing:0.12em;color:var(--muted);text-align:center;margin-bottom:14px">TRAIL STOP — ${alert.symbol}</div>
+      <div class="modal-section-label">TRAIL STOP — ${alert.symbol}</div>
       <div style="font-size:0.78rem;color:var(--muted);margin-bottom:14px">
-        Current: <strong style="color:var(--text)">${formatPrice(currentPrice, alert.assetId)}</strong>
-        &nbsp;·&nbsp; SL: <strong style="color:var(--red)">${formatPrice(j.sl, alert.assetId)}</strong>
+        Current: <strong class="txt-default">${formatPrice(currentPrice, alert.assetId)}</strong>
+        &nbsp;·&nbsp; SL: <strong class="txt-red">${formatPrice(j.sl, alert.assetId)}</strong>
       </div>
       <!-- Input mode toggle -->
       <div style="display:flex;gap:8px;margin-bottom:14px">
         <button id="trail-mode-pct" onclick="setTrailMode('pct')"
-          style="flex:1;padding:8px;background:rgba(0,212,255,0.15);border:1px solid var(--accent);color:var(--accent);font-family:var(--mono);font-size:0.68rem;font-weight:700;border-radius:7px;cursor:pointer">% Percentage</button>
+          class="trail-toggle-btn trail-toggle-active">% Percentage</button>
         <button id="trail-mode-price" onclick="setTrailMode('price')"
-          style="flex:1;padding:8px;background:transparent;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:0.68rem;font-weight:700;border-radius:7px;cursor:pointer">Price Level</button>
+          class="trail-toggle-btn">Price Level</button>
       </div>
       <!-- Pct input -->
       <div id="trail-pct-group">
-        <label style="font-family:var(--mono);font-size:0.6rem;letter-spacing:0.1em;color:var(--muted);display:block;margin-bottom:6px">TRAIL DISTANCE (%)</label>
+        <label class="form-field-label">TRAIL DISTANCE (%)</label>
         <input id="trail-pct-input" type="number" step="0.1" min="0.1" max="20" value="1.0"
           style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:1rem;padding:12px 14px;border-radius:8px;box-sizing:border-box;margin-bottom:6px">
       </div>
       <!-- Price input (hidden by default) -->
       <div id="trail-price-group" style="display:none">
-        <label style="font-family:var(--mono);font-size:0.6rem;letter-spacing:0.1em;color:var(--muted);display:block;margin-bottom:6px">NEW STOP LOSS PRICE</label>
+        <label class="form-field-label">NEW STOP LOSS PRICE</label>
         <input id="trail-price-input" type="number" step="any" placeholder="${formatPrice(j.sl, alert.assetId)}"
           style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:1rem;padding:12px 14px;border-radius:8px;box-sizing:border-box;margin-bottom:6px">
       </div>
       <div id="trail-preview" style="font-family:var(--mono);font-size:0.7rem;color:var(--accent);margin-bottom:16px;min-height:18px"></div>
       <div style="display:flex;gap:10px">
         <button onclick="document.getElementById('trail-stop-modal').remove()"
-          style="flex:1;padding:12px;background:transparent;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:0.72rem;border-radius:8px;cursor:pointer">CANCEL</button>
+          class="modal-btn-cancel">CANCEL</button>
         <button onclick="applyTrailStop('${id}')"
-          style="flex:2;padding:12px;background:rgba(255,214,0,0.12);border:1px solid rgba(255,214,0,0.4);color:var(--gold);font-family:var(--mono);font-size:0.75rem;font-weight:700;letter-spacing:0.06em;border-radius:8px;cursor:pointer">SET TRAIL STOP</button>
+          class="modal-btn-trail">SET TRAIL STOP</button>
       </div>
     </div>`;
 
@@ -4339,15 +4323,15 @@ function showManualCloseForm(alert, journal) {
   const emotions = ['Calm','Confident','Satisfied','Frustrated','Disappointed','Relieved','Neutral','Anxious'];
   showConfirm(
     'Close Trade',
-    `<div style="font-size:0.72rem;color:var(--muted);margin-bottom:14px;font-family:var(--mono)">Record how and why you closed this trade early</div>
-     <div style="display:flex;flex-direction:column;gap:10px">
+    `<div class="modal-desc-sm">Record how and why you closed this trade early</div>
+     <div class="flex-col-sm">
        <div>
-         <label style="font-family:var(--mono);font-size:0.6rem;letter-spacing:0.1em;color:var(--muted);display:block;margin-bottom:4px">EXIT PRICE</label>
+         <label class="form-field-label">EXIT PRICE</label>
          <input id="manual-close-price" type="number" step="any" value="${currentPrice}"
            style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:0.8rem;padding:8px 10px;border-radius:7px;box-sizing:border-box">
        </div>
        <div>
-         <label style="font-family:var(--mono);font-size:0.6rem;letter-spacing:0.1em;color:var(--muted);display:block;margin-bottom:4px">REASON FOR CLOSING</label>
+         <label class="form-field-label">REASON FOR CLOSING</label>
          <select id="manual-close-reason"
            style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:0.75rem;padding:8px 10px;border-radius:7px;box-sizing:border-box">
            <option value="Secured TP1">Secured TP1 — letting rest run</option>
@@ -4365,7 +4349,7 @@ function showManualCloseForm(alert, journal) {
          </select>
        </div>
        <div>
-         <label style="font-family:var(--mono);font-size:0.6rem;letter-spacing:0.1em;color:var(--muted);display:block;margin-bottom:6px">EMOTION AFTER</label>
+         <label class="form-field-label">EMOTION AFTER</label>
          <div style="display:flex;flex-wrap:wrap;gap:6px">
            ${emotions.map(e => `<button onclick="setManualCloseEmotion('${e}',this)"
              data-emotion="${e}"
@@ -4712,22 +4696,20 @@ function openJournalAssetPicker() {
 
   const ov = document.createElement('div');
   ov.id = 'journal-asset-picker';
-  ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:var(--bg);display:flex;flex-direction:column;';
+  ov.className = 'jap-overlay';
   ov.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border);background:var(--surface)">
+    <div class="jap-header">
       <button onclick="document.getElementById('journal-asset-picker').remove()"
-        style="background:none;border:none;color:var(--muted);padding:4px 8px;cursor:pointer;font-size:1.1rem">✕</button>
-      <span style="font-family:var(--mono);font-size:0.65rem;letter-spacing:0.1em;color:var(--muted);text-transform:uppercase">Select Asset</span>
+        class="jap-close-btn">✕</button>
+      <span class="jap-title">Select Asset</span>
     </div>
-    <div style="padding:12px 16px;border-bottom:1px solid var(--border);background:var(--surface)">
+    <div class="jap-search-wrap">
       <input id="jap-search" type="text" placeholder="Search symbol or name…"
         autocomplete="off" autocorrect="off" spellcheck="false"
-        style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);
-               font-family:var(--mono);font-size:0.85rem;padding:10px 14px;border-radius:9px;
-               box-sizing:border-box;outline:none;"
+        class="jap-search-input"
         oninput="filterJournalAssetPicker(this.value)">
     </div>
-    <div id="jap-results" style="flex:1;overflow-y:auto;padding:8px 0;"></div>`;
+    <div id="jap-results" class="jap-results"></div>`;
 
   document.body.appendChild(ov);
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
@@ -4767,16 +4749,14 @@ function filterJournalAssetPicker(query) {
   let html = '';
   catOrder.forEach(cat => {
     if (!groups[cat]) return;
-    html += `<div style="font-family:var(--mono);font-size:0.55rem;letter-spacing:0.1em;color:var(--muted);
-                         padding:10px 16px 4px;text-transform:uppercase">${catLabels[cat]||cat}</div>`;
+    html += `<div class="jap-cat-label">${catLabels[cat]||cat}</div>`;
     groups[cat].forEach(a => {
       html += `<div onclick="selectJournalAsset('${a.symbol}')"
         style="display:flex;align-items:center;justify-content:space-between;
                padding:11px 16px;border-bottom:1px solid var(--border);cursor:pointer;
                -webkit-tap-highlight-color:transparent;active:background:var(--surface2)">
         <div>
-          <div style="font-size:0.85rem;font-weight:700;color:var(--text)">${a.symbol}</div>
-          <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);margin-top:1px">${a.name}</div>
+          <div class="jap-asset-sym">${a.symbol}</div><div class="jap-asset-name">${a.name}</div>
         </div>
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M5 2l5 5-5 5" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
@@ -4949,7 +4929,22 @@ async function saveJournalEntry() {
     tp2_price:        parseFloat(document.getElementById('jnl-tp2').value)  || null,
     tp3_price:        parseFloat(document.getElementById('jnl-tp3').value)  || null,
     outcome:          document.getElementById('jnl-outcome').value,
-    pnl_pct:          parseFloat(document.getElementById('jnl-pnl').value) || null,
+    pnl_pct: (() => {
+      // Auto-calculate P&L% from entry/exit prices — no real money/equity needed
+      // Formula: ((exit - entry) / entry) * 100, direction-adjusted
+      const manualPnl = parseFloat(document.getElementById('jnl-pnl').value);
+      if (!isNaN(manualPnl) && manualPnl !== 0) return manualPnl; // manual override
+      const entryVal = parseFloat(document.getElementById('jnl-entry').value);
+      const exitVal  = parseFloat(document.getElementById('jnl-exit').value);
+      if (!entryVal || !exitVal || entryVal === 0) return null;
+      const rawPct = ((exitVal - entryVal) / entryVal) * 100;
+      // Flip sign for short trades: profit when price drops
+      const pct = jnlDirection === 'short' ? -rawPct : rawPct;
+      // Breakeven outcome → 0%
+      const outcome = document.getElementById('jnl-outcome').value;
+      if (outcome === 'breakeven') return 0;
+      return parseFloat(pct.toFixed(2));
+    })(),
     timeframe:        document.getElementById('jnl-timeframe').value || null,
     setup_type:       document.getElementById('jnl-setup-type').value || null,
     entry_reason:     document.getElementById('jnl-entry-reason').value.trim() || null,
@@ -5130,23 +5125,18 @@ async function renderJournal() {
   const breakevens = filtered.filter(e => e.outcome === 'breakeven').length;
   const losses   = filtered.filter(e => ['sl_hit','manual_exit'].includes(e.outcome)).length;
   const winRate  = total ? Math.round((wins / total) * 100) : 0;
-  const pnlEntries = filtered.filter(e => e.pnl_pct != null);
-  const avgPnl   = pnlEntries.length
-    ? (pnlEntries.reduce((s,e) => s + (e.pnl_pct || 0), 0) / pnlEntries.length).toFixed(1)
-    : '—';
 
   if (statsEl) statsEl.innerHTML = `
     <div class="journal-stat"><span class="journal-stat-value">${total}</span><span class="journal-stat-label">TRADES</span></div>
-    <div class="journal-stat"><span class="journal-stat-value" style="color:var(--green)">${wins}</span><span class="journal-stat-label">WINS</span></div>
+    <div class="journal-stat"><span class="journal-stat-value" class="txt-green">${wins}</span><span class="journal-stat-label">WINS</span></div>
     <div class="journal-stat"><span class="journal-stat-value" style="color:var(--muted)">${breakevens}</span><span class="journal-stat-label">BE</span></div>
-    <div class="journal-stat"><span class="journal-stat-value" style="color:var(--red)">${losses}</span><span class="journal-stat-label">LOSSES</span></div>
-    <div class="journal-stat"><span class="journal-stat-value" style="color:${winRate >= 50 ? 'var(--green)' : 'var(--red)'}">${winRate}%</span><span class="journal-stat-label">WIN RATE</span></div>
-    <div class="journal-stat"><span class="journal-stat-value" style="color:${avgPnl === '—' ? 'var(--muted)' : parseFloat(avgPnl) >= 0 ? 'var(--green)' : 'var(--red)'}">${avgPnl !== '—' ? (parseFloat(avgPnl) >= 0 ? '+' : '') + avgPnl + '%' : '—'}</span><span class="journal-stat-label">AVG P&L</span></div>`;
+    <div class="journal-stat"><span class="journal-stat-value" class="txt-red">${losses}</span><span class="journal-stat-label">LOSSES</span></div>
+    <div class="journal-stat"><span class="journal-stat-value" style="color:${winRate >= 50 ? 'var(--green)' : 'var(--red)'}">${winRate}%</span><span class="journal-stat-label">WIN RATE</span></div>`;
 
   // ── Entry cards ─────────────────────────────────────────────────────────
   if (!filtered.length) {
     listEl.innerHTML = `<div class="empty-state" style="padding:40px 0">
-            <p style="font-family:var(--mono);font-size:0.75rem;color:var(--muted);text-align:center">No trades logged yet.<br>Complete a trade setup and tap<br><b style="color:var(--text)">LOG TRADE</b> to record it here.</p>
+            <p style="font-family:var(--mono);font-size:0.75rem;color:var(--muted);text-align:center">No trades logged yet.<br>Complete a trade setup and tap<br><b class="txt-default">LOG TRADE</b> to record it here.</p>
     </div>`;
     return;
   }
@@ -5176,10 +5166,10 @@ async function renderJournal() {
     const levels = [
       `<div class="journal-level-item"><span class="journal-level-label">ENTRY</span><span class="journal-level-value">${f(entry.entry_price)}</span></div>`,
       `<div class="journal-level-item"><span class="journal-level-label">EXIT</span><span class="journal-level-value">${f(entry.exit_price)}</span></div>`,
-      `<div class="journal-level-item"><span class="journal-level-label" style="color:var(--red)">SL</span><span class="journal-level-value" style="color:var(--red)">${f(entry.sl_price)}</span></div>`,
-      `<div class="journal-level-item"><span class="journal-level-label" style="color:var(--green)">TP1</span><span class="journal-level-value" style="color:var(--green)">${f(entry.tp1_price)}</span></div>`,
-      entry.tp2_price ? `<div class="journal-level-item"><span class="journal-level-label" style="color:var(--green)">TP2</span><span class="journal-level-value" style="color:var(--green)">${f(entry.tp2_price)}</span></div>` : '',
-      entry.tp3_price ? `<div class="journal-level-item"><span class="journal-level-label" style="color:var(--green)">TP3</span><span class="journal-level-value" style="color:var(--green)">${f(entry.tp3_price)}</span></div>` : '',
+      `<div class="journal-level-item"><span class="journal-level-label" class="txt-red">SL</span><span class="journal-level-value" class="txt-red">${f(entry.sl_price)}</span></div>`,
+      `<div class="journal-level-item"><span class="journal-level-label" class="txt-green">TP1</span><span class="journal-level-value" class="txt-green">${f(entry.tp1_price)}</span></div>`,
+      entry.tp2_price ? `<div class="journal-level-item"><span class="journal-level-label" class="txt-green">TP2</span><span class="journal-level-value" class="txt-green">${f(entry.tp2_price)}</span></div>` : '',
+      entry.tp3_price ? `<div class="journal-level-item"><span class="journal-level-label" class="txt-green">TP3</span><span class="journal-level-value" class="txt-green">${f(entry.tp3_price)}</span></div>` : '',
     ].join('');
 
     // Notes
@@ -5229,8 +5219,8 @@ async function renderJournal() {
           <span class="journal-card-outcome ${om.cls}">${om.label}</span>
         </div>
         <div class="journal-card-summary-bottom">
-          <span style="font-family:var(--mono);font-size:0.62rem;color:var(--muted)">${date}</span>
-          ${entrySummary ? `<span style="font-family:var(--mono);font-size:0.62rem;color:var(--muted)">${entrySummary}</span>` : ''}
+          <span class="txt-mono-muted">${date}</span>
+          ${entrySummary ? `<span class="txt-mono-muted">${entrySummary}</span>` : ''}
           <span style="font-family:var(--mono);font-size:0.62rem;color:var(--accent);margin-left:auto">VIEW DETAILS ›</span>
         </div>
       </div>`;
@@ -5250,7 +5240,7 @@ function openExportModal() {
 
   ov.innerHTML = `
     <div id="export-modal" style="background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;box-sizing:border-box">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div class="flex-sb-mb">
         <div style="font-family:var(--mono);font-size:0.68rem;font-weight:700;letter-spacing:0.12em;color:var(--text);text-transform:uppercase">Export Journal</div>
         <button onclick="document.getElementById('export-modal-overlay').remove()" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:4px">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="3" y1="3" x2="13" y2="13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="13" y1="3" x2="3" y2="13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -5279,11 +5269,11 @@ function openExportModal() {
 
       <div id="export-custom-dates" style="display:none;gap:8px;margin-bottom:4px">
         <div style="display:flex;gap:8px">
-          <div style="flex:1">
+          <div class="flex-1">
             <div style="font-family:var(--mono);font-size:0.54rem;color:var(--muted);margin-bottom:4px">FROM</div>
             <input type="date" id="export-date-from" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:0.72rem;padding:8px 10px;border-radius:7px;box-sizing:border-box">
           </div>
-          <div style="flex:1">
+          <div class="flex-1">
             <div style="font-family:var(--mono);font-size:0.54rem;color:var(--muted);margin-bottom:4px">TO</div>
             <input type="date" id="export-date-to" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:0.72rem;padding:8px 10px;border-radius:7px;box-sizing:border-box">
           </div>
@@ -5294,9 +5284,9 @@ function openExportModal() {
       <div style="font-family:var(--mono);font-size:0.56rem;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Deliver via</div>
       <div id="export-tg-status" style="display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:12px 14px;margin-bottom:20px">
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M15.5 2.5L1.5 7.5l5 2 2 5 2-3 4 3 1-12z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" fill="none"/><line x1="6.5" y1="9.5" x2="10.5" y2="7.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
-        <div style="flex:1">
+        <div class="flex-1">
           <div style="font-size:0.75rem;font-weight:600;color:var(--text)" id="export-tg-label">Telegram Bot</div>
-          <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted)" id="export-tg-sub">File will be sent to your Telegram chat</div>
+          <div class="txt-mono-muted" id="export-tg-sub">File will be sent to your Telegram chat</div>
         </div>
         <div id="export-tg-dot" style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0"></div>
       </div>
@@ -5457,7 +5447,7 @@ function openJournalDetail(entryId) {
     entry.tp2_price ? ['TP2', entry.tp2_price, 'var(--green)'] : null,
     entry.tp3_price ? ['TP3', entry.tp3_price, 'var(--green)'] : null,
   ].filter(Boolean).map(([lbl, val, col]) =>
-    `<div class="jdetail-level-row"><span style="font-family:var(--mono);font-size:0.62rem;color:var(--muted)">${lbl}</span><span style="font-family:var(--mono);font-size:0.82rem;font-weight:700;color:${col}">${f(val)}</span></div>`
+    `<div class="jdetail-level-row"><span class="txt-mono-muted">${lbl}</span><span style="font-family:var(--mono);font-size:0.82rem;font-weight:700;color:${col}">${f(val)}</span></div>`
   ).join('');
 
   const noteRows = [
@@ -5501,7 +5491,7 @@ function openJournalDetail(entryId) {
           <span style="color:${dirColor};font-size:0.75rem;font-weight:700;margin-left:8px">${dir}</span>
           ${entry.timeframe ? `<span style="font-family:var(--mono);font-size:0.62rem;color:var(--muted);margin-left:6px">${entry.timeframe}</span>` : ''}
         </div>
-        <div style="text-align:right">
+        <div class="txt-right">
           ${pnlStr}
           <div><span class="journal-card-outcome ${om.cls}" style="font-size:0.65rem">${om.label}</span></div>
         </div>
@@ -6081,7 +6071,7 @@ function renderPayoutHistory() {
         <div style="font-family:var(--mono);font-size:0.7rem;font-weight:700;color:var(--text)">${p.period || '—'}</div>
         <div style="font-family:var(--mono);font-size:0.58rem;color:var(--muted);margin-top:3px">${p.subs || 0} subscribers · ${p.pct || 20}% commission</div>
       </div>
-      <div style="text-align:right">
+      <div class="txt-right">
         <div style="font-size:1rem;font-weight:800;color:var(--green)">$${parseFloat(p.amount || 0).toFixed(2)}</div>
         <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);margin-top:2px;text-transform:uppercase">${p.status || 'Paid'}</div>
       </div>
@@ -6280,14 +6270,14 @@ function renderProfilePage(tier) {
         </div>` : `
         <div class="profile-stat-card profile-stat-locked">
           <div class="profile-stat-value locked-val">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="opacity:0.4"><rect x="2" y="6.5" width="10" height="7" rx="1.5" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M4 6.5V4.5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" class="opacity-40"><rect x="2" y="6.5" width="10" height="7" rx="1.5" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M4 6.5V4.5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>
           </div>
           <div class="profile-stat-label">Consistency Score</div>
           <div class="profile-stat-locked-msg">Upgrade to Pro</div>
         </div>
         <div class="profile-stat-card profile-stat-locked">
           <div class="profile-stat-value locked-val">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" style="opacity:0.4"><rect x="2" y="6.5" width="10" height="7" rx="1.5" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M4 6.5V4.5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" class="opacity-40"><rect x="2" y="6.5" width="10" height="7" rx="1.5" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M4 6.5V4.5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>
           </div>
           <div class="profile-stat-label">Win Rate</div>
           <div class="profile-stat-locked-msg">Upgrade to Pro</div>
@@ -6311,7 +6301,7 @@ function renderProfilePage(tier) {
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style="opacity:0.4;flex-shrink:0"><rect x="2" y="7" width="12" height="9" rx="2" stroke="currentColor" stroke-width="1.3" fill="none"/><path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>
           <div>
             <div style="font-size:0.75rem;font-weight:600;color:var(--text);margin-bottom:2px">Not ranked — upgrade to join the leaderboard</div>
-            <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted)">Community average consistency: 72%</div>
+            <div class="txt-mono-muted">Community average consistency: 72%</div>
           </div>
         </div>` :
       isElite ? `
@@ -6715,7 +6705,7 @@ function _renderEliteSection(entries, winRate, consistency, statsPayload) {
     .map(([sym,d]) => {
       const wr = Math.round(d.wins/d.total*100);
       return `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)"><span style="font-size:0.72rem;font-weight:600">${sym}</span><span style="font-family:var(--mono);font-size:0.65rem;color:var(--muted)">${d.total} trades · <span style="color:${wr>=50?'var(--green)':'var(--red)'}"> ${wr}% win</span></span></div>`;
-    }).join('') || `<div style="font-family:var(--mono);font-size:0.62rem;color:var(--muted)">Log more trades to see instrument breakdown.</div>`;
+    }).join('') || `<div class="txt-mono-muted">Log more trades to see instrument breakdown.</div>`;
 
   const avgRR  = statsPayload?.avgRR  || '—';
   const wRate  = winRate || 0;
@@ -6728,10 +6718,10 @@ function _renderEliteSection(entries, winRate, consistency, statsPayload) {
       <div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.7"/><rect x="7" y="1" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.4"/><rect x="1" y="7" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.4"/><rect x="7" y="7" width="4" height="4" rx="0.5" fill="currentColor" opacity="0.7"/></svg> Activity Heatmap — 4 Weeks</div>
       <div class="analytics-heatmap">${heatCells}</div>
       <div style="display:flex;gap:10px;margin-top:8px;font-family:var(--mono);font-size:0.55rem;color:var(--muted)">
-        <span style="display:flex;align-items:center;gap:3px"><span style="width:8px;height:8px;border-radius:2px;background:rgba(0,230,118,0.6);display:inline-block"></span>Full TP</span>
-        <span style="display:flex;align-items:center;gap:3px"><span style="width:8px;height:8px;border-radius:2px;background:rgba(0,230,118,0.15);display:inline-block"></span>Partial</span>
-        <span style="display:flex;align-items:center;gap:3px"><span style="width:8px;height:8px;border-radius:2px;background:rgba(255,61,90,0.25);display:inline-block"></span>SL</span>
-        <span style="display:flex;align-items:center;gap:3px"><span style="width:8px;height:8px;border-radius:2px;background:var(--surface2);display:inline-block"></span>None</span>
+        <span class="flex-center-sm"><span style="width:8px;height:8px;border-radius:2px;background:rgba(0,230,118,0.6);display:inline-block"></span>Full TP</span>
+        <span class="flex-center-sm"><span style="width:8px;height:8px;border-radius:2px;background:rgba(0,230,118,0.15);display:inline-block"></span>Partial</span>
+        <span class="flex-center-sm"><span style="width:8px;height:8px;border-radius:2px;background:rgba(255,61,90,0.25);display:inline-block"></span>SL</span>
+        <span class="flex-center-sm"><span style="width:8px;height:8px;border-radius:2px;background:var(--surface2);display:inline-block"></span>None</span>
       </div>
     </div>
 
@@ -6747,17 +6737,17 @@ function _renderEliteSection(entries, winRate, consistency, statsPayload) {
 
     <div class="analytics-elite-card">
       <div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><path d="M4 6l1.5 1.5L8 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg> Predictive AI Insights</div>
-      <div class="ai-loading-shimmer" id="elite-predictive-text" style="font-family:var(--mono);font-size:0.65rem;color:var(--muted);line-height:1.6;margin-top:4px">Analysing session patterns…</div>
+      <div class="ai-loading-shimmer" id="elite-predictive-text" class="txt-mono-muted-sm">Analysing session patterns…</div>
     </div>
 
     <div class="analytics-elite-card">
       <div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1.2"/><line x1="6" y1="3" x2="6" y2="6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><circle cx="6" cy="8.5" r="0.6" fill="currentColor"/></svg> Bias Detection</div>
-      <div class="ai-loading-shimmer" id="elite-bias-text" style="font-family:var(--mono);font-size:0.65rem;color:var(--muted);line-height:1.6;margin-top:4px">Scanning for emotional patterns…</div>
+      <div class="ai-loading-shimmer" id="elite-bias-text" class="txt-mono-muted-sm">Scanning for emotional patterns…</div>
     </div>
 
     <div class="analytics-elite-card">
       <div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><polyline points="1,8 4,5 6,6 9,3 11,4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><line x1="1" y1="10" x2="11" y2="10" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.4"/></svg> Benchmarking</div>
-      <div class="ai-loading-shimmer" id="elite-benchmark-text" style="font-family:var(--mono);font-size:0.65rem;color:var(--muted);line-height:1.6;margin-top:4px">Comparing to retail averages…</div>
+      <div class="ai-loading-shimmer" id="elite-benchmark-text" class="txt-mono-muted-sm">Comparing to retail averages…</div>
       <div style="display:flex;gap:8px;margin-top:10px">
         <div style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px;text-align:center">
           <div style="font-family:var(--mono);font-size:0.52rem;color:var(--muted);margin-bottom:3px">YOUR WIN RATE</div>
@@ -6776,20 +6766,20 @@ function _renderEliteSection(entries, winRate, consistency, statsPayload) {
 
     <div class="analytics-elite-card">
       <div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="4" r="2.5" stroke="currentColor" stroke-width="1.2" fill="none"/><path d="M1.5 11c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" fill="none"/></svg> Coaching Mode</div>
-      <div class="ai-loading-shimmer" id="elite-coaching-text" style="font-family:var(--mono);font-size:0.65rem;color:var(--muted);line-height:1.6;margin-top:4px">Preparing your coaching directive…</div>
+      <div class="ai-loading-shimmer" id="elite-coaching-text" class="txt-mono-muted-sm">Preparing your coaching directive…</div>
       <button onclick="analyticsRefreshCoaching()" style="margin-top:10px;width:100%;padding:9px;background:transparent;border:1px solid rgba(255,214,0,0.2);border-radius:7px;color:#ffd600;font-family:var(--mono);font-size:0.6rem;letter-spacing:0.08em;cursor:pointer">↻ &nbsp;ASK COACH AGAIN</button>
     </div>
 
     <div class="analytics-elite-card">
       <div class="analytics-elite-label"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="10" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2" fill="none"/><line x1="4" y1="4" x2="8" y2="4" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><line x1="4" y1="6.5" x2="8" y2="6.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/><line x1="4" y1="9" x2="6" y2="9" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg> Custom KPIs</div>
       <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-        <div style="flex:1;min-width:100px;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px">
-          <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);margin-bottom:3px">MAX CONSEC. LOSSES</div>
-          <div style="font-family:var(--mono);font-size:0.9rem;font-weight:700;color:var(--red)">${_maxConsecLosses(entries)}</div>
+        <div class="analytics-kpi-box">
+          <div class="analytics-kpi-label">MAX CONSEC. LOSSES</div>
+          <div class="analytics-kpi-val kpi-red">${_maxConsecLosses(entries)}</div>
         </div>
-        <div style="flex:1;min-width:100px;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px">
-          <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);margin-bottom:3px">AVG TRADE DURATION</div>
-          <div style="font-family:var(--mono);font-size:0.9rem;font-weight:700;color:var(--text)">${_avgTradeDuration(entries)}</div>
+        <div class="analytics-kpi-box">
+          <div class="analytics-kpi-label">AVG TRADE DURATION</div>
+          <div class="analytics-kpi-val">${_avgTradeDuration(entries)}</div>
         </div>
       </div>
     </div>
@@ -7528,7 +7518,7 @@ function renderLibrary() {
         card.className = 'lib-card in-watch';
         card.style.opacity = '1'; card.style.cursor = 'pointer';
         card.style.borderColor = 'rgba(255,61,90,0.4)';
-        card.innerHTML = `<div><div class="lib-sym">${asset.symbol}</div><div class="lib-name">${asset.name}</div></div><div class="lib-action" style="color:var(--red)"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="2" y1="2" x2="12" y2="12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="12" y1="2" x2="2" y2="12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>`;
+        card.innerHTML = `<div><div class="lib-sym">${asset.symbol}</div><div class="lib-name">${asset.name}</div></div><div class="lib-action" class="txt-red"><svg width="14" height="14" viewBox="0 0 14 14" fill="none"><line x1="2" y1="2" x2="12" y2="12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><line x1="12" y1="2" x2="2" y2="12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>`;
         card.onclick = (e) => { e.stopPropagation(); removeAssetFromWatchlist(asset.id, cat, { stopPropagation:()=>{} }); renderLibrary(); };
         grid.appendChild(card);
       });
@@ -7671,8 +7661,21 @@ function revealApp() {
     screen.style.opacity = '0';
     setTimeout(() => { screen.style.display = 'none'; }, 370);
   }
+  // Wrap mobile nav buttons in pill container for Telegram-style nav
+  _initNavPill();
   // Inject currency strength sub-tab system into the watchlist panel
   _initWatchlistSubTabs();
+}
+
+function _initNavPill() {
+  const nav = document.getElementById('mobile-nav');
+  if (!nav || document.querySelector('.nav-pill-wrap')) return;
+  // Wrap all existing buttons in a pill div
+  const buttons = [...nav.children];
+  const pill = document.createElement('div');
+  pill.className = 'nav-pill-wrap';
+  buttons.forEach(b => pill.appendChild(b));
+  nav.appendChild(pill);
 }
 
 function _initWatchlistSubTabs() {
@@ -7682,18 +7685,10 @@ function _initWatchlistSubTabs() {
   // Insert sub-tab bar at the top of the watchlist panel
   const tabBar = document.createElement('div');
   tabBar.id = 'wl-subtab-bar';
-  tabBar.style.cssText = 'display:flex;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;position:sticky;top:0;z-index:10;';
-  // Base style shared by both tabs
-  const _tabBase = 'flex:1;padding:10px 0;font-family:var(--mono);font-size:0.62rem;letter-spacing:0.08em;background:transparent;border:none;cursor:pointer;text-transform:uppercase;transition:color 0.15s,border-bottom 0.15s;-webkit-tap-highlight-color:transparent;';
+  tabBar.className = 'wl-stab-bar';
   tabBar.innerHTML = `
-    <button id="wl-stab-assets" onclick="switchWlSubTab('assets')"
-      style="${_tabBase}color:var(--accent);border-bottom:2px solid var(--accent);font-weight:700">
-      WATCHLIST
-    </button>
-    <button id="wl-stab-strength" onclick="switchWlSubTab('strength')"
-      style="${_tabBase}color:var(--muted);border-bottom:2px solid transparent;font-weight:500">
-      STRENGTH
-    </button>`;
+    <button id="wl-stab-assets" onclick="switchWlSubTab('assets')" class="wl-stab-btn" data-active="1">WATCHLIST</button>
+    <button id="wl-stab-strength" onclick="switchWlSubTab('strength')" class="wl-stab-btn" data-active="0">STRENGTH</button>`;
   watchlistPanel.insertBefore(tabBar, watchlistPanel.firstChild);
 
   // Wrap the existing watchlist content in a sub-panel div
@@ -7707,9 +7702,8 @@ function _initWatchlistSubTabs() {
   // Create the strength sub-panel
   const strengthWrapper = document.createElement('div');
   strengthWrapper.id = 'wl-sub-strength';
+  strengthWrapper.className = 'wl-sub-strength';
   strengthWrapper.style.display = 'none';
-  strengthWrapper.style.overflowY = 'auto';
-  strengthWrapper.style.flex = '1';
 
   const strengthBody = document.createElement('div');
   strengthBody.id = 'wl-strength-body';
@@ -8042,7 +8036,7 @@ function _renderSubscriptionPage() {
   // ── ELITE view ───────────────────────────────────────────────────────────
   if (isElite) {
     body.innerHTML = `
-      <div style="padding:20px 16px 0">
+      <div class="section-pad">
         <div class="sub-current-hero elite-hero">
           <div class="sub-hero-crown"><svg width="28" height="28" viewBox="0 0 28 28" fill="none"><path d="M2 20L5 9l6.5 6L14 4l2.5 11L23 9l3 11H2z" stroke="#ffd600" stroke-width="1.6" stroke-linejoin="round" fill="rgba(255,214,0,0.12)"/></svg></div>
           <div class="sub-hero-label">ELITE PLAN</div>
@@ -8070,7 +8064,7 @@ function _renderSubscriptionPage() {
   // ── PRO view + Elite nudge ───────────────────────────────────────────────
   if (isPro) {
     body.innerHTML = `
-      <div style="padding:20px 16px 0">
+      <div class="section-pad">
         <div class="sub-current-hero pro-hero">
           <div class="sub-hero-label">PRO PLAN</div>
           <div class="sub-hero-price">$4.99<span class="sub-hero-period">/month</span></div>
@@ -8126,8 +8120,8 @@ function _renderSubscriptionPage() {
     </div>
 
     <!-- FREE -->
-    <div style="padding:0 16px">
-      <div class="plan-card" style="margin-bottom:12px">
+    <div class="px-16">
+      <div class="plan-card" class="mb-12">
         <div class="plan-card-header">
           <span class="plan-name">FREE</span>
           <span class="plan-price">$0<span class="plan-period">/mo</span></span>
@@ -8146,8 +8140,8 @@ function _renderSubscriptionPage() {
     </div>
 
     <!-- PRO -->
-    <div style="padding:0 16px">
-      <div class="plan-card plan-card-pro" style="margin-bottom:12px">
+    <div class="px-16">
+      <div class="plan-card plan-card-pro" class="mb-12">
         <div class="plan-badge">POPULAR</div>
         <div class="plan-card-header">
           <span class="plan-name">PRO</span>
@@ -8173,8 +8167,8 @@ function _renderSubscriptionPage() {
     </div>
 
     <!-- ELITE -->
-    <div style="padding:0 16px">
-      <div class="plan-card plan-card-elite" style="margin-bottom:12px">
+    <div class="px-16">
+      <div class="plan-card plan-card-elite" class="mb-12">
         <div class="plan-card-header">
           <div>
             <span class="plan-name">ELITE</span>
@@ -8269,18 +8263,18 @@ function openPaymentModal(plan, billing) {
       <button onclick="_startPaddle('${plan}','${billing}')" style="width:100%;display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);cursor:pointer;margin-bottom:10px;text-align:left">
         <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="1" y="5" width="20" height="14" rx="3" stroke="currentColor" stroke-width="1.4" fill="none"/><line x1="1" y1="9" x2="21" y2="9" stroke="currentColor" stroke-width="1.4"/><rect x="4" y="12" width="4" height="2" rx="0.5" fill="currentColor" opacity="0.6"/></svg>
         <div>
-          <div style="font-size:0.82rem;font-weight:600;margin-bottom:2px">Pay with Card</div>
-          <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted)">Visa, Mastercard · Powered by Paddle</div>
+          <div class="card-title-sm">Pay with Card</div>
+          <div class="txt-mono-muted">Visa, Mastercard · Powered by Paddle</div>
         </div>
-        <svg style="margin-left:auto;flex-shrink:0" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <svg class="ml-auto-noshrink" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <button onclick="_startNowPayments('${plan}','${billing}')" style="width:100%;display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);cursor:pointer;text-align:left">
         <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><circle cx="11" cy="11" r="9" stroke="currentColor" stroke-width="1.4" fill="none"/><path d="M8 11h3m0 0h1.5a1.5 1.5 0 0 0 0-3H11m0 3v3m0-3V8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
         <div>
-          <div style="font-size:0.82rem;font-weight:600;margin-bottom:2px">Pay with Crypto</div>
-          <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted)">BTC, ETH, USDT & more · NOWPayments</div>
+          <div class="card-title-sm">Pay with Crypto</div>
+          <div class="txt-mono-muted">BTC, ETH, USDT & more · NOWPayments</div>
         </div>
-        <svg style="margin-left:auto;flex-shrink:0" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <svg class="ml-auto-noshrink" width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M5 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
       <p style="font-family:var(--mono);font-size:0.56rem;color:var(--muted);text-align:center;margin-top:16px;line-height:1.6">
         Secure checkout. Your plan activates instantly after confirmation.
@@ -8362,7 +8356,7 @@ function _launchPaddleCheckout(plan, billing) {
 NOWPAYMENTS IMPLEMENTATION:
 async function _startNowPayments(plan, billing) {
   const btn = document.querySelector('#payment-modal-overlay button[onclick*="NowPayments"]');
-  if (btn) { btn.innerHTML = '<span style="opacity:0.6">Creating invoice…</span>'; btn.disabled = true; }
+  if (btn) { btn.innerHTML = '<span class="txt-muted-06">Creating invoice…</span>'; btn.disabled = true; }
   billing = billing || 'monthly';
   try {
     const res = await fetch(`${SUPABASE_URL}/functions/v1/create-nowpayments-invoice`, {
@@ -8428,7 +8422,7 @@ function openFeedbackForm() {
 
   ov.innerHTML = `
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;padding:24px 20px 36px;width:100%;max-width:480px;box-sizing:border-box">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+      <div class="flex-sb-mb">
         <div style="font-family:var(--mono);font-size:0.68rem;font-weight:700;letter-spacing:0.12em;color:var(--text);text-transform:uppercase">Send Feedback</div>
         <button onclick="document.getElementById('feedback-overlay').remove()" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:4px">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><line x1="3" y1="3" x2="13" y2="13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><line x1="13" y1="3" x2="3" y2="13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -8898,7 +8892,7 @@ function showConsentDisclaimer() {
 
     overlay.innerHTML = `
       <div class="consent-scroll">
-        <div style="margin-bottom:24px">
+        <div class="mb-24">
           <svg viewBox="0 0 240 44" xmlns="http://www.w3.org/2000/svg" height="28" aria-label="altradia" style="display:block;margin-bottom:20px">
             <defs>
               <linearGradient id="consent-radia-grad" x1="0" y1="0" x2="0" y2="1">
@@ -8919,10 +8913,10 @@ function showConsentDisclaimer() {
         <div style="font-size:1rem;font-weight:700;color:var(--text);margin-bottom:8px">Consent Statement</div>
         <div style="font-size:0.82rem;color:var(--muted);margin-bottom:12px">By continuing, you acknowledge and agree to the following:</div>
         <ul style="padding-left:18px;margin:0 0 16px;display:flex;flex-direction:column;gap:8px">
-          <li style="font-size:0.82rem;color:var(--text);line-height:1.5">You have read and understood Altradia's <strong>Terms of Use</strong>, <strong>Privacy Policy</strong>, and <strong>Cookies Policy</strong>.</li>
-          <li style="font-size:0.82rem;color:var(--text);line-height:1.5">You consent to Altradia processing your data as described in these policies, including the use of session identifiers, broker integration data, and alert preferences.</li>
-          <li style="font-size:0.82rem;color:var(--text);line-height:1.5">You understand that Altradia does not provide financial advice and that alerts are informational only.</li>
-          <li style="font-size:0.82rem;color:var(--text);line-height:1.5">You may withdraw consent at any time by discontinuing use of the app or requesting account deletion.</li>
+          <li class="body-text">You have read and understood Altradia's <strong>Terms of Use</strong>, <strong>Privacy Policy</strong>, and <strong>Cookies Policy</strong>.</li>
+          <li class="body-text">You consent to Altradia processing your data as described in these policies, including the use of session identifiers, broker integration data, and alert preferences.</li>
+          <li class="body-text">You understand that Altradia does not provide financial advice and that alerts are informational only.</li>
+          <li class="body-text">You may withdraw consent at any time by discontinuing use of the app or requesting account deletion.</li>
         </ul>
 
         <hr style="border:none;border-top:1px solid var(--border);margin:0 0 20px">
@@ -9022,7 +9016,7 @@ function showOnboardingScreen() {
     // ── Phase 3a: Success — auto-dismiss ──────────
     function showSuccess() {
       overlay.innerHTML = `
-        <div style="margin-bottom:24px">
+        <div class="mb-24">
           <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
             <circle cx="28" cy="28" r="27" stroke="var(--green)" stroke-width="2" fill="none" opacity="0.2"/>
             <circle cx="28" cy="28" r="27" stroke="var(--green)" stroke-width="2" fill="none"/>
@@ -9044,7 +9038,7 @@ function showOnboardingScreen() {
     // ── Phase 3b: Error — show retry ─────────────
     function showError() {
       overlay.innerHTML = `
-        <div style="margin-bottom:24px">
+        <div class="mb-24">
           <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
             <circle cx="28" cy="28" r="27" stroke="var(--red)" stroke-width="2" fill="none" opacity="0.2"/>
             <circle cx="28" cy="28" r="27" stroke="var(--red)" stroke-width="2" fill="none"/>
@@ -9056,7 +9050,7 @@ function showOnboardingScreen() {
         <div style="font-size:0.82rem;color:var(--muted);line-height:1.6;max-width:270px;margin-bottom:28px;">
           We couldn't send a test message to your Telegram.<br>
           Make sure you've started a conversation with<br>
-          <b style="color:var(--text)">@tradewatchalert_bot</b> and try again.
+          <b class="txt-default">@tradewatchalert_bot</b> and try again.
         </div>
         <button onclick="window.__onboardRetry()" style="
           background:var(--accent);color:#000;
