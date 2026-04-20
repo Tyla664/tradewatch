@@ -579,6 +579,10 @@ function makeDerivWS(symbols, retryRef) {
               open: price, vol: '—', mcap: '—', live: true, src: 'deriv',
             };
             prices[asset.id] = price;
+            // Refresh the panel immediately when the selected asset's price first arrives
+            if (selectedAsset && selectedAsset.id === asset.id) {
+              refreshSelectedAssetPanel();
+            }
           }
         }
         return;
@@ -735,7 +739,7 @@ async function fetchOandaSnapshot(assets) {
 // Restored on every app open so "Price loading…" is never blank
 // ═══════════════════════════════════════════════
 const PRICE_CACHE_KEY = 'altradia_price_cache';
-const PRICE_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const PRICE_CACHE_TTL = 48 * 60 * 60 * 1000; // 48 hours — covers full weekends
 
 function savePriceCache() {
   try {
@@ -1293,7 +1297,20 @@ function refreshSelectedAssetPanel() {
     if (noteEl) noteEl.textContent = `Current price: ${formatPrice(price, asset.id)} — edit to set your target`;
   } else {
     const noteEl = document.getElementById('current-price-note');
-    if (noteEl) noteEl.textContent = 'Price loading… enter your target manually';
+    if (noteEl) {
+      // Check if the market is simply closed (weekend/after hours) vs genuinely loading
+      const now = new Date();
+      const closed = asset && !isMarketOpenForAsset(asset.id, now);
+      // Check cached price even if live price isn't available
+      const cachedPrice = priceData[asset?.id]?.price || null;
+      if (closed && cachedPrice) {
+        noteEl.textContent = `Market closed · last price: ${formatPrice(cachedPrice, asset.id)}`;
+      } else if (closed) {
+        noteEl.textContent = 'Market closed · enter your target manually';
+      } else {
+        noteEl.textContent = 'Price loading… enter your target manually';
+      }
+    }
   }
 }
 
@@ -8762,6 +8779,11 @@ async function init() {
   resubscribeAllDeriv();
 
   refreshSelectedAssetPanel();
+
+  // Safety net: persistent WS ticks sometimes arrive after snapshot resolves.
+  // Re-check panel after 2s and 5s to catch any late-arriving prices.
+  setTimeout(() => refreshSelectedAssetPanel(), 2000);
+  setTimeout(() => refreshSelectedAssetPanel(), 5000);
 
   // ── Auto-growing textareas ────────────────────────────────────────────────
   initAutoGrowTextareas();
