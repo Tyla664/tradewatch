@@ -2815,7 +2815,7 @@ header {
 [data-theme="light"] .chart-tf-btn { color: var(--muted); border-color: var(--border); }
 [data-theme="light"] .chart-tf-btn.active { color: var(--accent); border-color: var(--accent); background: rgba(0,120,168,0.08); }
 
-[data-theme="light"] .mobile-nav  { background: rgba(240,244,248,0.97); border-top-color: var(--border); }
+[data-theme="light"] .mobile-nav  { background: transparent; border-top: none; }
 
 [data-theme="light"] .journal-panel  { background: var(--surface); }
 [data-theme="light"] .journal-panel .panel-title { background: #ffffff; border-bottom-color: var(--border); }
