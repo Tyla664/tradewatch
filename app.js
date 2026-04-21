@@ -1138,10 +1138,13 @@ function calcCurrencyStrength() {
   });
   _csPrevScores = { ...scores };
 
-  // Divergences: pairs where both currencies are in user's watchlist assets
-  // and divergence > 20 pts (strong signal)
+  // Divergences: only pairs where BOTH currencies are in user's watchlist
+  // and divergence >= 20 pts (strong signal)
+  const wlCurrs = getWatchlistCurrencies();
   const divergences = [];
   CS_PAIRS.forEach(([base, quote]) => {
+    // Skip pairs where neither currency is on the user's watchlist
+    if (!wlCurrs.has(base) || !wlCurrs.has(quote)) return;
     const sb = scores[base], sq = scores[quote];
     if (sb === undefined || sq === undefined) return;
     const div = sb - sq;
@@ -1327,10 +1330,13 @@ async function fetchStrengthAiInsight() {
   if (btn) { btn.textContent = 'Analyzing…'; btn.disabled = true; }
 
   const result = calcCurrencyStrength();
-  if (!result) return;
+  if (!result) {
+    if (btn) { btn.textContent = 'No data — tap to retry'; btn.disabled = false; }
+    return;
+  }
 
   const { scores, divergences } = result;
-  const sorted = CS_CURRENCIES.sort((a,b) => (scores[b]??50) - (scores[a]??50));
+  const sorted = [...CS_CURRENCIES].sort((a,b) => (scores[b]??50) - (scores[a]??50));
   const top3 = sorted.slice(0, 3).join(', ');
   const bot3 = sorted.slice(-3).join(', ');
   const topDiv = divergences[0];
@@ -1340,6 +1346,7 @@ async function fetchStrengthAiInsight() {
     `Give a 2-sentence directional bias for today's key forex pairs. Be specific and actionable. No disclaimers.`;
 
   try {
+    console.log('[AI Bias] Calling edge function with prompt:', prompt);
     const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-insights`, {
       method: 'POST',
       headers: {
@@ -1349,14 +1356,32 @@ async function fetchStrengthAiInsight() {
       },
       body: JSON.stringify({ stats: { prompt }, mode: 'strength' }),
     });
+    console.log('[AI Bias] HTTP status:', res.status);
+    if (!res.ok) {
+      const errText = await res.text();
+      console.warn('[AI Bias] HTTP error:', res.status, errText);
+      if (btn) { btn.textContent = `HTTP ${res.status} — tap to retry`; btn.disabled = false; }
+      return;
+    }
     const data = await res.json();
-    if (data?.result) {
-      _csAiCache = { text: data.result, ts: Date.now() };
+    console.log('[AI Bias] Response:', data);
+    // Accept result from common response shapes
+    const text = data?.result || data?.text || data?.content || data?.message;
+    if (text) {
+      _csAiCache = { text: String(text), ts: Date.now() };
       renderStrengthTab(); // re-render to show result
+    } else if (data?.error) {
+      console.warn('[AI Bias] Edge function error:', data.error);
+      if (btn) { btn.textContent = 'AI error — tap to retry'; btn.disabled = false; }
+      showToast('AI Insight', String(data.error).slice(0, 100), 'error');
+    } else {
+      console.warn('[AI Bias] Empty response:', data);
+      if (btn) { btn.textContent = 'Empty response — tap to retry'; btn.disabled = false; }
     }
   } catch(e) {
-    console.warn('Strength AI insight failed:', e);
+    console.warn('[AI Bias] Fetch failed:', e);
     if (btn) { btn.textContent = 'Failed — tap to retry'; btn.disabled = false; }
+    showToast('AI Insight Failed', e.message || 'Network error', 'error');
   }
 }
 
