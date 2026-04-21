@@ -570,6 +570,7 @@ function makeDerivWS(symbols, retryRef) {
       }, Math.floor(i / 20) * 200); // stagger in batches of 20
     });
     if (retryRef) retryRef.ready = true;
+    _noteDerivWsSuccess();
     setStatusPill(true);
   };
   ws.onmessage = (evt) => {
@@ -694,7 +695,7 @@ function makeDerivWS(symbols, retryRef) {
       }, 10000);
     }
   };
-  ws.onerror = () => { try { ws.close(); } catch(err) {} };
+  ws.onerror = () => { _noteDerivWsFail(); try { ws.close(); } catch(err) {} };
   return ws;
 }
 
@@ -868,9 +869,84 @@ const CS_DERIV_SYM = {
 let _csPrices = {};
 let _csPricesFetchedAt = 0;
 
+// Tracks consecutive Deriv WS connection failures — when Deriv is ISP-blocked,
+// we skip the WS path entirely for Strength to avoid 15s waits.
+let _derivWsFailCount = 0;
+let _derivWsBlocked   = false;
+function _noteDerivWsFail() {
+  _derivWsFailCount++;
+  if (_derivWsFailCount >= 3) {
+    _derivWsBlocked = true;
+    console.warn('[Deriv] WS appears blocked on this network after 3 failures — REST fallbacks will be used');
+  }
+}
+function _noteDerivWsSuccess() {
+  _derivWsFailCount = 0;
+  _derivWsBlocked   = false;
+}
+
 // Fetch prices for all 28 pairs via Deriv one-shot WS (count:2 gives current + 1 bar for open)
 // Pending strength fetch callbacks, keyed by req_id
 const _csPendingReqs = new Map();
+
+// REST fallback via Frankfurter API — ECB-backed, free, no key, rarely blocked
+// Used when Deriv WebSocket is unavailable (ISP-blocked, firewall, etc.)
+async function fetchStrengthPricesRest() {
+  try {
+    // Get yesterday's rates (open) and today's rates (close)
+    const today     = new Date();
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+    const yyyymmdd  = (d) => d.toISOString().slice(0, 10);
+
+    // Fetch both dates in parallel against USD base
+    const [latestRes, prevRes] = await Promise.all([
+      fetch('https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR,GBP,JPY,CHF,CAD,AUD,NZD'),
+      fetch(`https://api.frankfurter.dev/v1/${yyyymmdd(yesterday)}?base=USD&symbols=EUR,GBP,JPY,CHF,CAD,AUD,NZD`),
+    ]);
+    if (!latestRes.ok || !prevRes.ok) throw new Error('Frankfurter fetch failed');
+    const latest = await latestRes.json();
+    const prev   = await prevRes.json();
+
+    // Frankfurter gives rates as base→other. Convert to our pair format.
+    // For EUR/USD we need USD_per_EUR = 1 / (EUR_per_USD)
+    const calc = (base, quote, rates) => {
+      if (base === 'USD') return 1 / rates[quote]; // inverse for X/USD where X≠USD
+      if (quote === 'USD') return rates[base];     // already USD_per_base
+      return rates[base] / rates[quote];           // cross
+    };
+
+    const pairs = Object.keys(CS_DERIV_SYM);
+    let loaded = 0;
+    pairs.forEach(pairId => {
+      const [base, quote] = pairId.split('/');
+      try {
+        // For EUR/USD, GBP/USD etc. Frankfurter returns 0.92 (EUR per USD)
+        // We need USD per EUR = 1/0.92 = 1.087
+        let currentPrice, openPrice;
+        if (quote === 'USD') {
+          currentPrice = 1 / latest.rates[base];
+          openPrice    = 1 / prev.rates[base];
+        } else if (base === 'USD') {
+          currentPrice = latest.rates[quote];
+          openPrice    = prev.rates[quote];
+        } else {
+          // Cross pair — e.g. EUR/GBP = (EUR/USD) / (GBP/USD) = (1/latest.rates.EUR) / (1/latest.rates.GBP) = latest.rates.GBP / latest.rates.EUR
+          currentPrice = latest.rates[quote] / latest.rates[base];
+          openPrice    = prev.rates[quote] / prev.rates[base];
+        }
+        if (currentPrice && openPrice && isFinite(currentPrice) && isFinite(openPrice)) {
+          _csPrices[pairId] = { price: currentPrice, open: openPrice };
+          loaded++;
+        }
+      } catch(e) {}
+    });
+    console.log(`[Strength] REST fallback loaded ${loaded}/28 pairs via Frankfurter`);
+    return loaded;
+  } catch(e) {
+    console.warn('[Strength] REST fallback failed:', e);
+    return 0;
+  }
+}
 
 async function fetchStrengthPrices() {
   const now = Date.now();
@@ -878,11 +954,27 @@ async function fetchStrengthPrices() {
   if (now - _csPricesFetchedAt < 60000 && Object.keys(_csPrices).length >= 14) return;
   _csPricesFetchedAt = now;
 
+  // Try Deriv WS first; if that yields insufficient data, fall back to REST (Frankfurter)
+  await fetchStrengthPricesWs();
+  if (Object.keys(_csPrices).length < 14) {
+    console.log('[Strength] Deriv WS only got', Object.keys(_csPrices).length, '— falling back to REST');
+    await fetchStrengthPricesRest();
+  }
+}
+
+async function fetchStrengthPricesWs() {
   const pairs = Object.keys(CS_DERIV_SYM);
 
   // Use the app's existing persistent Deriv WS (_conn1.ws) — already connected,
   // already proven to work for tick streaming. Fall back to a one-shot WS only if needed.
   const persistentWs = (_conn1.ws && _conn1.ws.readyState === WebSocket.OPEN) ? _conn1.ws : null;
+
+  // If no persistent WS and we know Deriv is blocked (recent connection failures),
+  // skip the WS attempt entirely to avoid 15s delay
+  if (!persistentWs && _derivWsBlocked) {
+    console.log('[Strength] Skipping WS — Deriv is blocked on this network');
+    return;
+  }
 
   return new Promise(resolve => {
     let resolved = false;
