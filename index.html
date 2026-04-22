@@ -701,6 +701,28 @@
     <!-- Hidden field for linking to a setup alert -->
     <input type="hidden" id="jnl-alert-id">
 
+    <!-- Trade status: Taken | Missed | Ignored -->
+    <!-- Controls whether this entry counts in P&L/win-rate analytics. -->
+    <!-- Missed/Ignored entries are still stored for AI study of decision patterns. -->
+    <div class="form-group" style="margin-bottom:14px">
+      <label>TRADE STATUS</label>
+      <div class="jnl-status-row" role="radiogroup" aria-label="Trade status">
+        <button type="button" id="jnl-status-taken"   class="jnl-status-btn active" onclick="setJnlStatus('taken')"   aria-pressed="true">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2.5 6.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+          TAKEN
+        </button>
+        <button type="button" id="jnl-status-missed"  class="jnl-status-btn"        onclick="setJnlStatus('missed')"  aria-pressed="false">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4" fill="none"/><line x1="3.5" y1="8" x2="8.5" y2="8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          MISSED
+        </button>
+        <button type="button" id="jnl-status-ignored" class="jnl-status-btn"        onclick="setJnlStatus('ignored')" aria-pressed="false">
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.4" fill="none"/><line x1="3" y1="3" x2="9" y2="9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          IGNORED
+        </button>
+      </div>
+      <div id="jnl-status-hint" class="jnl-status-hint">Counted in analytics &amp; P&amp;L.</div>
+    </div>
+
     <!-- Row 1: Asset + Direction -->
     <div class="form-row">
       <div class="form-group">
