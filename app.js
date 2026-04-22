@@ -5697,7 +5697,28 @@ async function renderJournal() {
     <div class="journal-stat"><span class="journal-stat-value" style="color:var(--muted)">${breakevens}</span><span class="journal-stat-label">BE</span></div>
     <div class="journal-stat"><span class="journal-stat-value" class="txt-red">${losses}</span><span class="journal-stat-label">LOSSES</span></div>
     <div class="journal-stat"><span class="journal-stat-value" style="color:${winRate >= 50 ? 'var(--green)' : 'var(--red)'}">${winRate}%</span><span class="journal-stat-label">WIN RATE</span></div>
-    ${(missed || ignored) ? `<div class="journal-secondary-strip">${missed ? `<span class="jss-missed">${missed} missed</span>` : ''}${(missed && ignored) ? ` · ` : ''}${ignored ? `<span class="jss-ignored">${ignored} ignored</span>` : ''}</div>` : ''}`;
+    ${(missed || ignored) ? `
+      <div class="journal-status-pills">
+        ${missed ? `
+          <div class="jsp jsp-missed" title="Setups you saw but didn't enter">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+              <circle cx="5" cy="5" r="4" stroke="currentColor" stroke-width="1.2" fill="none"/>
+              <line x1="3" y1="6.5" x2="7" y2="6.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+            <span class="jsp-count">${missed}</span>
+            <span class="jsp-label">Missed</span>
+          </div>` : ''}
+        ${ignored ? `
+          <div class="jsp jsp-ignored" title="Setups you saw and chose to skip">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+              <circle cx="5" cy="5" r="4" stroke="currentColor" stroke-width="1.2" fill="none"/>
+              <line x1="2.5" y1="2.5" x2="7.5" y2="7.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            </svg>
+            <span class="jsp-count">${ignored}</span>
+            <span class="jsp-label">Ignored</span>
+          </div>` : ''}
+      </div>
+    ` : ''}`;
 
   // ── Entry cards ─────────────────────────────────────────────────────────
   if (!filtered.length) {
@@ -8326,6 +8347,9 @@ function revealApp() {
   _initNavPill();
   // Inject currency strength sub-tab system into the watchlist panel
   _initWatchlistSubTabs();
+  // Attach pull-to-refresh to all scroll panels. Idempotent — safe to call
+  // multiple times. This must run AFTER panels exist in the DOM.
+  initPullToRefresh();
 }
 
 function _initNavPill() {
@@ -8506,6 +8530,10 @@ function updateSessionDisplay() {
 function initPullToRefresh() {
   // Only active on mobile layout
   if (!isMobileLayout()) return;
+  // Idempotent: if we've already attached PTR, skip. This guards against
+  // revealApp() running twice during onboarding transitions.
+  if (window._ptrInitialized) return;
+  window._ptrInitialized = true;
 
   const THRESHOLD   = 64;   // px of pull needed to trigger
   const MAX_PULL    = 96;   // px cap on indicator height
@@ -9330,7 +9358,6 @@ async function init() {
       const consented = await showConsentDisclaimer();
       if (!consented) return; // user declined — halt
       revealApp();
-  initPullToRefresh();
       const onboardOk = await showOnboardingScreen();
       if (!onboardOk) return;
       localStorage.setItem('tw_onboarded', '1');
