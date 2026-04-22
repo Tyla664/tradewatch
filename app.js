@@ -3543,7 +3543,11 @@ function isMarketOpenForAsset(assetId, now) {
 
 // ── Proximity helper: fire once per level, reset on status change ──────────
 function checkSetupProximity(alert, j, currentPrice, prev) {
-  if (!telegramEnabled || !telegramChatId) return;
+  // We always update the proxWarned* flags so the state stays consistent even
+  // when Telegram is off. If the user toggles Telegram on mid-session, they
+  // won't get a flood of stale "approaching" warnings for levels already crossed.
+  // Individual sendTelegram calls below are gated by telegramEnabled + chatId.
+  const tgActive = telegramEnabled && !!telegramChatId;
 
   // Suppress proximity warnings briefly after a level TRANSITION fires
   // (prevents immediate re-fire on the same tick that triggered a status change)
@@ -3574,7 +3578,7 @@ function checkSetupProximity(alert, j, currentPrice, prev) {
       j.proxWarnedEntry = true;
       noteDirty = true;
       const distPct = (dist * 100).toFixed(2);
-      if (tgNotifPrefs.proximity) sendTelegram([
+      if (tgActive && tgNotifPrefs.proximity) sendTelegram([
         `👀 <b>ENTRY APPROACHING — ${alert.symbol}</b>`,
         ``,
         `Price is within ${distPct}% of your entry level.`,
@@ -3599,7 +3603,7 @@ function checkSetupProximity(alert, j, currentPrice, prev) {
       j.proxWarnedSL = true;
       noteDirty = true;
       const distPct = (dist * 100).toFixed(2);
-      if (tgNotifPrefs.proximity) sendTelegram([
+      if (tgActive && tgNotifPrefs.proximity) sendTelegram([
         `⚠️ <b>STOP LOSS APPROACHING — ${alert.symbol}</b>`,
         ``,
         `Price is within ${distPct}% of your stop loss.`,
@@ -3622,7 +3626,7 @@ function checkSetupProximity(alert, j, currentPrice, prev) {
       j.proxWarnedTP1 = true;
       noteDirty = true;
       const distPct = (dist * 100).toFixed(2);
-      if (tgNotifPrefs.proximity) sendTelegram([
+      if (tgActive && tgNotifPrefs.proximity) sendTelegram([
         `👀 <b>TP1 APPROACHING — ${alert.symbol}</b>`,
         ``,
         `Price is within ${distPct}% of your first take profit.`,
@@ -3644,7 +3648,7 @@ function checkSetupProximity(alert, j, currentPrice, prev) {
       j.proxWarnedTP2 = true;
       noteDirty = true;
       const distPct = (dist * 100).toFixed(2);
-      if (tgNotifPrefs.proximity) sendTelegram([
+      if (tgActive && tgNotifPrefs.proximity) sendTelegram([
         `👀 <b>TP2 APPROACHING — ${alert.symbol}</b>`,
         ``,
         `Price is within ${distPct}% of your second take profit.`,
@@ -3905,21 +3909,38 @@ function checkSingleAlert(alert, currentPrice, now, nowDate) {
 
   if (isZone) {
     const inZone = currentPrice >= alert.zoneLow && currentPrice <= alert.zoneHigh;
+    const repeatMs  = (alert.repeatInterval || 0) * 60 * 1000;
+    const lastFired = alert.lastTriggeredAt || 0;
+
     if (!inZone) {
+      // Price exited the zone. Clear the in-memory "fired-once" latch so that
+      // a future re-entry can fire again (repeat zones) or so the UI reflects
+      // the exit state correctly (one-shot zones — status guard still blocks re-fire).
       if (alert.zoneTriggeredOnce) {
         alert.zoneTriggeredOnce = false;
-        updateAlert(alert.id, { last_triggered_at: null });
+        // Only clear last_triggered_at for repeat zones. For one-shot zones,
+        // triggered_at is the definitive timestamp; last_triggered_at is
+        // only used for cooldown de-duplication with the edge function.
+        if (repeatMs > 0) updateAlert(alert.id, { last_triggered_at: null });
       }
       return;
     }
-    const repeatMs  = (alert.repeatInterval || 0) * 60 * 1000;
-    const lastFired = alert.lastTriggeredAt || 0;
+
+    // Price is inside the zone. Decide whether to fire.
     if (repeatMs === 0) {
+      // One-shot: fire once per alert lifetime. Status guard at top of function
+      // blocks re-fires after the DB update lands.
       if (alert.zoneTriggeredOnce) return;
       alert.zoneTriggeredOnce = true;
       alert.status = 'triggered';
     } else {
-      if (now - lastFired < repeatMs) return;
+      // Repeat: cooldown-gated. Also treat a recent last_triggered_at as
+      // "already fired once" so page reloads don't clear the latch and
+      // re-fire immediately if price is still inside the zone.
+      if (now - lastFired < repeatMs) {
+        alert.zoneTriggeredOnce = true; // rehydrate latch from DB state
+        return;
+      }
       alert.lastTriggeredAt = now;
       alert.zoneTriggeredOnce = true;
       updateAlert(alert.id, { last_triggered_at: new Date().toISOString() });
@@ -3952,10 +3973,18 @@ function checkSingleAlert(alert, currentPrice, now, nowDate) {
   alert.triggeredPrice     = currentPrice;
   triggeredToday++;
 
+  // Persist the fire. Include last_triggered_at so the edge function's atomic
+  // lock (which checks last_triggered_at against a 30s cutoff) can see that
+  // this fire has already been claimed, preventing a duplicate Telegram send.
   if (!isZone || (alert.repeatInterval || 0) === 0) {
+    const nowIso = new Date().toISOString();
+    alert.lastTriggeredAt = Date.now();
     updateAlert(alert.id, {
-      status: 'triggered', triggered_at: new Date().toISOString(),
-      triggered_price: currentPrice, triggered_direction: alert.condition,
+      status: 'triggered',
+      triggered_at: nowIso,
+      triggered_price: currentPrice,
+      triggered_direction: alert.condition,
+      last_triggered_at: nowIso,
     });
   }
 
@@ -5002,6 +5031,10 @@ function tgSetupLevelMessage(symbol, level, price, assetId, journal) {
 
 let journalEntries     = [];
 let jnlDirection       = 'long';
+// Trade status: 'taken' (counts in P&L/win-rate), 'missed' (saw setup, didn't enter),
+// 'ignored' (saw setup, chose to skip). Only 'taken' feeds analytics KPIs.
+// All three feed AI insights so it can analyze decision-making patterns.
+let jnlStatus          = 'taken';
 let jnlBeforeFile      = null;
 let jnlAfterFile       = null;
 let editingJournalId   = null; // set when editing an existing journal entry
@@ -5141,6 +5174,35 @@ function setJnlDir(dir) {
   document.getElementById('jnl-short-btn').classList.toggle('active', dir === 'short');
 }
 
+// Set the trade status (Taken / Missed / Ignored).
+// This controls whether the entry flows into analytics KPIs.
+function setJnlStatus(status) {
+  jnlStatus = (['taken','missed','ignored'].includes(status)) ? status : 'taken';
+  ['taken','missed','ignored'].forEach(s => {
+    const btn = document.getElementById('jnl-status-' + s);
+    if (btn) {
+      btn.classList.toggle('active', s === jnlStatus);
+      btn.setAttribute('aria-pressed', String(s === jnlStatus));
+    }
+  });
+  // Update hint text so users understand the consequence
+  const hint = document.getElementById('jnl-status-hint');
+  if (hint) {
+    hint.textContent = jnlStatus === 'taken'
+      ? 'Counted in analytics & P&L.'
+      : jnlStatus === 'missed'
+        ? 'Saved for study. Not counted in P&L or win rate.'
+        : 'Saved for study. Not counted in P&L or win rate.';
+  }
+  // Dim price/outcome fields for missed/ignored since they're conceptual, not executed
+  const grayIds = ['jnl-exit','jnl-pnl','jnl-outcome','jnl-emotion-after'];
+  grayIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.opacity = (jnlStatus === 'taken') ? '1' : '0.55';
+  });
+}
+
 // ── Open journal modal (standalone or from alert) ─────────────────────────
 // ── Journal asset picker — shown when user taps the symbol field in LOG TRADE ──
 // Opens a lightweight searchable modal using the same ALL_ASSETS catalogue.
@@ -5233,6 +5295,7 @@ function openJournalEntryForm(prefill = null) {
   jnlBeforeFile = null; jnlAfterFile = null;
   jnlBeforeUrl  = null; jnlAfterUrl  = null;
   setJnlDir('long');
+  setJnlStatus('taken');
   ['jnl-symbol','jnl-entry','jnl-exit','jnl-sl','jnl-tp1','jnl-tp2','jnl-tp3','jnl-pnl','jnl-entry-reason','jnl-htf','jnl-lessons'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
@@ -5258,6 +5321,7 @@ function openJournalEntryForm(prefill = null) {
   if (prefill) {
     if (prefill.symbol) document.getElementById('jnl-symbol').value = prefill.symbol;
     if (prefill.direction) setJnlDir(prefill.direction);
+    if (prefill.status) setJnlStatus(prefill.status);
     if (prefill.entry)  document.getElementById('jnl-entry').value  = prefill.entry;
     if (prefill.sl)     document.getElementById('jnl-sl').value     = prefill.sl;
     if (prefill.tp1)    document.getElementById('jnl-tp1').value    = prefill.tp1;
@@ -5410,6 +5474,9 @@ async function saveJournalEntry() {
     screenshot_before: null,
     screenshot_after:  null,
     trade_date:        new Date().toISOString(),
+    // Trade status controls analytics inclusion. 'missed' and 'ignored' entries
+    // are kept for study/AI analysis but excluded from P&L and win-rate KPIs.
+    trade_status:      jnlStatus || 'taken',
   };
 
   // ── EDIT PATH: update an existing journal entry ──────────────────────────
@@ -5575,18 +5642,25 @@ async function renderJournal() {
   });
 
   // ── Stats strip ──────────────────────────────────────────────────────────
-  const total    = filtered.length;
-  const wins     = filtered.filter(e => ['full_tp','tp2_hit','tp1_hit','trail_stop'].includes(e.outcome)).length;
-  const breakevens = filtered.filter(e => e.outcome === 'breakeven').length;
-  const losses   = filtered.filter(e => ['sl_hit','manual_exit'].includes(e.outcome)).length;
+  // Only TAKEN trades feed the numeric KPIs (trades/wins/losses/win-rate).
+  // Missed and Ignored entries are shown on a secondary line for awareness,
+  // but don't distort performance stats.
+  const taken   = filtered.filter(e => (e.trade_status || 'taken') === 'taken');
+  const missed  = filtered.filter(e => e.trade_status === 'missed').length;
+  const ignored = filtered.filter(e => e.trade_status === 'ignored').length;
+  const total    = taken.length;
+  const wins     = taken.filter(e => ['full_tp','tp2_hit','tp1_hit','trail_stop'].includes(e.outcome)).length;
+  const breakevens = taken.filter(e => e.outcome === 'breakeven').length;
+  const losses   = taken.filter(e => ['sl_hit','manual_exit'].includes(e.outcome)).length;
   const winRate  = total ? Math.round((wins / total) * 100) : 0;
 
   if (statsEl) statsEl.innerHTML = `
-    <div class="journal-stat"><span class="journal-stat-value">${total}</span><span class="journal-stat-label">TRADES</span></div>
+    <div class="journal-stat"><span class="journal-stat-value">${total}</span><span class="journal-stat-label">TAKEN</span></div>
     <div class="journal-stat"><span class="journal-stat-value" class="txt-green">${wins}</span><span class="journal-stat-label">WINS</span></div>
     <div class="journal-stat"><span class="journal-stat-value" style="color:var(--muted)">${breakevens}</span><span class="journal-stat-label">BE</span></div>
     <div class="journal-stat"><span class="journal-stat-value" class="txt-red">${losses}</span><span class="journal-stat-label">LOSSES</span></div>
-    <div class="journal-stat"><span class="journal-stat-value" style="color:${winRate >= 50 ? 'var(--green)' : 'var(--red)'}">${winRate}%</span><span class="journal-stat-label">WIN RATE</span></div>`;
+    <div class="journal-stat"><span class="journal-stat-value" style="color:${winRate >= 50 ? 'var(--green)' : 'var(--red)'}">${winRate}%</span><span class="journal-stat-label">WIN RATE</span></div>
+    ${(missed || ignored) ? `<div class="journal-secondary-strip">${missed ? `<span class="jss-missed">${missed} missed</span>` : ''}${(missed && ignored) ? ` · ` : ''}${ignored ? `<span class="jss-ignored">${ignored} ignored</span>` : ''}</div>` : ''}`;
 
   // ── Entry cards ─────────────────────────────────────────────────────────
   if (!filtered.length) {
@@ -5610,6 +5684,8 @@ async function renderJournal() {
   filtered.forEach(entry => {
     const card = document.createElement('div');
     card.className = 'journal-card';
+    // Tag with status so CSS can dim non-taken entries
+    card.setAttribute('data-status', entry.trade_status || 'taken');
 
     const om  = outcomeMeta[entry.outcome] || outcomeMeta['manual_exit'];
     const dir = entry.direction === 'long' ? '▲ LONG' : '▼ SHORT';
@@ -5647,6 +5723,10 @@ async function renderJournal() {
     const pnlStr = entry.pnl_pct != null
       ? `<span style="color:${entry.pnl_pct >= 0 ? 'var(--green)' : 'var(--red)'};font-weight:700">${entry.pnl_pct >= 0 ? '+' : ''}${entry.pnl_pct}%</span>`
       : '';
+    // Status badge — only rendered for non-taken entries so taken trades look unchanged.
+    const status = entry.trade_status || 'taken';
+    const statusBadge = status === 'taken' ? '' :
+      `<span class="journal-card-status jcs-${status}">${status === 'missed' ? 'MISSED' : 'IGNORED'}</span>`;
 
     // Summary line: entry→exit shorthand
     // Derive effective exit: use stored exit_price, or fall back to outcome-based level
@@ -5670,8 +5750,9 @@ async function renderJournal() {
           ${setupSummary ? `<span style="font-family:var(--mono);font-size:0.57rem;color:var(--muted);margin-left:4px">· ${setupSummary}</span>` : ''}
         </div>
         <div class="journal-card-summary-right">
-          ${pnlStr}
-          <span class="journal-card-outcome ${om.cls}">${om.label}</span>
+          ${statusBadge}
+          ${status === 'taken' ? pnlStr : ''}
+          ${status === 'taken' ? `<span class="journal-card-outcome ${om.cls}">${om.label}</span>` : ''}
         </div>
         <div class="journal-card-summary-bottom">
           <span class="txt-mono-muted">${date}</span>
@@ -5736,18 +5817,17 @@ function openExportModal() {
       </div>
       <div id="export-entry-count" style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);margin-bottom:20px;min-height:18px"></div>
 
-      <div style="font-family:var(--mono);font-size:0.56rem;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Deliver via</div>
-      <div id="export-tg-status" style="display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:12px 14px;margin-bottom:20px">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M15.5 2.5L1.5 7.5l5 2 2 5 2-3 4 3 1-12z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" fill="none"/><line x1="6.5" y1="9.5" x2="10.5" y2="7.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+      <div style="font-family:var(--mono);font-size:0.56rem;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Download</div>
+      <div style="display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:12px 14px;margin-bottom:20px">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2v9m0 0l-3-3m3 3l3-3M3 14h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
         <div class="flex-1">
-          <div style="font-size:0.75rem;font-weight:600;color:var(--text)" id="export-tg-label">Telegram Bot</div>
-          <div class="txt-mono-muted" id="export-tg-sub">File will be sent to your Telegram chat</div>
+          <div style="font-size:0.75rem;font-weight:600;color:var(--text)">Save to device</div>
+          <div class="txt-mono-muted">File will download to your device. Open or share it from there.</div>
         </div>
-        <div id="export-tg-dot" style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0"></div>
       </div>
 
       <button id="export-send-btn" onclick="submitExport()" style="width:100%;padding:14px;background:var(--accent);color:#000;font-family:var(--mono);font-size:0.72rem;font-weight:700;letter-spacing:0.1em;border:none;border-radius:10px;cursor:pointer;text-transform:uppercase">
-        Send to Telegram
+        Download Export
       </button>
     </div>`;
 
@@ -5763,21 +5843,6 @@ function openExportModal() {
   ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
   ov._fmt    = 'csv';
   ov._period = '7';
-
-  // Show Telegram connection state
-  const tgDot   = document.getElementById('export-tg-dot');
-  const tgLabel = document.getElementById('export-tg-label');
-  const tgSub   = document.getElementById('export-tg-sub');
-  const sendBtn = document.getElementById('export-send-btn');
-  if (!telegramChatId) {
-    if (tgDot)   tgDot.style.background   = 'var(--red)';
-    if (tgLabel) tgLabel.textContent      = 'Telegram not connected';
-    if (tgSub)   tgSub.textContent        = 'Connect via Settings → Telegram Alerts first';
-    if (sendBtn) { sendBtn.disabled = true; sendBtn.style.opacity = '0.4'; }
-  } else {
-    const name = telegramUserName || 'your Telegram';
-    if (tgSub) tgSub.textContent = `Will be sent to ${name}`;
-  }
 
   updateExportCount();
 }
@@ -5803,9 +5868,7 @@ function updateExportCount() {
     ? `${entries.length} trade${entries.length !== 1 ? 's' : ''} will be exported`
     : 'No trades found in this period';
   countEl.style.color = entries.length > 0 ? 'var(--muted)' : 'var(--red)';
-  // Keep send button disabled if no Telegram
-  const sendBtn = document.getElementById('export-send-btn');
-  if (sendBtn && !telegramChatId) { sendBtn.disabled = true; sendBtn.style.opacity = '0.4'; }
+
 }
 
 function _getExportEntries() {
@@ -5824,37 +5887,118 @@ function _getExportEntries() {
   return allEntries.filter(e => new Date(e.trade_date || e.created_at).getTime() >= cutoff);
 }
 
+// ── Helpers for client-side export generation ────────────────────────────
+// Build a CSV string from journal entries. RFC 4180 quoting — any cell
+// containing a comma, quote, CR or LF is wrapped in double-quotes with
+// embedded quotes escaped as doubled quotes.
+function _journalEntriesToCsv(entries) {
+  const headers = [
+    'date','symbol','direction','status','outcome','entry','exit','sl',
+    'tp1','tp2','tp3','pnl_pct','timeframe','setup_type','entry_reason',
+    'htf_context','emotion_before','emotion_after','lessons',
+  ];
+  const esc = (v) => {
+    if (v == null) return '';
+    const s = String(v);
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const rows = [headers.join(',')];
+  entries.forEach(e => {
+    const row = [
+      (e.trade_date || e.created_at || '').slice(0, 19).replace('T', ' '),
+      e.symbol, e.direction, (e.trade_status || 'taken'), e.outcome,
+      e.entry_price, e.exit_price, e.sl_price, e.tp1_price, e.tp2_price, e.tp3_price,
+      e.pnl_pct, e.timeframe, e.setup_type, e.entry_reason, e.htf_context,
+      e.emotion_before, e.emotion_after, e.lessons,
+    ].map(esc);
+    rows.push(row.join(','));
+  });
+  return rows.join('\r\n');
+}
+
+// Build a simple readable text report for PDF export. We don't bundle a PDF
+// library — instead we generate a well-formatted .txt that users can print
+// or convert to PDF via their phone's share sheet ("Print → Save as PDF").
+function _journalEntriesToText(entries) {
+  const lines = [];
+  lines.push('ALTRADIA JOURNAL EXPORT');
+  lines.push(`Generated: ${new Date().toLocaleString()}`);
+  lines.push(`Entries: ${entries.length}`);
+  lines.push('=' .repeat(60));
+  lines.push('');
+  entries.forEach((e, i) => {
+    const date = (e.trade_date || e.created_at || '').slice(0, 19).replace('T', ' ');
+    lines.push(`[${i+1}] ${e.symbol} ${(e.direction || '').toUpperCase()} · ${date}`);
+    lines.push(`   Status:   ${(e.trade_status || 'taken').toUpperCase()}`);
+    if ((e.trade_status || 'taken') === 'taken') {
+      lines.push(`   Outcome:  ${e.outcome || '—'}`);
+      lines.push(`   Entry:    ${e.entry_price ?? '—'}   Exit: ${e.exit_price ?? '—'}`);
+      lines.push(`   SL:       ${e.sl_price ?? '—'}   TP1: ${e.tp1_price ?? '—'}   TP2: ${e.tp2_price ?? '—'}   TP3: ${e.tp3_price ?? '—'}`);
+      if (e.pnl_pct != null) lines.push(`   P&L:      ${e.pnl_pct >= 0 ? '+' : ''}${e.pnl_pct}%`);
+    }
+    if (e.timeframe)       lines.push(`   TF:       ${e.timeframe}`);
+    if (e.setup_type)      lines.push(`   Setup:    ${e.setup_type}`);
+    if (e.entry_reason)    lines.push(`   Reason:   ${e.entry_reason}`);
+    if (e.htf_context)     lines.push(`   HTF:      ${e.htf_context}`);
+    if (e.emotion_before || e.emotion_after)
+                           lines.push(`   Emotion:  ${e.emotion_before || '—'} → ${e.emotion_after || '—'}`);
+    if (e.lessons)         lines.push(`   Lessons:  ${e.lessons}`);
+    lines.push('');
+  });
+  return lines.join('\n');
+}
+
+// Trigger a file download in the browser. Works in Telegram mobile browser,
+// Chrome, Firefox, Safari — any environment with Blob + URL.createObjectURL.
+function _downloadBlob(filename, mimeType, content) {
+  try {
+    const blob = new Blob([content], { type: mimeType });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
+    return true;
+  } catch (e) {
+    console.warn('Download failed:', e);
+    return false;
+  }
+}
+
 async function submitExport() {
   const ov      = document.getElementById('export-modal-overlay');
   const fmt     = ov?._fmt || 'csv';
   const entries = _getExportEntries();
 
-  if (!telegramChatId) {
-    showToast('Telegram Required', 'Connect your Telegram bot first to receive exports.', 'error');
-    return;
-  }
   if (!entries.length) {
     showToast('No Data', 'No trades found in this period.', 'error');
     return;
   }
 
   const btn = document.getElementById('export-send-btn');
-  if (btn) { btn.textContent = 'Sending…'; btn.disabled = true; }
+  if (btn) { btn.textContent = 'Generating…'; btn.disabled = true; }
 
   try {
-    const res = await fetch(`${TELEGRAM_WORKER_URL}/export`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chat_id: telegramChatId, fmt, entries }),
-    });
-    const data = await res.json();
-    if (!res.ok || !data.ok) throw new Error(data.error || 'Export failed');
+    const stamp = new Date().toISOString().slice(0, 10);
+    if (fmt === 'csv') {
+      const csv = _journalEntriesToCsv(entries);
+      const ok  = _downloadBlob(`altradia-journal-${stamp}.csv`, 'text/csv;charset=utf-8', csv);
+      if (!ok) throw new Error('Browser blocked the download');
+    } else {
+      // "PDF" path — we emit a readable text report. User can print→save-as-PDF
+      // from their phone's share sheet. Avoids bundling a full PDF library client-side.
+      const txt = _journalEntriesToText(entries);
+      const ok  = _downloadBlob(`altradia-journal-${stamp}.txt`, 'text/plain;charset=utf-8', txt);
+      if (!ok) throw new Error('Browser blocked the download');
+    }
     ov?.remove();
-    showToast('Sent to Telegram!', `Your journal export has been sent to your Telegram chat.`, 'success');
+    showToast('Export Ready', `${entries.length} trade${entries.length!==1?'s':''} downloaded.`, 'success');
   } catch (err) {
     console.error('Export error:', err);
-    if (btn) { btn.textContent = 'Send Export'; btn.disabled = false; }
-    showToast('Export Failed', 'Could not send export. Check your Telegram connection and try again.', 'error');
+    if (btn) { btn.textContent = 'Download Export'; btn.disabled = false; }
+    showToast('Export Failed', err.message || 'Could not generate file. Try again.', 'error');
   }
 }
 
@@ -6601,8 +6745,9 @@ function renderProfilePage(tier) {
   const initials     = (username[0] || 'T').toUpperCase();
   const photoUrl     = (typeof telegramUserPhoto !== 'undefined' && telegramUserPhoto) || localStorage.getItem('tg_photo_url') || '';
 
-  // Journal stats for activity snapshot
-  const entries      = typeof journalEntries !== 'undefined' ? journalEntries : [];
+  // Journal stats for activity snapshot — only TAKEN trades count
+  const allJournal   = typeof journalEntries !== 'undefined' ? journalEntries : [];
+  const entries      = allJournal.filter(e => (e.trade_status || 'taken') === 'taken');
   const total        = entries.length;
   const wins         = entries.filter(e => ['full_tp','tp2_hit','tp1_hit','trail_stop'].includes(e.outcome)).length;
   const winRate      = total > 0 ? Math.round((wins/total)*100) : 0;
@@ -6878,7 +7023,13 @@ function renderAnalyticsMenuBody(tier) {
     ? `<span class="analytics-tier-badge elite">ELITE</span>`
     : `<span class="analytics-tier-badge pro">PRO</span>`;
 
-  const entries     = typeof journalEntries !== 'undefined' ? journalEntries : [];
+  // Only TAKEN trades count toward P&L, win-rate, and performance KPIs.
+  // Missed/ignored entries are preserved for AI behavior analysis but excluded
+  // from numeric stats so they don't distort metrics.
+  const allEntries  = typeof journalEntries !== 'undefined' ? journalEntries : [];
+  const entries     = allEntries.filter(e => (e.trade_status || 'taken') === 'taken');
+  const missedCount = allEntries.filter(e => e.trade_status === 'missed').length;
+  const ignoredCount = allEntries.filter(e => e.trade_status === 'ignored').length;
   const total       = entries.length;
   const wins        = entries.filter(e => ['full_tp','tp2_hit','tp1_hit','trail_stop'].includes(e.outcome)).length;
   const losses      = entries.filter(e => ['sl_hit','manual_exit'].includes(e.outcome)).length;
@@ -6962,12 +7113,28 @@ function renderAnalyticsMenuBody(tier) {
   entries.forEach(e => { if (e.setup_type) setupMap[e.setup_type] = (setupMap[e.setup_type]||0)+1; });
   const topSetup = Object.entries(setupMap).sort((a,b)=>b[1]-a[1])[0];
 
+  // Summarise missed and ignored entries for the AI so it can coach on
+  // decision-making patterns, not just execution quality. We include setup-type
+  // breakdowns so the AI can spot things like "you ignore 60% of liquidity
+  // sweeps" or "you miss FVG setups during NY session".
+  const missedEntries = allEntries.filter(e => e.trade_status === 'missed');
+  const ignoredEntries = allEntries.filter(e => e.trade_status === 'ignored');
+  const _setupBreakdown = (arr) => {
+    const m = {};
+    arr.forEach(e => { if (e.setup_type) m[e.setup_type] = (m[e.setup_type]||0)+1; });
+    return m;
+  };
+
   const statsPayload = {
     total, wins, losses, winRate, consistency,
     avgRR, avgPnl, avgSlSize, tradesPerDay, maxDrawdown, avgDuration,
     prematureExits, slMoved, overtrading,
     weekTrades: weekEntries.length, weekWins, sessions,
     topSetup: topSetup ? { type: topSetup[0], count: topSetup[1] } : null,
+    // Decision-making data — for AI coaching on what the user avoids
+    missedCount, ignoredCount,
+    missedSetups:  _setupBreakdown(missedEntries),
+    ignoredSetups: _setupBreakdown(ignoredEntries),
   };
 
   body.innerHTML = `
