@@ -3,21 +3,21 @@
 
 // ═══════════════════════════════════════════════
 // altradia — app.js
-// Price Architecture (broker-only, no free APIs):
-//   Crypto spot     → CoinGecko (free, no key needed)
-//   Forex / Metals  → Deriv WebSocket (real-time ticks, registered App ID)
-//   Commodities     → Deriv WebSocket
-//   Stock Indices   → Deriv WebSocket (US500, US30, USTEC, UK100, DE40, FR40, JP225, HK33, AUS200)
-//   Synth Indices   → Deriv WebSocket (24/7: Volatility, Boom, Crash, Jump)
-//   Stocks CFD      → OANDA REST (plug key in when ready)
-//   Fallback chain  → Deriv WS → OANDA REST → stale cache
+// Price Architecture (OANDA REST primary):
+//   Crypto spot     → CoinGecko + Binance OHLC (live)
+//   Forex / Metals  → OANDA REST /pricing snapshot polling (~2s when market open)
+//   Commodities     → OANDA REST
+//   Stock Indices   → OANDA REST
+//   Stocks CFD      → OANDA REST
+//   Synth Indices   → marked 'unavailable' — no broker supports them
+//   Fallback chain  → OANDA → stale cache (48h localStorage)
 //
-// Indices NOT on Deriv/OANDA are listed in the library but
-// marked unavailable until a supporting broker is added.
+// Synthetics and Deriv-exclusive forex (USD/NGN, USD/PKR, USD/RUB, etc.)
+// are listed in the library but greyed out as 'NO BROKER' until the
+// Deriv path is restored or another broker is integrated.
 // ═══════════════════════════════════════════════
 
 // ── Broker credentials ────────────────────────
-const DERIV_APP_ID     = '3FgUMWdvlyFOxPW';
 // SUPABASE_URL and SUPABASE_ANON_KEY are defined in db.js — do not redeclare here
 const OANDA_KEY     = 'bc279adfd3ef94ce554a110a9e555d05-7e712cb0ac8809392b3f4bfca9768b8b';
 const OANDA_ACCOUNT = '101-001-38834231-001';
@@ -56,16 +56,16 @@ const ALL_ASSETS = [
   // CRYPTO — OANDA primary (where available), CoinGecko fallback
   //          Deriv secondary for tick streaming on supported pairs
   // ════════════════════════════════════════════
-  { id:'bitcoin',       symbol:'BTC',    name:'Bitcoin',           cat:'crypto', sources:['deriv','coingecko','oanda'], cgId:'bitcoin',       derivSym:'cryBTCUSD',  oandaSym:'BTC_USD' },
-  { id:'ethereum',      symbol:'ETH',    name:'Ethereum',          cat:'crypto', sources:['deriv','coingecko','oanda'], cgId:'ethereum',      derivSym:'cryETHUSD',  oandaSym:'ETH_USD' },
-  { id:'solana',        symbol:'SOL',    name:'Solana',            cat:'crypto', sources:['deriv','coingecko','oanda'], cgId:'solana',        derivSym:'crySOLUSD',  oandaSym:'SOL_USD' },
-  { id:'ripple',        symbol:'XRP',    name:'XRP',               cat:'crypto', sources:['deriv','coingecko','oanda'], cgId:'ripple',        derivSym:'cryXRPUSD',  oandaSym:'XRP_USD' },
+  { id:'bitcoin',       symbol:'BTC',    name:'Bitcoin',           cat:'crypto', sources:['coingecko','oanda','deriv'], cgId:'bitcoin',       derivSym:'cryBTCUSD',  oandaSym:'BTC_USD' },
+  { id:'ethereum',      symbol:'ETH',    name:'Ethereum',          cat:'crypto', sources:['coingecko','oanda','deriv'], cgId:'ethereum',      derivSym:'cryETHUSD',  oandaSym:'ETH_USD' },
+  { id:'solana',        symbol:'SOL',    name:'Solana',            cat:'crypto', sources:['coingecko','oanda','deriv'], cgId:'solana',        derivSym:'crySOLUSD',  oandaSym:'SOL_USD' },
+  { id:'ripple',        symbol:'XRP',    name:'XRP',               cat:'crypto', sources:['coingecko','oanda','deriv'], cgId:'ripple',        derivSym:'cryXRPUSD',  oandaSym:'XRP_USD' },
   { id:'binancecoin',   symbol:'BNB',    name:'BNB',               cat:'crypto', sources:['coingecko'],                cgId:'binancecoin'                          },
-  { id:'dogecoin',      symbol:'DOGE',   name:'Dogecoin',          cat:'crypto', sources:['deriv','coingecko','oanda'], cgId:'dogecoin',      derivSym:'cryDOGEUSD', oandaSym:'DOGE_USD'},
+  { id:'dogecoin',      symbol:'DOGE',   name:'Dogecoin',          cat:'crypto', sources:['coingecko','oanda','deriv'], cgId:'dogecoin',      derivSym:'cryDOGEUSD', oandaSym:'DOGE_USD'},
   { id:'cardano',       symbol:'ADA',    name:'Cardano',           cat:'crypto', sources:['coingecko','deriv'],         cgId:'cardano',       derivSym:'cryADAUSD'  },
   { id:'avalanche-2',   symbol:'AVAX',   name:'Avalanche',         cat:'crypto', sources:['coingecko'],                cgId:'avalanche-2'                          },
   { id:'chainlink',     symbol:'LINK',   name:'Chainlink',         cat:'crypto', sources:['coingecko'],                cgId:'chainlink'                            },
-  { id:'litecoin',      symbol:'LTC',    name:'Litecoin',          cat:'crypto', sources:['deriv','coingecko','oanda'], cgId:'litecoin',      derivSym:'cryLTCUSD',  oandaSym:'LTC_USD' },
+  { id:'litecoin',      symbol:'LTC',    name:'Litecoin',          cat:'crypto', sources:['coingecko','oanda','deriv'], cgId:'litecoin',      derivSym:'cryLTCUSD',  oandaSym:'LTC_USD' },
   { id:'polkadot',      symbol:'DOT',    name:'Polkadot',          cat:'crypto', sources:['coingecko'],                cgId:'polkadot'                             },
   { id:'shiba-inu',     symbol:'SHIB',   name:'Shiba Inu',         cat:'crypto', sources:['coingecko'],                cgId:'shiba-inu'                            },
   { id:'uniswap',       symbol:'UNI',    name:'Uniswap',           cat:'crypto', sources:['coingecko'],                cgId:'uniswap'                              },
@@ -104,21 +104,21 @@ const ALL_ASSETS = [
   // ════════════════════════════════════════════
 
   // ── Major Pairs ──────────────────────────────
-  { id:'EUR/USD', symbol:'EUR/USD', name:'Euro / US Dollar',             cat:'forex', sources:['deriv','oanda'], derivSym:'frxEURUSD', oandaSym:'EUR_USD' },
-  { id:'GBP/USD', symbol:'GBP/USD', name:'British Pound / US Dollar',   cat:'forex', sources:['deriv','oanda'], derivSym:'frxGBPUSD', oandaSym:'GBP_USD' },
-  { id:'USD/JPY', symbol:'USD/JPY', name:'US Dollar / Japanese Yen',    cat:'forex', sources:['deriv','oanda'], derivSym:'frxUSDJPY', oandaSym:'USD_JPY' },
-  { id:'AUD/USD', symbol:'AUD/USD', name:'Australian Dollar / USD',     cat:'forex', sources:['deriv','oanda'], derivSym:'frxAUDUSD', oandaSym:'AUD_USD' },
-  { id:'USD/CAD', symbol:'USD/CAD', name:'US Dollar / Canadian Dollar', cat:'forex', sources:['deriv','oanda'], derivSym:'frxUSDCAD', oandaSym:'USD_CAD' },
-  { id:'USD/CHF', symbol:'USD/CHF', name:'US Dollar / Swiss Franc',     cat:'forex', sources:['deriv','oanda'], derivSym:'frxUSDCHF', oandaSym:'USD_CHF' },
-  { id:'NZD/USD', symbol:'NZD/USD', name:'New Zealand Dollar / USD',    cat:'forex', sources:['deriv','oanda'], derivSym:'frxNZDUSD', oandaSym:'NZD_USD' },
+  { id:'EUR/USD', symbol:'EUR/USD', name:'Euro / US Dollar',             cat:'forex', sources:['oanda','deriv'], derivSym:'frxEURUSD', oandaSym:'EUR_USD' },
+  { id:'GBP/USD', symbol:'GBP/USD', name:'British Pound / US Dollar',   cat:'forex', sources:['oanda','deriv'], derivSym:'frxGBPUSD', oandaSym:'GBP_USD' },
+  { id:'USD/JPY', symbol:'USD/JPY', name:'US Dollar / Japanese Yen',    cat:'forex', sources:['oanda','deriv'], derivSym:'frxUSDJPY', oandaSym:'USD_JPY' },
+  { id:'AUD/USD', symbol:'AUD/USD', name:'Australian Dollar / USD',     cat:'forex', sources:['oanda','deriv'], derivSym:'frxAUDUSD', oandaSym:'AUD_USD' },
+  { id:'USD/CAD', symbol:'USD/CAD', name:'US Dollar / Canadian Dollar', cat:'forex', sources:['oanda','deriv'], derivSym:'frxUSDCAD', oandaSym:'USD_CAD' },
+  { id:'USD/CHF', symbol:'USD/CHF', name:'US Dollar / Swiss Franc',     cat:'forex', sources:['oanda','deriv'], derivSym:'frxUSDCHF', oandaSym:'USD_CHF' },
+  { id:'NZD/USD', symbol:'NZD/USD', name:'New Zealand Dollar / USD',    cat:'forex', sources:['oanda','deriv'], derivSym:'frxNZDUSD', oandaSym:'NZD_USD' },
 
   // ── Euro Crosses ──────────────────────────────
-  { id:'EUR/GBP', symbol:'EUR/GBP', name:'Euro / British Pound',         cat:'forex', sources:['deriv','oanda'], derivSym:'frxEURGBP', oandaSym:'EUR_GBP' },
-  { id:'EUR/JPY', symbol:'EUR/JPY', name:'Euro / Japanese Yen',          cat:'forex', sources:['deriv','oanda'], derivSym:'frxEURJPY', oandaSym:'EUR_JPY' },
-  { id:'EUR/CHF', symbol:'EUR/CHF', name:'Euro / Swiss Franc',           cat:'forex', sources:['deriv','oanda'], derivSym:'frxEURCHF', oandaSym:'EUR_CHF' },
-  { id:'EUR/CAD', symbol:'EUR/CAD', name:'Euro / Canadian Dollar',       cat:'forex', sources:['deriv','oanda'], derivSym:'frxEURCAD', oandaSym:'EUR_CAD' },
-  { id:'EUR/AUD', symbol:'EUR/AUD', name:'Euro / Australian Dollar',     cat:'forex', sources:['deriv','oanda'], derivSym:'frxEURAUD', oandaSym:'EUR_AUD' },
-  { id:'EUR/NZD', symbol:'EUR/NZD', name:'Euro / New Zealand Dollar',    cat:'forex', sources:['deriv','oanda'], derivSym:'frxEURNZD', oandaSym:'EUR_NZD' },
+  { id:'EUR/GBP', symbol:'EUR/GBP', name:'Euro / British Pound',         cat:'forex', sources:['oanda','deriv'], derivSym:'frxEURGBP', oandaSym:'EUR_GBP' },
+  { id:'EUR/JPY', symbol:'EUR/JPY', name:'Euro / Japanese Yen',          cat:'forex', sources:['oanda','deriv'], derivSym:'frxEURJPY', oandaSym:'EUR_JPY' },
+  { id:'EUR/CHF', symbol:'EUR/CHF', name:'Euro / Swiss Franc',           cat:'forex', sources:['oanda','deriv'], derivSym:'frxEURCHF', oandaSym:'EUR_CHF' },
+  { id:'EUR/CAD', symbol:'EUR/CAD', name:'Euro / Canadian Dollar',       cat:'forex', sources:['oanda','deriv'], derivSym:'frxEURCAD', oandaSym:'EUR_CAD' },
+  { id:'EUR/AUD', symbol:'EUR/AUD', name:'Euro / Australian Dollar',     cat:'forex', sources:['oanda','deriv'], derivSym:'frxEURAUD', oandaSym:'EUR_AUD' },
+  { id:'EUR/NZD', symbol:'EUR/NZD', name:'Euro / New Zealand Dollar',    cat:'forex', sources:['oanda','deriv'], derivSym:'frxEURNZD', oandaSym:'EUR_NZD' },
   { id:'EUR/SEK', symbol:'EUR/SEK', name:'Euro / Swedish Krona',         cat:'forex', sources:['oanda'],                              oandaSym:'EUR_SEK' },
   { id:'EUR/NOK', symbol:'EUR/NOK', name:'Euro / Norwegian Krone',       cat:'forex', sources:['oanda'],                              oandaSym:'EUR_NOK' },
   { id:'EUR/DKK', symbol:'EUR/DKK', name:'Euro / Danish Krone',          cat:'forex', sources:['oanda'],                              oandaSym:'EUR_DKK' },
@@ -131,28 +131,28 @@ const ALL_ASSETS = [
   { id:'EUR/ZAR', symbol:'EUR/ZAR', name:'Euro / South African Rand',    cat:'forex', sources:['oanda'],                              oandaSym:'EUR_ZAR' },
 
   // ── GBP Crosses ──────────────────────────────
-  { id:'GBP/JPY', symbol:'GBP/JPY', name:'British Pound / Japanese Yen',    cat:'forex', sources:['deriv','oanda'], derivSym:'frxGBPJPY', oandaSym:'GBP_JPY' },
-  { id:'GBP/CHF', symbol:'GBP/CHF', name:'British Pound / Swiss Franc',     cat:'forex', sources:['deriv','oanda'], derivSym:'frxGBPCHF', oandaSym:'GBP_CHF' },
-  { id:'GBP/CAD', symbol:'GBP/CAD', name:'British Pound / Canadian Dollar', cat:'forex', sources:['deriv','oanda'], derivSym:'frxGBPCAD', oandaSym:'GBP_CAD' },
-  { id:'GBP/AUD', symbol:'GBP/AUD', name:'British Pound / Australian Dollar',cat:'forex', sources:['deriv','oanda'], derivSym:'frxGBPAUD', oandaSym:'GBP_AUD' },
-  { id:'GBP/NZD', symbol:'GBP/NZD', name:'British Pound / New Zealand Dollar',cat:'forex', sources:['deriv','oanda'], derivSym:'frxGBPNZD', oandaSym:'GBP_NZD' },
+  { id:'GBP/JPY', symbol:'GBP/JPY', name:'British Pound / Japanese Yen',    cat:'forex', sources:['oanda','deriv'], derivSym:'frxGBPJPY', oandaSym:'GBP_JPY' },
+  { id:'GBP/CHF', symbol:'GBP/CHF', name:'British Pound / Swiss Franc',     cat:'forex', sources:['oanda','deriv'], derivSym:'frxGBPCHF', oandaSym:'GBP_CHF' },
+  { id:'GBP/CAD', symbol:'GBP/CAD', name:'British Pound / Canadian Dollar', cat:'forex', sources:['oanda','deriv'], derivSym:'frxGBPCAD', oandaSym:'GBP_CAD' },
+  { id:'GBP/AUD', symbol:'GBP/AUD', name:'British Pound / Australian Dollar',cat:'forex', sources:['oanda','deriv'], derivSym:'frxGBPAUD', oandaSym:'GBP_AUD' },
+  { id:'GBP/NZD', symbol:'GBP/NZD', name:'British Pound / New Zealand Dollar',cat:'forex', sources:['oanda','deriv'], derivSym:'frxGBPNZD', oandaSym:'GBP_NZD' },
   { id:'GBP/SGD', symbol:'GBP/SGD', name:'British Pound / Singapore Dollar', cat:'forex', sources:['oanda'],                               oandaSym:'GBP_SGD' },
 
   // ── AUD Crosses ──────────────────────────────
-  { id:'AUD/JPY', symbol:'AUD/JPY', name:'Australian Dollar / Japanese Yen',   cat:'forex', sources:['deriv','oanda'], derivSym:'frxAUDJPY', oandaSym:'AUD_JPY' },
-  { id:'AUD/CAD', symbol:'AUD/CAD', name:'Australian Dollar / Canadian Dollar', cat:'forex', sources:['deriv','oanda'], derivSym:'frxAUDCAD', oandaSym:'AUD_CAD' },
-  { id:'AUD/CHF', symbol:'AUD/CHF', name:'Australian Dollar / Swiss Franc',     cat:'forex', sources:['deriv','oanda'], derivSym:'frxAUDCHF', oandaSym:'AUD_CHF' },
-  { id:'AUD/NZD', symbol:'AUD/NZD', name:'Australian Dollar / New Zealand Dollar', cat:'forex', sources:['deriv','oanda'], derivSym:'frxAUDNZD', oandaSym:'AUD_NZD' },
+  { id:'AUD/JPY', symbol:'AUD/JPY', name:'Australian Dollar / Japanese Yen',   cat:'forex', sources:['oanda','deriv'], derivSym:'frxAUDJPY', oandaSym:'AUD_JPY' },
+  { id:'AUD/CAD', symbol:'AUD/CAD', name:'Australian Dollar / Canadian Dollar', cat:'forex', sources:['oanda','deriv'], derivSym:'frxAUDCAD', oandaSym:'AUD_CAD' },
+  { id:'AUD/CHF', symbol:'AUD/CHF', name:'Australian Dollar / Swiss Franc',     cat:'forex', sources:['oanda','deriv'], derivSym:'frxAUDCHF', oandaSym:'AUD_CHF' },
+  { id:'AUD/NZD', symbol:'AUD/NZD', name:'Australian Dollar / New Zealand Dollar', cat:'forex', sources:['oanda','deriv'], derivSym:'frxAUDNZD', oandaSym:'AUD_NZD' },
   { id:'AUD/SGD', symbol:'AUD/SGD', name:'Australian Dollar / Singapore Dollar',cat:'forex', sources:['oanda'],                              oandaSym:'AUD_SGD' },
 
   // ── NZD Crosses ──────────────────────────────
-  { id:'NZD/JPY', symbol:'NZD/JPY', name:'New Zealand Dollar / Japanese Yen',       cat:'forex', sources:['deriv','oanda'], derivSym:'frxNZDJPY', oandaSym:'NZD_JPY' },
-  { id:'NZD/CAD', symbol:'NZD/CAD', name:'New Zealand Dollar / Canadian Dollar',    cat:'forex', sources:['deriv','oanda'], derivSym:'frxNZDCAD', oandaSym:'NZD_CAD' },
-  { id:'NZD/CHF', symbol:'NZD/CHF', name:'New Zealand Dollar / Swiss Franc',        cat:'forex', sources:['deriv','oanda'], derivSym:'frxNZDCHF', oandaSym:'NZD_CHF' },
+  { id:'NZD/JPY', symbol:'NZD/JPY', name:'New Zealand Dollar / Japanese Yen',       cat:'forex', sources:['oanda','deriv'], derivSym:'frxNZDJPY', oandaSym:'NZD_JPY' },
+  { id:'NZD/CAD', symbol:'NZD/CAD', name:'New Zealand Dollar / Canadian Dollar',    cat:'forex', sources:['oanda','deriv'], derivSym:'frxNZDCAD', oandaSym:'NZD_CAD' },
+  { id:'NZD/CHF', symbol:'NZD/CHF', name:'New Zealand Dollar / Swiss Franc',        cat:'forex', sources:['oanda','deriv'], derivSym:'frxNZDCHF', oandaSym:'NZD_CHF' },
   { id:'NZD/SGD', symbol:'NZD/SGD', name:'New Zealand Dollar / Singapore Dollar',   cat:'forex', sources:['oanda'],                              oandaSym:'NZD_SGD' },
 
   // ── CAD Crosses ──────────────────────────────
-  { id:'CAD/JPY', symbol:'CAD/JPY', name:'Canadian Dollar / Japanese Yen',  cat:'forex', sources:['deriv','oanda'], derivSym:'frxCADJPY', oandaSym:'CAD_JPY' },
+  { id:'CAD/JPY', symbol:'CAD/JPY', name:'Canadian Dollar / Japanese Yen',  cat:'forex', sources:['oanda','deriv'], derivSym:'frxCADJPY', oandaSym:'CAD_JPY' },
   { id:'CAD/CHF', symbol:'CAD/CHF', name:'Canadian Dollar / Swiss Franc',   cat:'forex', sources:['oanda'],                              oandaSym:'CAD_CHF' },
   { id:'CAD/SGD', symbol:'CAD/SGD', name:'Canadian Dollar / Singapore Dollar', cat:'forex', sources:['oanda'],                           oandaSym:'CAD_SGD' },
 
@@ -166,16 +166,16 @@ const ALL_ASSETS = [
   { id:'HKD/JPY', symbol:'HKD/JPY', name:'Hong Kong Dollar / Japanese Yen', cat:'forex', sources:['oanda'],        oandaSym:'HKD_JPY' },
 
   // ── USD Emerging & Exotics ────────────────────
-  { id:'USD/SGD', symbol:'USD/SGD', name:'US Dollar / Singapore Dollar',    cat:'forex', sources:['deriv','oanda'], derivSym:'frxUSDSGD', oandaSym:'USD_SGD' },
-  { id:'USD/HKD', symbol:'USD/HKD', name:'US Dollar / Hong Kong Dollar',   cat:'forex', sources:['deriv','oanda'], derivSym:'frxUSDHKD', oandaSym:'USD_HKD' },
-  { id:'USD/MXN', symbol:'USD/MXN', name:'US Dollar / Mexican Peso',       cat:'forex', sources:['deriv','oanda'], derivSym:'frxUSDMXN', oandaSym:'USD_MXN' },
-  { id:'USD/ZAR', symbol:'USD/ZAR', name:'US Dollar / South African Rand', cat:'forex', sources:['deriv','oanda'], derivSym:'frxUSDZAR', oandaSym:'USD_ZAR' },
-  { id:'USD/TRY', symbol:'USD/TRY', name:'US Dollar / Turkish Lira',       cat:'forex', sources:['deriv','oanda'], derivSym:'frxUSDTRY', oandaSym:'USD_TRY' },
+  { id:'USD/SGD', symbol:'USD/SGD', name:'US Dollar / Singapore Dollar',    cat:'forex', sources:['oanda','deriv'], derivSym:'frxUSDSGD', oandaSym:'USD_SGD' },
+  { id:'USD/HKD', symbol:'USD/HKD', name:'US Dollar / Hong Kong Dollar',   cat:'forex', sources:['oanda','deriv'], derivSym:'frxUSDHKD', oandaSym:'USD_HKD' },
+  { id:'USD/MXN', symbol:'USD/MXN', name:'US Dollar / Mexican Peso',       cat:'forex', sources:['oanda','deriv'], derivSym:'frxUSDMXN', oandaSym:'USD_MXN' },
+  { id:'USD/ZAR', symbol:'USD/ZAR', name:'US Dollar / South African Rand', cat:'forex', sources:['oanda','deriv'], derivSym:'frxUSDZAR', oandaSym:'USD_ZAR' },
+  { id:'USD/TRY', symbol:'USD/TRY', name:'US Dollar / Turkish Lira',       cat:'forex', sources:['oanda','deriv'], derivSym:'frxUSDTRY', oandaSym:'USD_TRY' },
   { id:'USD/SEK', symbol:'USD/SEK', name:'US Dollar / Swedish Krona',      cat:'forex', sources:['oanda'],                              oandaSym:'USD_SEK' },
   { id:'USD/NOK', symbol:'USD/NOK', name:'US Dollar / Norwegian Krone',    cat:'forex', sources:['oanda'],                              oandaSym:'USD_NOK' },
   { id:'USD/DKK', symbol:'USD/DKK', name:'US Dollar / Danish Krone',       cat:'forex', sources:['oanda'],                              oandaSym:'USD_DKK' },
-  { id:'USD/INR', symbol:'USD/INR', name:'US Dollar / Indian Rupee',       cat:'forex', sources:['deriv','oanda'], derivSym:'frxUSDINR', oandaSym:'USD_INR' },
-  { id:'USD/CNH', symbol:'USD/CNH', name:'US Dollar / Offshore Chinese Yuan', cat:'forex', sources:['deriv','oanda'], derivSym:'frxUSDCNH', oandaSym:'USD_CNH' },
+  { id:'USD/INR', symbol:'USD/INR', name:'US Dollar / Indian Rupee',       cat:'forex', sources:['oanda','deriv'], derivSym:'frxUSDINR', oandaSym:'USD_INR' },
+  { id:'USD/CNH', symbol:'USD/CNH', name:'US Dollar / Offshore Chinese Yuan', cat:'forex', sources:['oanda','deriv'], derivSym:'frxUSDCNH', oandaSym:'USD_CNH' },
   { id:'USD/BRL', symbol:'USD/BRL', name:'US Dollar / Brazilian Real',     cat:'forex', sources:['oanda'],                              oandaSym:'USD_BRL' },
   { id:'USD/KRW', symbol:'USD/KRW', name:'US Dollar / South Korean Won',   cat:'forex', sources:['oanda'],                              oandaSym:'USD_KRW' },
   { id:'USD/IDR', symbol:'USD/IDR', name:'US Dollar / Indonesian Rupiah',  cat:'forex', sources:['oanda'],                              oandaSym:'USD_IDR' },
@@ -188,38 +188,38 @@ const ALL_ASSETS = [
   { id:'USD/ILS', symbol:'USD/ILS', name:'US Dollar / Israeli Shekel',     cat:'forex', sources:['oanda'],                              oandaSym:'USD_ILS' },
   { id:'USD/AED', symbol:'USD/AED', name:'US Dollar / UAE Dirham',         cat:'forex', sources:['oanda'],                              oandaSym:'USD_AED' },
   { id:'USD/SAR', symbol:'USD/SAR', name:'US Dollar / Saudi Riyal',        cat:'forex', sources:['oanda'],                              oandaSym:'USD_SAR' },
-  { id:'USD/NGN', symbol:'USD/NGN', name:'US Dollar / Nigerian Naira',     cat:'forex', sources:['deriv'],          derivSym:'frxUSDNGN'                   },
-  { id:'USD/GHS', symbol:'USD/GHS', name:'US Dollar / Ghanaian Cedi',      cat:'forex', sources:['deriv'],          derivSym:'frxUSDGHS'                   },
-  { id:'USD/KES', symbol:'USD/KES', name:'US Dollar / Kenyan Shilling',    cat:'forex', sources:['deriv'],          derivSym:'frxUSDKES'                   },
-  { id:'USD/EGP', symbol:'USD/EGP', name:'US Dollar / Egyptian Pound',     cat:'forex', sources:['deriv'],          derivSym:'frxUSDEGP'                   },
-  { id:'USD/PKR', symbol:'USD/PKR', name:'US Dollar / Pakistani Rupee',    cat:'forex', sources:['deriv'],          derivSym:'frxUSDPKR'                   },
-  { id:'USD/BDT', symbol:'USD/BDT', name:'US Dollar / Bangladeshi Taka',   cat:'forex', sources:['deriv'],          derivSym:'frxUSDBDT'                   },
-  { id:'USD/UAH', symbol:'USD/UAH', name:'US Dollar / Ukrainian Hryvnia',  cat:'forex', sources:['deriv'],          derivSym:'frxUSDUAH'                   },
-  { id:'USD/VND', symbol:'USD/VND', name:'US Dollar / Vietnamese Dong',    cat:'forex', sources:['deriv'],          derivSym:'frxUSDVND'                   },
+  { id:'USD/NGN', symbol:'USD/NGN', name:'US Dollar / Nigerian Naira',     cat:'forex', sources:['unavailable']                   },
+  { id:'USD/GHS', symbol:'USD/GHS', name:'US Dollar / Ghanaian Cedi',      cat:'forex', sources:['unavailable']                   },
+  { id:'USD/KES', symbol:'USD/KES', name:'US Dollar / Kenyan Shilling',    cat:'forex', sources:['unavailable']                   },
+  { id:'USD/EGP', symbol:'USD/EGP', name:'US Dollar / Egyptian Pound',     cat:'forex', sources:['unavailable']                   },
+  { id:'USD/PKR', symbol:'USD/PKR', name:'US Dollar / Pakistani Rupee',    cat:'forex', sources:['unavailable']                   },
+  { id:'USD/BDT', symbol:'USD/BDT', name:'US Dollar / Bangladeshi Taka',   cat:'forex', sources:['unavailable']                   },
+  { id:'USD/UAH', symbol:'USD/UAH', name:'US Dollar / Ukrainian Hryvnia',  cat:'forex', sources:['unavailable']                   },
+  { id:'USD/VND', symbol:'USD/VND', name:'US Dollar / Vietnamese Dong',    cat:'forex', sources:['unavailable']                   },
   { id:'USD/ARS', symbol:'USD/ARS', name:'US Dollar / Argentine Peso',     cat:'forex', sources:['oanda'],                              oandaSym:'USD_ARS' },
   { id:'USD/CLP', symbol:'USD/CLP', name:'US Dollar / Chilean Peso',       cat:'forex', sources:['oanda'],                              oandaSym:'USD_CLP' },
   { id:'USD/COP', symbol:'USD/COP', name:'US Dollar / Colombian Peso',     cat:'forex', sources:['oanda'],                              oandaSym:'USD_COP' },
-  { id:'USD/RUB', symbol:'USD/RUB', name:'US Dollar / Russian Ruble',      cat:'forex', sources:['deriv'],          derivSym:'frxUSDRUB'                   },
+  { id:'USD/RUB', symbol:'USD/RUB', name:'US Dollar / Russian Ruble',      cat:'forex', sources:['unavailable']                   },
 
   // ── XAG/XAU treated as Forex on brokers ──────
-  { id:'XAU/USD', symbol:'XAU/USD', name:'Gold Spot',    cat:'forex', sources:['deriv','oanda'], derivSym:'frxXAUUSD', oandaSym:'XAU_USD' },
-  { id:'XAG/USD', symbol:'XAG/USD', name:'Silver Spot',  cat:'forex', sources:['deriv','oanda'], derivSym:'frxXAGUSD', oandaSym:'XAG_USD' },
+  { id:'XAU/USD', symbol:'XAU/USD', name:'Gold Spot',    cat:'forex', sources:['oanda','deriv'], derivSym:'frxXAUUSD', oandaSym:'XAU_USD' },
+  { id:'XAG/USD', symbol:'XAG/USD', name:'Silver Spot',  cat:'forex', sources:['oanda','deriv'], derivSym:'frxXAGUSD', oandaSym:'XAG_USD' },
   { id:'XPD/USD', symbol:'XPD/USD', name:'Palladium Spot', cat:'forex', sources:['oanda'],       oandaSym:'XPD_USD' },
   { id:'XPT/USD', symbol:'XPT/USD', name:'Platinum Spot',  cat:'forex', sources:['oanda'],       oandaSym:'XPT_USD' },
 
   // ════════════════════════════════════════════
   // COMMODITIES — Deriv primary, OANDA secondary
   // ════════════════════════════════════════════
-  { id:'WTI/USD',   symbol:'WTI/USD',  name:'WTI Crude Oil',        cat:'commodities', sources:['deriv','oanda'], derivSym:'WTIUSD',   oandaSym:'WTICO_USD'  },
-  { id:'BRENT/USD', symbol:'BCO/USD',  name:'Brent Crude Oil',      cat:'commodities', sources:['deriv','oanda'], derivSym:'BCOUSD',   oandaSym:'BCO_USD'    },
-  { id:'XNG/USD',   symbol:'XNG/USD',  name:'Natural Gas',          cat:'commodities', sources:['deriv'],         derivSym:'NATGASUSD'                       },
-  { id:'COPPER',    symbol:'XCU/USD',  name:'Copper',               cat:'commodities', sources:['deriv','oanda'], derivSym:'XCUUSD',   oandaSym:'XCU_USD'    },
-  { id:'WHEAT',     symbol:'WHEAT',    name:'Wheat',                cat:'commodities', sources:['deriv'],         derivSym:'WHEATUSD'                        },
-  { id:'CORN',      symbol:'CORN',     name:'Corn',                 cat:'commodities', sources:['deriv'],         derivSym:'CORNUSD'                         },
-  { id:'SOYBEAN',   symbol:'SOYBEAN',  name:'Soybeans',             cat:'commodities', sources:['deriv'],         derivSym:'SOYBEANUSD'                      },
-  { id:'SUGAR',     symbol:'SUGAR',    name:'Sugar',                cat:'commodities', sources:['deriv'],         derivSym:'SUGARUSD'                        },
-  { id:'COFFEE',    symbol:'COFFEE',   name:'Coffee',               cat:'commodities', sources:['deriv'],         derivSym:'COFFEEUSD'                       },
-  { id:'COTTON',    symbol:'COTTON',   name:'Cotton',               cat:'commodities', sources:['deriv'],         derivSym:'COTTONUSD'                       },
+  { id:'WTI/USD',   symbol:'WTI/USD',  name:'WTI Crude Oil',        cat:'commodities', sources:['oanda','deriv'], derivSym:'WTIUSD',   oandaSym:'WTICO_USD'  },
+  { id:'BRENT/USD', symbol:'BCO/USD',  name:'Brent Crude Oil',      cat:'commodities', sources:['oanda','deriv'], derivSym:'BCOUSD',   oandaSym:'BCO_USD'    },
+  { id:'XNG/USD',   symbol:'XNG/USD',  name:'Natural Gas',          cat:'commodities', sources:['unavailable']                       },
+  { id:'COPPER',    symbol:'XCU/USD',  name:'Copper',               cat:'commodities', sources:['oanda','deriv'], derivSym:'XCUUSD',   oandaSym:'XCU_USD'    },
+  { id:'WHEAT',     symbol:'WHEAT',    name:'Wheat',                cat:'commodities', sources:['unavailable']                        },
+  { id:'CORN',      symbol:'CORN',     name:'Corn',                 cat:'commodities', sources:['unavailable']                         },
+  { id:'SOYBEAN',   symbol:'SOYBEAN',  name:'Soybeans',             cat:'commodities', sources:['unavailable']                      },
+  { id:'SUGAR',     symbol:'SUGAR',    name:'Sugar',                cat:'commodities', sources:['unavailable']                        },
+  { id:'COFFEE',    symbol:'COFFEE',   name:'Coffee',               cat:'commodities', sources:['unavailable']                       },
+  { id:'COTTON',    symbol:'COTTON',   name:'Cotton',               cat:'commodities', sources:['unavailable']                       },
 
   // ════════════════════════════════════════════
   // INDICES — Deriv WebSocket primary for major indices
@@ -228,10 +228,10 @@ const ALL_ASSETS = [
   // ════════════════════════════════════════════
 
   // ── US Indices (Deriv covers the main 3 + DXY) ───────────────────────────
-  { id:'SPX',    symbol:'S&P 500',  name:'S&P 500',              cat:'indices', sources:['deriv','oanda'], derivSym:'US500',    oandaSym:'SPX500_USD' },
-  { id:'DJI',    symbol:'US30',     name:'US 30 (Wall Street)',  cat:'indices', sources:['deriv','oanda'], derivSym:'US30',     oandaSym:'US30_USD'   },
-  { id:'NDX',    symbol:'NDX 100',  name:'NASDAQ 100',           cat:'indices', sources:['deriv','oanda'], derivSym:'USTEC',    oandaSym:'NAS100_USD' },
-  { id:'DXY',    symbol:'DXY',      name:'US Dollar Index',      cat:'indices', sources:['deriv'],         derivSym:'DXY'                            },
+  { id:'SPX',    symbol:'S&P 500',  name:'S&P 500',              cat:'indices', sources:['oanda','deriv'], derivSym:'US500',    oandaSym:'SPX500_USD' },
+  { id:'DJI',    symbol:'US30',     name:'US 30 (Wall Street)',  cat:'indices', sources:['oanda','deriv'], derivSym:'US30',     oandaSym:'US30_USD'   },
+  { id:'NDX',    symbol:'NDX 100',  name:'NASDAQ 100',           cat:'indices', sources:['oanda','deriv'], derivSym:'USTEC',    oandaSym:'NAS100_USD' },
+  { id:'DXY',    symbol:'DXY',      name:'US Dollar Index',      cat:'indices', sources:['unavailable']                            },
   { id:'IXIC',   symbol:'NASDAQ',   name:'NASDAQ Composite',     cat:'indices', sources:['unavailable']                                              },
   { id:'RUT',    symbol:'Russell',  name:'Russell 2000',         cat:'indices', sources:['unavailable']                                              },
   { id:'VIX',    symbol:'VIX',      name:'CBOE Volatility',      cat:'indices', sources:['unavailable']                                              },
@@ -239,9 +239,9 @@ const ALL_ASSETS = [
   { id:'TYX',    symbol:'US30Y',    name:'US 30-Year Treasury',  cat:'indices', sources:['unavailable']                                              },
 
   // ── European Indices ──────────────────────────
-  { id:'FTSE',    symbol:'FTSE 100', name:'FTSE 100 (UK)',        cat:'indices', sources:['deriv','oanda'], derivSym:'UK100',    oandaSym:'UK100_GBP' },
-  { id:'DAX',     symbol:'DAX 40',   name:'DAX 40 (Germany)',     cat:'indices', sources:['deriv','oanda'], derivSym:'DE40',     oandaSym:'DE30_EUR'  },
-  { id:'CAC',     symbol:'CAC 40',   name:'CAC 40 (France)',      cat:'indices', sources:['deriv','oanda'], derivSym:'FR40',     oandaSym:'FR40_EUR'  },
+  { id:'FTSE',    symbol:'FTSE 100', name:'FTSE 100 (UK)',        cat:'indices', sources:['oanda','deriv'], derivSym:'UK100',    oandaSym:'UK100_GBP' },
+  { id:'DAX',     symbol:'DAX 40',   name:'DAX 40 (Germany)',     cat:'indices', sources:['oanda','deriv'], derivSym:'DE40',     oandaSym:'DE30_EUR'  },
+  { id:'CAC',     symbol:'CAC 40',   name:'CAC 40 (France)',      cat:'indices', sources:['oanda','deriv'], derivSym:'FR40',     oandaSym:'FR40_EUR'  },
   { id:'IBEX',    symbol:'IBEX 35',  name:'IBEX 35 (Spain)',      cat:'indices', sources:['oanda'],                              oandaSym:'ES35_EUR'  },
   { id:'FTSEMIB', symbol:'FTSE MIB', name:'FTSE MIB (Italy)',    cat:'indices', sources:['oanda'],                              oandaSym:'IT40_EUR'  },
   { id:'AEX',     symbol:'AEX',      name:'AEX (Netherlands)',    cat:'indices', sources:['oanda'],                              oandaSym:'NL25_EUR'  },
@@ -266,9 +266,9 @@ const ALL_ASSETS = [
   { id:'IPSA',    symbol:'IPSA',     name:'IPSA (Chile)',          cat:'indices', sources:['unavailable']                                             },
 
   // ── Asia-Pacific ──────────────────────────────
-  { id:'N225',    symbol:'Nikkei',    name:'Nikkei 225 (Japan)',     cat:'indices', sources:['deriv','oanda'], derivSym:'JP225',   oandaSym:'JP225_USD' },
-  { id:'HSI',     symbol:'Hang Seng', name:'Hang Seng (HK)',         cat:'indices', sources:['deriv','oanda'], derivSym:'HK33',    oandaSym:'HK33_HKD'  },
-  { id:'ASX200',  symbol:'ASX 200',   name:'ASX 200 (Australia)',    cat:'indices', sources:['deriv','oanda'], derivSym:'AUS200',  oandaSym:'AU200_AUD' },
+  { id:'N225',    symbol:'Nikkei',    name:'Nikkei 225 (Japan)',     cat:'indices', sources:['oanda','deriv'], derivSym:'JP225',   oandaSym:'JP225_USD' },
+  { id:'HSI',     symbol:'Hang Seng', name:'Hang Seng (HK)',         cat:'indices', sources:['oanda','deriv'], derivSym:'HK33',    oandaSym:'HK33_HKD'  },
+  { id:'ASX200',  symbol:'ASX 200',   name:'ASX 200 (Australia)',    cat:'indices', sources:['oanda','deriv'], derivSym:'AUS200',  oandaSym:'AU200_AUD' },
   { id:'TOPIX',   symbol:'TOPIX',     name:'TOPIX (Japan)',           cat:'indices', sources:['unavailable']                                             },
   { id:'SHCOMP',  symbol:'SSE',       name:'Shanghai Composite',     cat:'indices', sources:['unavailable']                                             },
   { id:'CSI300',  symbol:'CSI 300',   name:'CSI 300 (China)',        cat:'indices', sources:['unavailable']                                             },
@@ -297,91 +297,91 @@ const ALL_ASSETS = [
   // ══════════════════════════════════════════════════════════════════════════
 
   // ── Volatility Indices (2-second ticks) ───────────────────────────────────
-  { id:'R_10',      symbol:'Vol 10',        name:'Volatility 10 Index',          cat:'synthetics', sources:['deriv'], derivSym:'R_10'       },
-  { id:'R_25',      symbol:'Vol 25',        name:'Volatility 25 Index',          cat:'synthetics', sources:['deriv'], derivSym:'R_25'       },
-  { id:'R_50',      symbol:'Vol 50',        name:'Volatility 50 Index',          cat:'synthetics', sources:['deriv'], derivSym:'R_50'       },
-  { id:'R_75',      symbol:'Vol 75',        name:'Volatility 75 Index',          cat:'synthetics', sources:['deriv'], derivSym:'R_75'       },
-  { id:'R_100',     symbol:'Vol 100',       name:'Volatility 100 Index',         cat:'synthetics', sources:['deriv'], derivSym:'R_100'      },
+  { id:'R_10',      symbol:'Vol 10',        name:'Volatility 10 Index',          cat:'synthetics', sources:['unavailable']       },
+  { id:'R_25',      symbol:'Vol 25',        name:'Volatility 25 Index',          cat:'synthetics', sources:['unavailable']       },
+  { id:'R_50',      symbol:'Vol 50',        name:'Volatility 50 Index',          cat:'synthetics', sources:['unavailable']       },
+  { id:'R_75',      symbol:'Vol 75',        name:'Volatility 75 Index',          cat:'synthetics', sources:['unavailable']       },
+  { id:'R_100',     symbol:'Vol 100',       name:'Volatility 100 Index',         cat:'synthetics', sources:['unavailable']      },
 
   // ── Volatility Indices (1-second ticks — faster price updates) ────────────
-  { id:'1HZ10V',    symbol:'Vol 10 (1s)',   name:'Volatility 10 (1s) Index',     cat:'synthetics', sources:['deriv'], derivSym:'1HZ10V'     },
-  { id:'1HZ15V',    symbol:'Vol 15 (1s)',   name:'Volatility 15 (1s) Index',     cat:'synthetics', sources:['deriv'], derivSym:'1HZ15V'     },
-  { id:'1HZ25V',    symbol:'Vol 25 (1s)',   name:'Volatility 25 (1s) Index',     cat:'synthetics', sources:['deriv'], derivSym:'1HZ25V'     },
-  { id:'1HZ30V',    symbol:'Vol 30 (1s)',   name:'Volatility 30 (1s) Index',     cat:'synthetics', sources:['deriv'], derivSym:'1HZ30V'     },
-  { id:'1HZ50V',    symbol:'Vol 50 (1s)',   name:'Volatility 50 (1s) Index',     cat:'synthetics', sources:['deriv'], derivSym:'1HZ50V'     },
-  { id:'1HZ75V',    symbol:'Vol 75 (1s)',   name:'Volatility 75 (1s) Index',     cat:'synthetics', sources:['deriv'], derivSym:'1HZ75V'     },
-  { id:'1HZ90V',    symbol:'Vol 90 (1s)',   name:'Volatility 90 (1s) Index',     cat:'synthetics', sources:['deriv'], derivSym:'1HZ90V'     },
-  { id:'1HZ100V',   symbol:'Vol 100 (1s)',  name:'Volatility 100 (1s) Index',    cat:'synthetics', sources:['deriv'], derivSym:'1HZ100V'    },
-  { id:'1HZ150V',   symbol:'Vol 150 (1s)',  name:'Volatility 150 (1s) Index',    cat:'synthetics', sources:['deriv'], derivSym:'1HZ150V'    },
-  { id:'1HZ200V',   symbol:'Vol 200 (1s)',  name:'Volatility 200 (1s) Index',    cat:'synthetics', sources:['deriv'], derivSym:'1HZ200V'    },
-  { id:'1HZ250V',   symbol:'Vol 250 (1s)',  name:'Volatility 250 (1s) Index',    cat:'synthetics', sources:['deriv'], derivSym:'1HZ250V'    },
-  { id:'1HZ300V',   symbol:'Vol 300 (1s)',  name:'Volatility 300 (1s) Index',    cat:'synthetics', sources:['deriv'], derivSym:'1HZ300V'    },
+  { id:'1HZ10V',    symbol:'Vol 10 (1s)',   name:'Volatility 10 (1s) Index',     cat:'synthetics', sources:['unavailable']     },
+  { id:'1HZ15V',    symbol:'Vol 15 (1s)',   name:'Volatility 15 (1s) Index',     cat:'synthetics', sources:['unavailable']     },
+  { id:'1HZ25V',    symbol:'Vol 25 (1s)',   name:'Volatility 25 (1s) Index',     cat:'synthetics', sources:['unavailable']     },
+  { id:'1HZ30V',    symbol:'Vol 30 (1s)',   name:'Volatility 30 (1s) Index',     cat:'synthetics', sources:['unavailable']     },
+  { id:'1HZ50V',    symbol:'Vol 50 (1s)',   name:'Volatility 50 (1s) Index',     cat:'synthetics', sources:['unavailable']     },
+  { id:'1HZ75V',    symbol:'Vol 75 (1s)',   name:'Volatility 75 (1s) Index',     cat:'synthetics', sources:['unavailable']     },
+  { id:'1HZ90V',    symbol:'Vol 90 (1s)',   name:'Volatility 90 (1s) Index',     cat:'synthetics', sources:['unavailable']     },
+  { id:'1HZ100V',   symbol:'Vol 100 (1s)',  name:'Volatility 100 (1s) Index',    cat:'synthetics', sources:['unavailable']    },
+  { id:'1HZ150V',   symbol:'Vol 150 (1s)',  name:'Volatility 150 (1s) Index',    cat:'synthetics', sources:['unavailable']    },
+  { id:'1HZ200V',   symbol:'Vol 200 (1s)',  name:'Volatility 200 (1s) Index',    cat:'synthetics', sources:['unavailable']    },
+  { id:'1HZ250V',   symbol:'Vol 250 (1s)',  name:'Volatility 250 (1s) Index',    cat:'synthetics', sources:['unavailable']    },
+  { id:'1HZ300V',   symbol:'Vol 300 (1s)',  name:'Volatility 300 (1s) Index',    cat:'synthetics', sources:['unavailable']    },
 
   // ── Boom Indices (sudden upward spikes) ───────────────────────────────────
-  { id:'BOOM150N',  symbol:'Boom 150',      name:'Boom 150 Index',               cat:'synthetics', sources:['deriv'], derivSym:'BOOM150N'   },
-  { id:'BOOM300N',  symbol:'Boom 300',      name:'Boom 300 Index',               cat:'synthetics', sources:['deriv'], derivSym:'BOOM300N'   },
-  { id:'BOOM500',   symbol:'Boom 500',      name:'Boom 500 Index',               cat:'synthetics', sources:['deriv'], derivSym:'BOOM500'    },
-  { id:'BOOM600',   symbol:'Boom 600',      name:'Boom 600 Index',               cat:'synthetics', sources:['deriv'], derivSym:'BOOM600'    },
-  { id:'BOOM900',   symbol:'Boom 900',      name:'Boom 900 Index',               cat:'synthetics', sources:['deriv'], derivSym:'BOOM900'    },
-  { id:'BOOM1000',  symbol:'Boom 1000',     name:'Boom 1000 Index',              cat:'synthetics', sources:['deriv'], derivSym:'BOOM1000'   },
+  { id:'BOOM150N',  symbol:'Boom 150',      name:'Boom 150 Index',               cat:'synthetics', sources:['unavailable']   },
+  { id:'BOOM300N',  symbol:'Boom 300',      name:'Boom 300 Index',               cat:'synthetics', sources:['unavailable']   },
+  { id:'BOOM500',   symbol:'Boom 500',      name:'Boom 500 Index',               cat:'synthetics', sources:['unavailable']    },
+  { id:'BOOM600',   symbol:'Boom 600',      name:'Boom 600 Index',               cat:'synthetics', sources:['unavailable']    },
+  { id:'BOOM900',   symbol:'Boom 900',      name:'Boom 900 Index',               cat:'synthetics', sources:['unavailable']    },
+  { id:'BOOM1000',  symbol:'Boom 1000',     name:'Boom 1000 Index',              cat:'synthetics', sources:['unavailable']   },
 
   // ── Crash Indices (sudden downward drops) ─────────────────────────────────
-  { id:'CRASH150N', symbol:'Crash 150',     name:'Crash 150 Index',              cat:'synthetics', sources:['deriv'], derivSym:'CRASH150N'  },
-  { id:'CRASH300N', symbol:'Crash 300',     name:'Crash 300 Index',              cat:'synthetics', sources:['deriv'], derivSym:'CRASH300N'  },
-  { id:'CRASH500',  symbol:'Crash 500',     name:'Crash 500 Index',              cat:'synthetics', sources:['deriv'], derivSym:'CRASH500'   },
-  { id:'CRASH600',  symbol:'Crash 600',     name:'Crash 600 Index',              cat:'synthetics', sources:['deriv'], derivSym:'CRASH600'   },
-  { id:'CRASH900',  symbol:'Crash 900',     name:'Crash 900 Index',              cat:'synthetics', sources:['deriv'], derivSym:'CRASH900'   },
-  { id:'CRASH1000', symbol:'Crash 1000',    name:'Crash 1000 Index',             cat:'synthetics', sources:['deriv'], derivSym:'CRASH1000'  },
+  { id:'CRASH150N', symbol:'Crash 150',     name:'Crash 150 Index',              cat:'synthetics', sources:['unavailable']  },
+  { id:'CRASH300N', symbol:'Crash 300',     name:'Crash 300 Index',              cat:'synthetics', sources:['unavailable']  },
+  { id:'CRASH500',  symbol:'Crash 500',     name:'Crash 500 Index',              cat:'synthetics', sources:['unavailable']   },
+  { id:'CRASH600',  symbol:'Crash 600',     name:'Crash 600 Index',              cat:'synthetics', sources:['unavailable']   },
+  { id:'CRASH900',  symbol:'Crash 900',     name:'Crash 900 Index',              cat:'synthetics', sources:['unavailable']   },
+  { id:'CRASH1000', symbol:'Crash 1000',    name:'Crash 1000 Index',             cat:'synthetics', sources:['unavailable']  },
 
   // ── Hybrid Indices (Boom/Crash with fixed 20% volatility layer) ───────────
-  { id:'VOBULL400', symbol:'Vol Boom 400',  name:'Vol over Boom 400 Index',      cat:'synthetics', sources:['deriv'], derivSym:'VOBULL400'  },
-  { id:'VOBULL550', symbol:'Vol Boom 550',  name:'Vol over Boom 550 Index',      cat:'synthetics', sources:['deriv'], derivSym:'VOBULL550'  },
-  { id:'VOBULL750', symbol:'Vol Boom 750',  name:'Vol over Boom 750 Index',      cat:'synthetics', sources:['deriv'], derivSym:'VOBULL750'  },
-  { id:'VOBEAR400', symbol:'Vol Crash 400', name:'Vol over Crash 400 Index',     cat:'synthetics', sources:['deriv'], derivSym:'VOBEAR400'  },
-  { id:'VOBEAR550', symbol:'Vol Crash 550', name:'Vol over Crash 550 Index',     cat:'synthetics', sources:['deriv'], derivSym:'VOBEAR550'  },
-  { id:'VOBEAR750', symbol:'Vol Crash 750', name:'Vol over Crash 750 Index',     cat:'synthetics', sources:['deriv'], derivSym:'VOBEAR750'  },
+  { id:'VOBULL400', symbol:'Vol Boom 400',  name:'Vol over Boom 400 Index',      cat:'synthetics', sources:['unavailable']  },
+  { id:'VOBULL550', symbol:'Vol Boom 550',  name:'Vol over Boom 550 Index',      cat:'synthetics', sources:['unavailable']  },
+  { id:'VOBULL750', symbol:'Vol Boom 750',  name:'Vol over Boom 750 Index',      cat:'synthetics', sources:['unavailable']  },
+  { id:'VOBEAR400', symbol:'Vol Crash 400', name:'Vol over Crash 400 Index',     cat:'synthetics', sources:['unavailable']  },
+  { id:'VOBEAR550', symbol:'Vol Crash 550', name:'Vol over Crash 550 Index',     cat:'synthetics', sources:['unavailable']  },
+  { id:'VOBEAR750', symbol:'Vol Crash 750', name:'Vol over Crash 750 Index',     cat:'synthetics', sources:['unavailable']  },
 
   // ── Jump Indices (sudden jumps ~3x/hour) ──────────────────────────────────
-  { id:'JD10',      symbol:'Jump 10',       name:'Jump 10 Index',                cat:'synthetics', sources:['deriv'], derivSym:'JD10'       },
-  { id:'JD25',      symbol:'Jump 25',       name:'Jump 25 Index',                cat:'synthetics', sources:['deriv'], derivSym:'JD25'       },
-  { id:'JD50',      symbol:'Jump 50',       name:'Jump 50 Index',                cat:'synthetics', sources:['deriv'], derivSym:'JD50'       },
-  { id:'JD75',      symbol:'Jump 75',       name:'Jump 75 Index',                cat:'synthetics', sources:['deriv'], derivSym:'JD75'       },
-  { id:'JD100',     symbol:'Jump 100',      name:'Jump 100 Index',               cat:'synthetics', sources:['deriv'], derivSym:'JD100'      },
+  { id:'JD10',      symbol:'Jump 10',       name:'Jump 10 Index',                cat:'synthetics', sources:['unavailable']       },
+  { id:'JD25',      symbol:'Jump 25',       name:'Jump 25 Index',                cat:'synthetics', sources:['unavailable']       },
+  { id:'JD50',      symbol:'Jump 50',       name:'Jump 50 Index',                cat:'synthetics', sources:['unavailable']       },
+  { id:'JD75',      symbol:'Jump 75',       name:'Jump 75 Index',                cat:'synthetics', sources:['unavailable']       },
+  { id:'JD100',     symbol:'Jump 100',      name:'Jump 100 Index',               cat:'synthetics', sources:['unavailable']      },
 
   // ── Step Indices (fixed step sizes, equal up/down probability) ────────────
-  { id:'stpRNG',    symbol:'Step Index',    name:'Step Index',                   cat:'synthetics', sources:['deriv'], derivSym:'stpRNG'     },
-  { id:'stpRNG2',   symbol:'Step 200',      name:'Step Index 200',               cat:'synthetics', sources:['deriv'], derivSym:'stpRNG2'    },
-  { id:'stpRNG3',   symbol:'Step 300',      name:'Step Index 300',               cat:'synthetics', sources:['deriv'], derivSym:'stpRNG3'    },
-  { id:'stpRNG4',   symbol:'Step 400',      name:'Step Index 400',               cat:'synthetics', sources:['deriv'], derivSym:'stpRNG4'    },
-  { id:'stpRNG5',   symbol:'Step 500',      name:'Step Index 500',               cat:'synthetics', sources:['deriv'], derivSym:'stpRNG5'    },
+  { id:'stpRNG',    symbol:'Step Index',    name:'Step Index',                   cat:'synthetics', sources:['unavailable']     },
+  { id:'stpRNG2',   symbol:'Step 200',      name:'Step Index 200',               cat:'synthetics', sources:['unavailable']    },
+  { id:'stpRNG3',   symbol:'Step 300',      name:'Step Index 300',               cat:'synthetics', sources:['unavailable']    },
+  { id:'stpRNG4',   symbol:'Step 400',      name:'Step Index 400',               cat:'synthetics', sources:['unavailable']    },
+  { id:'stpRNG5',   symbol:'Step 500',      name:'Step Index 500',               cat:'synthetics', sources:['unavailable']    },
 
   // ── Multi-Step Indices (variable step sizes) ──────────────────────────────
-  { id:'MSI2',      symbol:'Multi-Step 2',  name:'Multi Step 2 Index',           cat:'synthetics', sources:['deriv'], derivSym:'MSI2'       },
-  { id:'MSI3',      symbol:'Multi-Step 3',  name:'Multi Step 3 Index',           cat:'synthetics', sources:['deriv'], derivSym:'MSI3'       },
-  { id:'MSI4',      symbol:'Multi-Step 4',  name:'Multi Step 4 Index',           cat:'synthetics', sources:['deriv'], derivSym:'MSI4'       },
+  { id:'MSI2',      symbol:'Multi-Step 2',  name:'Multi Step 2 Index',           cat:'synthetics', sources:['unavailable']       },
+  { id:'MSI3',      symbol:'Multi-Step 3',  name:'Multi Step 3 Index',           cat:'synthetics', sources:['unavailable']       },
+  { id:'MSI4',      symbol:'Multi-Step 4',  name:'Multi Step 4 Index',           cat:'synthetics', sources:['unavailable']       },
 
   // ── Range Break Indices (breaks range every N attempts) ───────────────────
-  { id:'RDBULL100', symbol:'Range Brk 100 Up',   name:'Range Break 100 Up',     cat:'synthetics', sources:['deriv'], derivSym:'RDBULL100'  },
-  { id:'RDBEAR100', symbol:'Range Brk 100 Down',  name:'Range Break 100 Down',  cat:'synthetics', sources:['deriv'], derivSym:'RDBEAR100'  },
-  { id:'RDBULL200', symbol:'Range Brk 200 Up',   name:'Range Break 200 Up',     cat:'synthetics', sources:['deriv'], derivSym:'RDBULL200'  },
-  { id:'RDBEAR200', symbol:'Range Brk 200 Down',  name:'Range Break 200 Down',  cat:'synthetics', sources:['deriv'], derivSym:'RDBEAR200'  },
+  { id:'RDBULL100', symbol:'Range Brk 100 Up',   name:'Range Break 100 Up',     cat:'synthetics', sources:['unavailable']  },
+  { id:'RDBEAR100', symbol:'Range Brk 100 Down',  name:'Range Break 100 Down',  cat:'synthetics', sources:['unavailable']  },
+  { id:'RDBULL200', symbol:'Range Brk 200 Up',   name:'Range Break 200 Up',     cat:'synthetics', sources:['unavailable']  },
+  { id:'RDBEAR200', symbol:'Range Brk 200 Down',  name:'Range Break 200 Down',  cat:'synthetics', sources:['unavailable']  },
 
   // ── DEX Indices (simulate news events — spike or drop) ────────────────────
-  { id:'DEX600UP',  symbol:'DEX 600 Up',    name:'DEX 600 Up Index',             cat:'synthetics', sources:['deriv'], derivSym:'DEX600UP'   },
-  { id:'DEX600DN',  symbol:'DEX 600 Down',  name:'DEX 600 Down Index',           cat:'synthetics', sources:['deriv'], derivSym:'DEX600DN'   },
-  { id:'DEX900UP',  symbol:'DEX 900 Up',    name:'DEX 900 Up Index',             cat:'synthetics', sources:['deriv'], derivSym:'DEX900UP'   },
-  { id:'DEX900DN',  symbol:'DEX 900 Down',  name:'DEX 900 Down Index',           cat:'synthetics', sources:['deriv'], derivSym:'DEX900DN'   },
-  { id:'DEX1500UP', symbol:'DEX 1500 Up',   name:'DEX 1500 Up Index',            cat:'synthetics', sources:['deriv'], derivSym:'DEX1500UP'  },
-  { id:'DEX1500DN', symbol:'DEX 1500 Down', name:'DEX 1500 Down Index',          cat:'synthetics', sources:['deriv'], derivSym:'DEX1500DN'  },
+  { id:'DEX600UP',  symbol:'DEX 600 Up',    name:'DEX 600 Up Index',             cat:'synthetics', sources:['unavailable']   },
+  { id:'DEX600DN',  symbol:'DEX 600 Down',  name:'DEX 600 Down Index',           cat:'synthetics', sources:['unavailable']   },
+  { id:'DEX900UP',  symbol:'DEX 900 Up',    name:'DEX 900 Up Index',             cat:'synthetics', sources:['unavailable']   },
+  { id:'DEX900DN',  symbol:'DEX 900 Down',  name:'DEX 900 Down Index',           cat:'synthetics', sources:['unavailable']   },
+  { id:'DEX1500UP', symbol:'DEX 1500 Up',   name:'DEX 1500 Up Index',            cat:'synthetics', sources:['unavailable']  },
+  { id:'DEX1500DN', symbol:'DEX 1500 Down', name:'DEX 1500 Down Index',          cat:'synthetics', sources:['unavailable']  },
 
   // ── Drift Switch Indices (trend + sideways switching) ─────────────────────
-  { id:'DSIDXS010', symbol:'Drift Sw 10',   name:'Drift Switch 10 Index',        cat:'synthetics', sources:['deriv'], derivSym:'DSIDXS010'  },
-  { id:'DSIDXS020', symbol:'Drift Sw 20',   name:'Drift Switch 20 Index',        cat:'synthetics', sources:['deriv'], derivSym:'DSIDXS020'  },
-  { id:'DSIDXS030', symbol:'Drift Sw 30',   name:'Drift Switch 30 Index',        cat:'synthetics', sources:['deriv'], derivSym:'DSIDXS030'  },
+  { id:'DSIDXS010', symbol:'Drift Sw 10',   name:'Drift Switch 10 Index',        cat:'synthetics', sources:['unavailable']  },
+  { id:'DSIDXS020', symbol:'Drift Sw 20',   name:'Drift Switch 20 Index',        cat:'synthetics', sources:['unavailable']  },
+  { id:'DSIDXS030', symbol:'Drift Sw 30',   name:'Drift Switch 30 Index',        cat:'synthetics', sources:['unavailable']  },
 
   // ── Skew Step Indices (asymmetric step probabilities) ─────────────────────
-  { id:'SKSX80010', symbol:'Skew Step 80/10', name:'Skew Step 80/10 Index',    cat:'synthetics', sources:['deriv'], derivSym:'SKSX80010'  },
-  { id:'SKSX90010', symbol:'Skew Step 90/10', name:'Skew Step 90/10 Index',    cat:'synthetics', sources:['deriv'], derivSym:'SKSX90010'  },
+  { id:'SKSX80010', symbol:'Skew Step 80/10', name:'Skew Step 80/10 Index',    cat:'synthetics', sources:['unavailable']  },
+  { id:'SKSX90010', symbol:'Skew Step 90/10', name:'Skew Step 90/10 Index',    cat:'synthetics', sources:['unavailable']  },
 
   // ════════════════════════════════════════════
   // STOCKS CFD — OANDA primary (US/EU/Asia listed)
@@ -509,309 +509,143 @@ let editingAlertId   = null;
 let userTypingInForm = false;
 let setupMinRR       = null; // minimum R:R ratio chosen in setup form (e.g. 2.0 = 2:1); null = no enforcement
 // altradia — Data Layer
-// Deriv WebSocket connections, price fetchers, formatters
+// OANDA REST polling, price fetchers, formatters.
+// Deriv WebSocket has been retired (registered app_id is no longer valid;
+// the account that owned it was removed). Synthetics and Deriv-exclusive
+// forex pairs are listed in the asset library but greyed out as 'NO BROKER'.
 
 
 // ═══════════════════════════════════════════════
-// DERIV WEBSOCKET — real-time price ticks
-// Connects once, subscribes to all active assets.
-// Falls back gracefully if unavailable.
+// DERIV WS — RETIRED
+// These globals and stub functions are kept solely so that any leftover
+// callers in the codebase don't ReferenceError. They do nothing.
+// All real price fetching goes through fetchOandaSnapshot below.
 // ═══════════════════════════════════════════════
-// Two Deriv WS connections to stay within ~50 subscription limit per connection
-// ws1 = forex, commodities, watchlist assets, hot list
-// ws2 = synthetics (they need their own connection for volume)
-let derivWs     = null;   // primary — forex, commodities, indices, watchlist
-let derivWs2    = null;   // secondary — synthetic indices only
+let derivWs     = null;
+let derivWs2    = null;
 let derivReady  = false;
 let derivReady2 = false;
-let derivRetryTimer  = null;
-let derivRetryTimer2 = null;
+const _conn1 = { ws: null, ready: false, timer: null };
+const _conn2 = { ws: null, ready: false, timer: null };
 
-function resubscribeAllDeriv() {
-  // Subscribe watchlist + selected asset + active-alert assets. Matches
-  // connectDeriv's inclusion list so re-subscribes don't drop alert feeds.
-  if (_conn1.ready && _conn1.ws && _conn1.ws.readyState === WebSocket.OPEN) {
-    const watchlistAssets = Object.values(ASSETS).flat();
-    const selectedArr = selectedAsset && !watchlistAssets.some(a => a.id === selectedAsset.id)
-      ? [selectedAsset] : [];
-    const alertAssetIds = new Set(
-      (alerts || [])
-        .filter(a => a.status === 'active')
-        .map(a => a.assetId)
-    );
-    const alertAssets = [...alertAssetIds]
-      .map(id => ASSET_BY_ID.get(id))
-      .filter(Boolean);
-    const baseSyms = ['frxEURUSD','frxGBPUSD','frxUSDJPY','frxAUDUSD','frxUSDCAD'];
-    const nonSynthSyms = [
-      ...new Set([
-        ...[...watchlistAssets, ...selectedArr, ...alertAssets]
-          .filter(a => a.derivSym && a.cat !== 'synthetics')
-          .map(a => a.derivSym),
-        ...baseSyms,
-      ])
-    ];
-    nonSynthSyms.forEach(sym => _conn1.ws.send(JSON.stringify({ ticks: sym, subscribe: 1 })));
-    derivReady = true;
-  }
-  // Conn 2: always covers all synthetics — already subscribed on connect
-  if (_conn2.ws && _conn2.ws.readyState === WebSocket.OPEN) {
-    derivReady2 = true;
-  };
-}
+// No-op stubs — these used to open WebSockets and subscribe to ticks.
+// Now they simply return so that any old call sites are harmless.
+function connectDeriv()           { /* retired */ }
+function connectDerivSynthetics() { /* retired */ }
+function resubscribeAllDeriv()    { /* retired */ }
+function subscribeDerivAsset(_)   { /* retired */ }
 
-// ── Managed Deriv WS connection factory ─────────────────────────────────
-function makeDerivWS(symbols, retryRef) {
-  if (!symbols.length) return null;
-  const ws = new WebSocket("wss://ws.derivws.com/websockets/v3?app_id=" + DERIV_APP_ID);
-  ws.onopen = () => {
-    // Subscribe in batches of 25
-    for (let i = 0; i < symbols.length; i += 25) {
-      const batch = symbols.slice(i, i + 25);
-      batch.forEach(sym => ws.send(JSON.stringify({ ticks: sym, subscribe: 1 })));
-    }
-    // Also request last-price snapshot for each symbol so price shows immediately
-    // without waiting for the first natural tick
-    symbols.forEach((sym, i) => {
-      setTimeout(() => {
-        if (ws.readyState !== WebSocket.OPEN) return;
-        ws.send(JSON.stringify({ ticks_history: sym, end: 'latest', count: 1, style: 'ticks' }));
-      }, Math.floor(i / 20) * 200); // stagger in batches of 20
-    });
-    if (retryRef) retryRef.ready = true;
-    _noteDerivWsSuccess();
-    setStatusPill(true);
-  };
-  ws.onmessage = (evt) => {
+// Tracks consecutive Deriv failures — kept as a vestige so existing UI code
+// that reads it doesn't crash. Always remains in the "blocked" state since
+// Deriv is permanently retired in this build.
+let _derivWsFailCount = 999;
+let _derivWsBlocked   = true;
+function _noteDerivWsFail()    { /* no-op */ }
+function _noteDerivWsSuccess() { /* no-op */ }
+
+// ═══════════════════════════════════════════════
+// OANDA REST — batched snapshot prices
+// One HTTP call returns bid/ask for up to 50 instruments at once.
+// We compute mid price and update priceData for each. The selected asset
+// panel is refreshed immediately so "Price loading…" never persists.
+//
+// Live price freshness: OANDA's pricing engine is updated continuously
+// internally; the price returned by /pricing is current to the moment of
+// the call. With a 2s polling cycle the UI feels indistinguishable from
+// a WebSocket feed for trade-alert purposes.
+// ═══════════════════════════════════════════════
+async function fetchOandaSnapshot(assets) {
+  if (!OANDA_KEY || !assets.length) return;
+
+  // OANDA recommends keeping batches reasonable. 50 instruments per call is
+  // safely under any soft limits and keeps URL length manageable.
+  const CHUNK = 50;
+  const chunks = [];
+  for (let i = 0; i < assets.length; i += CHUNK) chunks.push(assets.slice(i, i + CHUNK));
+
+  await Promise.all(chunks.map(async chunk => {
+    const instruments = chunk.map(a => a.oandaSym).filter(Boolean).join(',');
+    if (!instruments) return;
     try {
-      const msg = JSON.parse(evt.data);
-
-      // Last-price snapshot (ticks_history count:1) — sets initial price immediately
-      if (msg.msg_type === 'history' && msg.history?.prices?.length) {
-        const sym   = msg.echo_req?.ticks_history;
-        const asset = sym ? ASSET_BY_DERIV.get(sym) : null;
-        if (asset) {
-          const price = parseFloat(msg.history.prices[msg.history.prices.length - 1]);
-          if (price && !priceData[asset.id]?.price) {
-            priceData[asset.id] = {
-              price, change: '0.0000', high: price, low: price,
-              open: price, vol: '—', mcap: '—', live: true, src: 'deriv',
-            };
-            prices[asset.id] = price;
-            // Refresh the panel immediately when the selected asset's price first arrives
-            if (selectedAsset && selectedAsset.id === asset.id) {
-              refreshSelectedAssetPanel();
-            }
-          }
+      const res = await fetch(
+        `${OANDA_BASE}/accounts/${OANDA_ACCOUNT}/pricing?instruments=${instruments}`,
+        { headers: { 'Authorization': `Bearer ${OANDA_KEY}` } }
+      );
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          console.warn(`[oanda] auth failure HTTP ${res.status} — check OANDA_KEY`);
         }
         return;
       }
-
-      // Live tick updates
-      if (msg.msg_type === 'tick' && msg.tick) {
-        const sym   = msg.tick.symbol;
-        const asset = ASSET_BY_DERIV.get(sym);
+      const data = await res.json();
+      (data.prices || []).forEach(p => {
+        const asset = ASSET_BY_OANDA.get(p.instrument);
         if (!asset) return;
-        const newPrice = parseFloat(msg.tick.quote);
-        if (!newPrice) return;
+        const bid = parseFloat(p.bids?.[0]?.price || 0);
+        const ask = parseFloat(p.asks?.[0]?.price || 0);
+        const price = (bid + ask) / 2;
+        if (!price || !isFinite(price)) return;
         const prev = priceData[asset.id];
         priceData[asset.id] = {
-          price:  newPrice,
-          change: prev && prev.open ? (((newPrice - prev.open) / prev.open) * 100).toFixed(4) : '0.0000',
-          high:   prev && prev.high ? Math.max(prev.high, newPrice) : newPrice,
-          low:    prev && prev.low  ? Math.min(prev.low,  newPrice) : newPrice,
-          open:   (prev && prev.open) || newPrice,
-          lastClose: prev?.lastClose || newPrice, // preserve candle close from chart data
-          vol: '—', mcap: '—', live: true, src: 'deriv',
+          price,
+          change:    prev?.open ? (((price - prev.open) / prev.open) * 100).toFixed(4) : '0.0000',
+          high:      prev?.high  ? Math.max(prev.high, price) : price,
+          low:       prev?.low   ? Math.min(prev.low,  price) : price,
+          open:      prev?.open  || price,
+          // lastClose carries forward from chart candles; OANDA mid is a good approximation
+          lastClose: prev?.lastClose || price,
+          vol:       '—', mcap: '—', live: true, src: 'oanda',
         };
-        prices[asset.id] = newPrice;
+        prices[asset.id] = price;
 
-        // If this tick is for the currently viewed asset:
-        // 1. Update the note text with new price
-        // 2. Move the live price line on the chart
-        // 3. Update the forming (last) candle's close so chart moves in real time
+        // Update the selected-asset panel immediately when this asset's price arrives.
+        // Without this, "Price loading…" would persist until the whole batch resolves.
         if (selectedAsset && selectedAsset.id === asset.id) {
           refreshSelectedAssetPanel();
-          // Move live price line
-          if (lwLivePriceLine && lwSeries) {
-            try {
-              lwSeries.removePriceLine(lwLivePriceLine);
-              lwLivePriceLine = lwSeries.createPriceLine({
-                price:            newPrice,
-                color:            'rgba(0,212,255,0.85)',
-                lineWidth:        1,
-                lineStyle:        0,
-                axisLabelVisible: true,
-                title:            '',
-              });
-            } catch(e) {}
-          }
-          // Update the forming candle so the rightmost candle moves live
+        }
+
+        // Drive the live price line on the chart for the currently viewed asset
+        // so it tracks the OANDA mid in real time across each polling cycle.
+        if (selectedAsset && selectedAsset.id === asset.id && lwLivePriceLine && lwSeries) {
+          try {
+            lwSeries.removePriceLine(lwLivePriceLine);
+            lwLivePriceLine = lwSeries.createPriceLine({
+              price,
+              color:            'rgba(0,212,255,0.85)',
+              lineWidth:        1,
+              lineStyle:        0,
+              axisLabelVisible: true,
+              title:            '',
+            });
+          } catch(e) {}
+          // Update the forming candle's close so the rightmost candle moves.
           if (lwLiveCandle && lwSeries) {
             try {
-              lwLiveCandle.close = newPrice;
-              lwLiveCandle.high  = Math.max(lwLiveCandle.high, newPrice);
-              lwLiveCandle.low   = Math.min(lwLiveCandle.low,  newPrice);
+              lwLiveCandle.close = price;
+              lwLiveCandle.high  = Math.max(lwLiveCandle.high, price);
+              lwLiveCandle.low   = Math.min(lwLiveCandle.low,  price);
               lwSeries.update(lwLiveCandle);
             } catch(e) {}
           }
         }
-        // Refresh strength tab live on forex ticks
-        if (asset.cat === 'forex') _refreshStrengthIfOpen();
 
-        // ── Real-time alert check on every live tick ──────────────────────
-        // zone/above/below/tap: checked on EVERY tick — no throttle.
-        //   Alerts fire the instant price crosses the level.
-        // setup alerts: throttled to 2s per asset to reduce DB write load.
-        const _tickNow = Date.now();
-        const _nowDate = new Date(_tickNow);
+        // Run frontend-side alert checks against this newly-arrived price.
+        // checkAlerts() runs after all batches resolve too, but doing this
+        // per-asset means alerts on the just-updated asset fire immediately.
+        const _now = Date.now();
+        const _nowDate = new Date(_now);
         if (isMarketOpenForAsset(asset.id, _nowDate)) {
-          const _setupThrottleKey = 'lastSetupCheck_' + asset.id;
-          const _setupAllowed = !window[_setupThrottleKey] || (_tickNow - window[_setupThrottleKey]) >= 2000;
-          alerts.forEach(al => {
+          (alerts || []).forEach(al => {
             if (al.status !== 'active' || al.assetId !== asset.id) return;
-            if (al.condition === 'setup') {
-              // Throttle setup checks to 2s — reduces DB writes
-              if (_setupAllowed) checkSetupLevels(al, newPrice);
-            } else {
-              // zone/above/below/tap: fire on EVERY tick — no throttle
-              checkSingleAlert(al, newPrice, _tickNow, _nowDate);
-            }
+            if (al.condition === 'setup') checkSetupLevels(al, price);
+            else                          checkSingleAlert(al, price, _now, _nowDate);
           });
-          if (_setupAllowed) window[_setupThrottleKey] = _tickNow;
+          // Refresh the strength tab if it depends on this currency pair
+          if (asset.cat === 'forex') _refreshStrengthIfOpen();
         }
-      }
-
-      // Route candle responses to whoever requested them
-      if (msg.msg_type === 'candles' || msg.candles) {
-        const reqId = msg.req_id || msg.echo_req?.req_id;
-        // Strength meter requests use 'cs_*' req_ids
-        if (reqId && typeof reqId === 'string' && reqId.startsWith('cs_')) {
-          const cb = _csPendingReqs.get(reqId);
-          if (cb) { _csPendingReqs.delete(reqId); cb(msg); }
-        } else {
-          // Chart OHLC requests route to their callback system
-          handleDerivOHLCMsg(msg, null);
-        }
-      }
-    } catch(e) {}
-  };
-  ws.onclose = (e) => {
-    if (retryRef) retryRef.ready = false;
-    if (e.code !== 1000 && retryRef) {
-      retryRef.timer = setTimeout(() => {
-        retryRef.ws = makeDerivWS(symbols, retryRef);
-      }, 10000);
-    }
-  };
-  ws.onerror = () => { _noteDerivWsFail(); try { ws.close(); } catch(err) {} };
-  return ws;
-}
-
-const _conn1 = { ws: null, ready: false, timer: null };
-const _conn2 = { ws: null, ready: false, timer: null };
-
-function connectDeriv() {
-  // Subscribe to watchlist assets + currently selected asset + any assets
-  // with an active alert. Without the alert-asset inclusion, alerts set on
-  // assets not in the watchlist receive no live ticks and only get checked
-  // by the every-60s edge function — causing late/missed triggers.
-  const watchlistAssets = Object.values(ASSETS).flat();
-  const selectedArr = selectedAsset && !watchlistAssets.some(a => a.id === selectedAsset.id)
-    ? [selectedAsset] : [];
-  // Pull all unique asset IDs that currently have an active alert, then
-  // resolve them to catalogue entries. Filter out anything we can't look up.
-  const alertAssetIds = new Set(
-    (alerts || [])
-      .filter(a => a.status === 'active')
-      .map(a => a.assetId)
-  );
-  const alertAssets = [...alertAssetIds]
-    .map(id => ASSET_BY_ID.get(id))
-    .filter(Boolean);
-  const toSubscribe = [...watchlistAssets, ...selectedArr, ...alertAssets]
-    .filter(a => a.derivSym && a.cat !== 'synthetics');
-  // Always include a base set of major pairs even if watchlist is empty
-  const baseSyms = ['frxEURUSD','frxGBPUSD','frxUSDJPY','frxAUDUSD','frxUSDCAD'];
-  const nonSynthSyms = [
-    ...new Set([
-      ...toSubscribe.map(a => a.derivSym),
-      ...baseSyms,
-    ])
-  ];
-
-  if (!_conn1.ws || _conn1.ws.readyState > 1) {
-    clearTimeout(_conn1.timer);
-    _conn1.ws = makeDerivWS(nonSynthSyms, _conn1);
-    derivWs   = _conn1.ws;
-  }
-
-  // Connection 2: synthetic indices (separate — high subscription volume)
-  const synthSyms = ALL_ASSETS
-    .filter(a => a.cat === 'synthetics' && a.derivSym)
-    .map(a => a.derivSym);
-
-  if (!_conn2.ws || _conn2.ws.readyState > 1) {
-    clearTimeout(_conn2.timer);
-    _conn2.ws = makeDerivWS(synthSyms, _conn2);
-    derivWs2  = _conn2.ws;
-  }
-}
-
-function connectDerivSynthetics() {
-  const synthSyms = ALL_ASSETS
-    .filter(a => a.cat === 'synthetics' && a.derivSym)
-    .map(a => a.derivSym);
-  if (!_conn2.ws || _conn2.ws.readyState > 1) {
-    clearTimeout(_conn2.timer);
-    _conn2.ws = makeDerivWS(synthSyms, _conn2);
-    derivWs2  = _conn2.ws;
-  }
-}
-
-function subscribeDerivAsset(asset) {
-  if (!asset.derivSym) return;
-  const conn  = asset.cat === 'synthetics' ? _conn2 : _conn1;
-  if (conn.ready && conn.ws && conn.ws.readyState === WebSocket.OPEN) {
-    conn.ws.send(JSON.stringify({ ticks: asset.derivSym, subscribe: 1 }));
-  }
-}
-
-// ═══════════════════════════════════════════════
-// OANDA REST — snapshot prices (when key provided)
-// Batch call — one request for all OANDA symbols.
-// ═══════════════════════════════════════════════
-async function fetchOandaSnapshot(assets) {
-  if (!OANDA_KEY || !assets.length) return;
-  const instruments = assets.map(a => a.oandaSym).filter(Boolean).join(',');
-  if (!instruments) return;
-  try {
-    const res = await fetch(`${OANDA_BASE}/accounts/${OANDA_ACCOUNT}/pricing?instruments=${instruments}`, {
-      headers: { 'Authorization': `Bearer ${OANDA_KEY}` }
-    });
-    if (!res.ok) return;
-    const data = await res.json();
-    (data.prices || []).forEach(p => {
-      const asset = ASSET_BY_OANDA.get(p.instrument);
-      if (!asset) return;
-      const bid   = parseFloat(p.bids?.[0]?.price  || 0);
-      const ask   = parseFloat(p.asks?.[0]?.price  || 0);
-      const price = (bid + ask) / 2;
-      if (!price) return;
-      const prev = priceData[asset.id];
-      priceData[asset.id] = {
-        price,
-        change:    prev?.open ? (((price - prev.open) / prev.open) * 100).toFixed(4) : '0.0000',
-        high:      prev?.high  ? Math.max(prev.high, price) : price,
-        low:       prev?.low   ? Math.min(prev.low,  price) : price,
-        open:      prev?.open  || price,
-        // lastClose: carry forward from chart candles; OANDA mid = good approximation
-        lastClose: prev?.lastClose || price,
-        vol:       '—', mcap: '—', live: true, src: 'oanda',
-      };
-      prices[asset.id] = price;
-    });
-  } catch(e) { console.warn('OANDA snapshot failed:', e); }
+      });
+    } catch(e) { console.warn('OANDA snapshot batch failed:', e); }
+  }));
 }
 
 // ═══════════════════════════════════════════════
@@ -889,25 +723,8 @@ const CS_DERIV_SYM = {
 let _csPrices = {};
 let _csPricesFetchedAt = 0;
 
-// Tracks consecutive Deriv WS connection failures — when Deriv is ISP-blocked,
-// we skip the WS path entirely for Strength to avoid 15s waits.
-let _derivWsFailCount = 0;
-let _derivWsBlocked   = false;
-function _noteDerivWsFail() {
-  _derivWsFailCount++;
-  if (_derivWsFailCount >= 3) {
-    _derivWsBlocked = true;
-    console.warn('[Deriv] WS appears blocked on this network after 3 failures — REST fallbacks will be used');
-  }
-}
-function _noteDerivWsSuccess() {
-  _derivWsFailCount = 0;
-  _derivWsBlocked   = false;
-}
-
-// Fetch prices for all 28 pairs via Deriv one-shot WS (count:2 gives current + 1 bar for open)
-// Pending strength fetch callbacks, keyed by req_id
-const _csPendingReqs = new Map();
+// Note: _derivWsFailCount, _derivWsBlocked, _noteDerivWsFail, _noteDerivWsSuccess
+// are declared above as retired stubs — do not redeclare here.
 
 // REST fallback via Frankfurter API — ECB-backed, free, no key, rarely blocked
 // Used when Deriv WebSocket is unavailable (ISP-blocked, firewall, etc.)
@@ -995,10 +812,11 @@ async function fetchStrengthPrices() {
   // (leaving _csPrices empty) should not block retries for 60 seconds.
   if (now - _csPricesFetchedAt < 60000 && Object.keys(_csPrices).length >= 14) return;
 
-  // Try Deriv WS first; if that yields insufficient data, fall back to REST.
-  await fetchStrengthPricesWs();
+  // Try OANDA H1 candles first (real intraday momentum); fall back to
+  // Frankfurter ECB daily fixings if OANDA is unreachable or rate-limited.
+  await fetchStrengthPricesOanda();
   if (Object.keys(_csPrices).length < 14) {
-    console.log('[Strength] Deriv WS only got', Object.keys(_csPrices).length, '— falling back to REST');
+    console.log('[Strength] OANDA only got', Object.keys(_csPrices).length, '— falling back to Frankfurter');
     await fetchStrengthPricesRest();
   }
   // Only mark the timestamp on a successful fetch so failed attempts can retry.
@@ -1007,130 +825,43 @@ async function fetchStrengthPrices() {
   }
 }
 
-async function fetchStrengthPricesWs() {
-  const pairs = Object.keys(CS_DERIV_SYM);
+async function fetchStrengthPricesOanda() {
+  const pairs = Object.keys(CS_DERIV_SYM); // we still use this list of 28 pair IDs
+  // Map pair ID like 'EUR/USD' to OANDA instrument 'EUR_USD'.
+  // CS_DERIV_SYM contains entries like { 'EUR/USD': 'frxEURUSD' } — we just need
+  // the pair ID; the OANDA symbol is a simple substring transform.
+  const toOandaSym = (pairId) => pairId.replace('/', '_');
 
-  // Use the app's existing persistent Deriv WS (_conn1.ws) — already connected,
-  // already proven to work for tick streaming. Fall back to a one-shot WS only if needed.
-  const persistentWs = (_conn1.ws && _conn1.ws.readyState === WebSocket.OPEN) ? _conn1.ws : null;
-
-  // If no persistent WS and we know Deriv is blocked (recent connection failures),
-  // skip the WS attempt entirely to avoid 15s delay
-  if (!persistentWs && _derivWsBlocked) {
-    console.log('[Strength] Skipping WS — Deriv is blocked on this network');
-    return;
-  }
-
-  return new Promise(resolve => {
-    let resolved = false;
-    const doResolve = () => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-        // Clean up any pending callbacks for this batch
-        pairs.forEach(pairId => _csPendingReqs.delete('cs_' + CS_DERIV_SYM[pairId]));
-        resolve();
-      }
-    };
-
-    let received = 0;
-    const handleResponse = (pairId, openPx, closePx) => {
-      if (openPx && closePx) {
-        _csPrices[pairId] = { price: closePx, open: openPx };
-      }
-      received++;
-      if (received >= pairs.length) doResolve();
-    };
-
-    // Register a callback for each pair
-    pairs.forEach(pairId => {
-      const reqId = 'cs_' + CS_DERIV_SYM[pairId];
-      _csPendingReqs.set(reqId, (msg) => {
-        let openPx = null, closePx = null;
-        if (msg.candles?.length > 0) {
-          openPx  = parseFloat(msg.candles[0].open);
-          closePx = parseFloat(msg.candles[msg.candles.length - 1].close);
-        } else if (msg.history?.prices?.length > 0) {
-          const px = msg.history.prices;
-          openPx  = parseFloat(px[0]);
-          closePx = parseFloat(px[px.length - 1]);
-        }
-        handleResponse(pairId, openPx, closePx);
+  const fetchOne = async (pairId) => {
+    const oandaSym = toOandaSym(pairId);
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      // 2x H1 candles: [t-1h, current]. open of [0] vs close of [1] gives us
+      // hourly momentum — same shape Deriv WS returned.
+      const url = `${OANDA_BASE}/instruments/${oandaSym}/candles?granularity=H1&count=2&price=M`;
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${OANDA_KEY}` },
+        signal: ctrl.signal,
       });
-    });
-
-    const timeout = setTimeout(() => {
-      console.warn('[Strength] Timeout. Loaded', Object.keys(_csPrices).length, '/ 28');
-      doResolve();
-    }, 12000);
-
-    // If persistent WS is available, use it
-    if (persistentWs) {
-      console.log('[Strength] Using persistent WS for candle fetch');
-      pairs.forEach((pairId, i) => {
-        setTimeout(() => {
-          if (persistentWs.readyState !== WebSocket.OPEN) return;
-          persistentWs.send(JSON.stringify({
-            ticks_history:     CS_DERIV_SYM[pairId],
-            style:             'candles',
-            granularity:       3600,
-            count:             2,
-            end:               'latest',
-            adjust_start_time: 1,
-            req_id:            'cs_' + CS_DERIV_SYM[pairId],
-          }));
-        }, i * 30);
-      });
-    } else {
-      // Fallback: open a dedicated one-shot WS
-      console.log('[Strength] Persistent WS unavailable — opening one-shot');
-      try {
-        const ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}`);
-        ws.onopen = () => {
-          pairs.forEach((pairId, i) => {
-            setTimeout(() => {
-              if (ws.readyState !== WebSocket.OPEN) return;
-              ws.send(JSON.stringify({
-                ticks_history:     CS_DERIV_SYM[pairId],
-                style:             'candles',
-                granularity:       3600,
-                count:             2,
-                end:               'latest',
-                adjust_start_time: 1,
-              }));
-            }, i * 30);
-          });
-        };
-        ws.onmessage = (evt) => {
-          try {
-            const msg = JSON.parse(evt.data);
-            const sym = msg.echo_req?.ticks_history;
-            const pairId = pairs.find(id => CS_DERIV_SYM[id] === sym);
-            if (!pairId) return;
-            let openPx = null, closePx = null;
-            if (msg.candles?.length > 0) {
-              openPx  = parseFloat(msg.candles[0].open);
-              closePx = parseFloat(msg.candles[msg.candles.length - 1].close);
-            } else if (msg.history?.prices?.length > 0) {
-              const px = msg.history.prices;
-              openPx  = parseFloat(px[0]);
-              closePx = parseFloat(px[px.length - 1]);
-            }
-            if (openPx && closePx) {
-              _csPrices[pairId] = { price: closePx, open: openPx };
-            }
-            received++;
-            if (received >= pairs.length) { try { ws.close(); } catch(e) {} doResolve(); }
-          } catch(e) {}
-        };
-        ws.onerror = () => { console.warn('[Strength] One-shot WS error'); doResolve(); };
-        ws.onclose = () => { doResolve(); };
-      } catch(e) {
-        console.warn('[Strength] WS open failed:', e);
-        doResolve();
-      }
+      clearTimeout(t);
+      if (!res.ok) return;
+      const data = await res.json();
+      const candles = data?.candles || [];
+      if (candles.length < 1) return;
+      const openPx  = parseFloat(candles[0].mid?.o || '0');
+      const closePx = parseFloat(candles[candles.length - 1].mid?.c || '0');
+      if (!openPx || !closePx || !isFinite(openPx) || !isFinite(closePx)) return;
+      _csPrices[pairId] = { price: closePx, open: openPx };
+    } catch(e) {
+      clearTimeout(t);
+      // AbortError on timeout is expected; don't spam logs.
     }
-  });
+  };
+
+  // Fire all 28 in parallel — OANDA permits this and it keeps total wait < 1s.
+  await Promise.all(pairs.map(fetchOne));
+  console.log('[Strength] OANDA loaded', Object.keys(_csPrices).length, '/ 28 pairs');
 }
 
 // Stored previous prices for momentum (filled on first calc, updated each calc)
@@ -1544,8 +1275,9 @@ async function fetchCryptoPrices(assets) {
 
 // ═══════════════════════════════════════════════
 // MAIN FETCH — orchestrates all broker sources
-// Deriv WebSocket handles real-time ticks.
-// This REST fetch fills initial prices + OHLC.
+// OANDA REST is polled every cycle for forex/metals/indices/commodities/stocks.
+// Crypto is polled separately via CoinGecko.
+// Synthetics and Deriv-exclusive forex are skipped (no broker support).
 // ═══════════════════════════════════════════════
 async function fetchAllPrices() {
   // Collect all assets currently needed: watchlist + currently selected asset
@@ -1553,28 +1285,30 @@ async function fetchAllPrices() {
   // Always include the currently selected asset so "Price loading…" resolves
   // even when the user views an asset that isn't in their watchlist yet
   if (selectedAsset) watchedIds.add(selectedAsset.id);
+  // Include any asset with an active alert — frontend-side alert checks
+  // need fresh prices for these even when not on the visible watchlist.
+  (alerts || []).forEach(a => { if (a.status === 'active') watchedIds.add(a.assetId); });
   const allNeeded  = [...watchedIds].map(id => ASSET_BY_ID.get(id)).filter(Boolean);
 
-  // CoinGecko: ALL crypto assets needed
+  // CoinGecko: crypto assets
   const cgAssets = allNeeded.filter(a => a.sources?.includes('coingecko'));
 
-  // Deriv REST snapshots for forex/indices/commodities/synthetics
-  const derivAssets = allNeeded.filter(a =>
-    a.derivSym && !a.sources?.includes('coingecko')
+  // OANDA: anything with an oandaSym that's NOT marked unavailable
+  // (forex/metals/indices/commodities/stocks). We exclude 'unavailable'
+  // assets so we don't waste calls on synthetics or USD/NGN-style pairs.
+  const oandaAssets = allNeeded.filter(a =>
+    a.oandaSym && a.sources?.[0] !== 'unavailable' && !a.sources?.includes('coingecko')
   );
 
   const promises = [
-    cgAssets.length ? fetchCryptoPrices(cgAssets) : Promise.resolve(),
+    cgAssets.length    ? fetchCryptoPrices(cgAssets)    : Promise.resolve(),
+    oandaAssets.length ? fetchOandaSnapshot(oandaAssets) : Promise.resolve(),
   ];
-
-  if (derivAssets.length) {
-    promises.push(fetchDerivSnapshots(derivAssets));
-  }
 
   await Promise.all(promises);
 
   // Update the asset panel immediately after prices arrive so "Price loading…"
-  // is replaced as soon as data is ready — not just on the 8s render tick
+  // is replaced as soon as data is ready
   refreshSelectedAssetPanel();
   checkAlerts();
   updateSessionDisplay();
@@ -1583,78 +1317,6 @@ async function fetchAllPrices() {
   // Refresh strength tab if open (uses prices we just fetched)
   _refreshStrengthIfOpen();
 }
-
-// Fetch last tick price for each Deriv asset via one-shot WS calls (batched)
-async function fetchDerivSnapshots(assets) {
-  if (!assets.length) return;
-  // Use a single one-shot WS and batch all requests
-  return new Promise(resolve => {
-    // Use unique symbols as the unit of tracking — avoids mismatch if any assets
-    // share a derivSym, which would cause pending to never reach 0.
-    const _pendingSyms = new Set(assets.map(a => a.derivSym).filter(Boolean));
-    let pending = _pendingSyms.size;
-    if (pending === 0) { resolve(); return; }
-
-    const done = () => { if (--pending <= 0) { clearTimeout(timeout); resolve(); } };
-    const timeout = setTimeout(resolve, 8000); // 8s max wait
-
-    try {
-      const ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}`);
-      ws.onopen = () => {
-        assets.forEach(a => {
-          if (!a.derivSym) return;
-          ws.send(JSON.stringify({
-            ticks_history: a.derivSym,
-            end: 'latest', count: 1, style: 'ticks',
-          }));
-        });
-      };
-
-      ws.onmessage = (evt) => {
-        try {
-          const msg = JSON.parse(evt.data);
-          const sym = msg.echo_req?.ticks_history;
-          // Only process responses to our own requests; ignore pings/echoes/acks
-          if (!sym || !_pendingSyms.has(sym)) return;
-          _pendingSyms.delete(sym); // prevent double-counting duplicate responses
-
-          if (msg.history?.prices?.length) {
-            const asset = ASSET_BY_DERIV.get(sym);
-            if (asset) {
-              const price = parseFloat(msg.history.prices[msg.history.prices.length - 1]);
-              if (price) {
-                const prev = priceData[asset.id];
-                if (!prev?.price || prev.src === 'deriv_snap') {
-                  priceData[asset.id] = {
-                    price,
-                    change:    prev?.open ? (((price - prev.open) / prev.open) * 100).toFixed(4) : '0.0000',
-                    high:      prev?.high ? Math.max(prev.high, price) : price,
-                    low:       prev?.low  ? Math.min(prev.low,  price) : price,
-                    open:      prev?.open || price,
-                    lastClose: prev?.lastClose || price,
-                    vol: '—', mcap: '—', live: true, src: 'deriv_snap',
-                  };
-                  prices[asset.id] = price;
-                  // If this is the currently selected asset, refresh the panel immediately
-                  // so "Price loading…" disappears as soon as this asset's tick arrives
-                  // rather than waiting for ALL assets to complete
-                  if (selectedAsset && selectedAsset.id === asset.id) {
-                    refreshSelectedAssetPanel();
-                  }
-                }
-              }
-            }
-          }
-          done(); // counts down only for our own requests, success or error
-        } catch(e) { done(); }
-      };
-      ws.onerror = () => { clearTimeout(timeout); resolve(); };
-      ws.onclose = () => {};
-      const closeTimer = setTimeout(() => { try { ws.close(); } catch(e) {} }, 7000);
-    } catch(e) { resolve(); }
-  });
-}
-
 
 // Format a triggeredAt value (ISO string, timestamp, or locale string) → readable time
 function formatTriggeredAt(val) {
@@ -2072,13 +1734,10 @@ function selectAsset(asset) {
   // Remember last viewed asset for next app open
   try { localStorage.setItem('altradia_last_asset', asset.id); } catch(e) {}
 
-  // Subscribe this asset's ticks immediately if not already on watchlist
-  // so the chart and form get live prices without waiting for next resubscribe cycle
-  if (asset.derivSym && asset.cat !== 'synthetics') {
-    if (_conn1.ws && _conn1.ws.readyState === WebSocket.OPEN) {
-      _conn1.ws.send(JSON.stringify({ ticks: asset.derivSym, subscribe: 1 }));
-    }
-  }
+  // (Deriv tick subscription removed — OANDA snapshot polling drives the
+  // selected asset's price line and forming candle. fetchAllPrices() includes
+  // selectedAsset in its fetch set, so the next poll cycle picks this up.)
+
 
 
   // Reset price input so it pre-fills with new asset's price
@@ -2522,48 +2181,32 @@ async function fetchOHLC(asset, tf) {
 
   // ── Crypto path ──────────────────────────────────────────────────────────
   if (asset.cat === 'crypto' || BINANCE_SYMBOL[asset.id]) {
-    // Race Binance (direct + proxy) against Deriv CFD in parallel
-    // First valid response wins — eliminates sequential timeout waits
+    // Race Binance direct vs proxied. First valid response wins.
     const racers = [];
-
     if (BINANCE_SYMBOL[asset.id]) {
-      // Direct Binance
       racers.push(fetchBinanceOHLC(asset.id, cfg, tf, false));
-      // Proxied Binance (slight delay so direct gets priority)
       racers.push(
         new Promise(r => setTimeout(r, 300))
           .then(() => fetchBinanceOHLC(asset.id, cfg, tf, true))
       );
     }
-
-    // Deriv CFD for BTC/ETH/SOL/XRP/DOGE/ADA/LTC
-    if (asset.derivSym) {
-      racers.push(fetchDerivOHLC(asset.derivSym, cfg));
-    }
-
     if (racers.length) {
-      // Use Promise.any — resolves with first non-null result
       const d = await raceForData(racers);
       if (d && d.length) return d;
     }
-
-    // Last resort: CoinGecko OHLC (30min/4H/1D granularity only)
+    // Last resort: CoinGecko OHLC
     if (asset.cgId) {
       const d = await fetchCoinGeckoOHLC(asset, cfg, tf);
       if (d && d.length) return d;
     }
-
     return null;
   }
 
-  // ── Forex / commodities / synthetics / indices → Deriv WebSocket ─────────
-  if (asset.derivSym) {
-    const d = await fetchDerivOHLC(asset.derivSym, cfg);
-    if (d && d.length) return d;
-  }
-
-  // ── Stocks CFD → OANDA ───────────────────────────────────────────────────
-  if (OANDA_KEY && asset.oandaSym) {
+  // ── Forex / metals / indices / commodities / stocks → OANDA ───────────────
+  // OANDA covers everything that has an oandaSym in our catalogue. For assets
+  // marked 'unavailable' (synthetics, USD/NGN, etc.) we return null and the
+  // chart shows "No chart data available".
+  if (OANDA_KEY && asset.oandaSym && asset.sources?.[0] !== 'unavailable') {
     const d = await fetchOandaOHLC(asset.oandaSym, cfg);
     if (d && d.length) return d;
   }
@@ -2651,73 +2294,7 @@ function aggregateCandles(candles, period) {
   return Object.values(groups).sort((a, b) => a.time - b.time);
 }
 
-// ── Deriv WebSocket candles ──────────────────────────────────────────────
-// Uses the live derivWs if open — avoids opening a new WS per chart request.
-// Falls back to a dedicated one-shot WS if live connection isn't ready.
-const _derivOHLCCallbacks = new Map(); // reqId → resolve fn
-
-function fetchDerivOHLC(derivSym, cfg) {
-  return new Promise(resolve => {
-    const reqId  = `ohlc_${derivSym}_${Date.now()}`;
-    let   done   = false;
-    const finish = (result) => { if (!done) { done = true; resolve(result); } };
-
-    // Register callback so onmessage can route the response back
-    _derivOHLCCallbacks.set(reqId, finish);
-    const t = setTimeout(() => {
-      _derivOHLCCallbacks.delete(reqId);
-      finish(null);
-    }, 10000);
-
-    const req = {
-      ticks_history:     derivSym,
-      style:             'candles',
-      granularity:       cfg.granularity,
-      count:             cfg.count,
-      end:               'latest',
-      adjust_start_time: 1,
-      req_id:            reqId, // echo'd back in response
-    };
-
-    const sendReq = (ws) => ws.send(JSON.stringify(req));
-
-    // Try live WS first
-    if (derivWs && derivWs.readyState === WebSocket.OPEN) {
-      sendReq(derivWs);
-    } else {
-      // Fallback: dedicated one-shot WS
-      const ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${DERIV_APP_ID}`);
-      ws.onopen    = () => sendReq(ws);
-      ws.onmessage = (evt) => handleDerivOHLCMsg(JSON.parse(evt.data), ws);
-      ws.onerror   = () => { clearTimeout(t); _derivOHLCCallbacks.delete(reqId); finish(null); };
-    }
-  });
-}
-
-function handleDerivOHLCMsg(msg, wsToClose) {
-  // Route candle responses to the correct pending callback via req_id
-  const reqId  = msg.req_id || msg.echo_req?.req_id;
-  const cb     = reqId ? _derivOHLCCallbacks.get(reqId) : null;
-
-  if (msg.msg_type === 'candles' || msg.candles) {
-    if (cb) {
-      _derivOHLCCallbacks.delete(reqId);
-      const raw = msg.candles || [];
-      if (wsToClose) try { wsToClose.close(); } catch(e) {}
-      cb(raw.length ? dedupe(raw.map(c => ({
-        time: c.epoch,
-        open: +c.open, high: +c.high, low: +c.low, close: +c.close,
-      }))) : null);
-    }
-  } else if (msg.error && cb) {
-    _derivOHLCCallbacks.delete(reqId);
-    if (wsToClose) try { wsToClose.close(); } catch(e) {}
-    console.warn('Deriv candles error:', msg.error.message);
-    cb(null);
-  }
-}
-
-// ── OANDA mid-price candles — stocks CFD ──────────────────────────────────
+// ── OANDA mid-price candles — forex/metals/indices/commodities/stocks ───────
 async function fetchOandaOHLC(oandaSym, cfg) {
   const tfGranMap = {
     '1m':'M1','5m':'M5','15m':'M15','30m':'M30',
@@ -2945,12 +2522,6 @@ async function createAlert() {
   };
 
   alerts.push(newAlert);
-
-  // Immediately subscribe to this asset's Deriv tick stream so the alert
-  // starts receiving live ticks without waiting for the 60s resubscribe cycle.
-  // Critical for assets not on the watchlist — otherwise only the edge
-  // function would check them, causing late triggers.
-  try { subscribeDerivAsset(assetInfo); } catch(e) {}
 
   try {
     const saved = await saveAlert(newAlert);
@@ -4428,10 +3999,6 @@ async function createSetupAlert() {
   };
 
   alerts.push(newAlert);
-
-  // Immediately subscribe to this asset's Deriv tick stream so the setup
-  // alert starts receiving live ticks right away.
-  try { subscribeDerivAsset(selectedAsset); } catch(e) {}
 
   // Navigate immediately — don't wait for DB save so UX feels instant
   renderAlerts();
@@ -8471,7 +8038,6 @@ function addAssetToWatchlist(asset) {
   if (ASSETS[asset.cat].find(a => a.id === asset.id)) return;
 
   ASSETS[asset.cat].push(ASSET_BY_ID.get(asset.id) || asset);
-  subscribeDerivAsset(asset);
   // Start with no price — will be populated by next fetch cycle
   priceData[asset.id] = priceData[asset.id] || null;
   prices[asset.id]    = prices[asset.id]    || null;
@@ -8523,26 +8089,52 @@ async function refreshAll() {
   updateSessionDisplay();
 }
 
-// 8-second UI tick — Deriv WebSocket keeps prices live between REST refreshes
+// 4-second UI tick — runs alert checks against the latest priceData and
+// refreshes any rendered watchlist rows. Price freshness comes from the
+// fetchAllPrices polling loop below (which already runs alert checks
+// per-asset as prices arrive — this tick is the safety net for assets
+// that didn't get a fresh quote this cycle).
 setInterval(() => {
   // Skip heavy DOM rebuilds while user is focused on alert form inputs
-  // This prevents the page from jumping/scrolling while they type
+  // (prevents the page from jumping/scrolling while they type)
   if (!userTypingInForm) {
       renderWatchlist();
   }
   refreshSelectedAssetPanel();
   checkAlerts();
   updateSessionDisplay();
-}, 8000);
+}, 4000);
 
-// REST refresh every 60 seconds — keeps CoinGecko crypto prices current
-// Deriv WebSocket handles all real-time ticks for forex/indices/synthetics
-setInterval(() => {
-  fetchAllPrices();
-  // Reconnect / re-subscribe Deriv on every REST cycle to catch any dropped ticks
-  if (!_conn1.ws || _conn1.ws.readyState > 1) connectDeriv();
-  else resubscribeAllDeriv();
-}, 60 * 1000);
+// ── OANDA polling loop ────────────────────────────────────────────────────
+// Drives live prices for forex/metals/indices/commodities/stocks. With OANDA's
+// REST /pricing endpoint, polling at 2s feels indistinguishable from a WS feed
+// for trade-alert purposes (alerts fire on level crosses, not microseconds).
+//
+// Cadence is forex-market-aware to avoid hammering OANDA when nothing's
+// moving on the forex side — saves bandwidth and stays politely under any
+// soft rate limits. Crypto self-throttles inside fetchCryptoPrices.
+const FX_POLL_OPEN_MS   = 2000;    // 2s while FX market is open
+const FX_POLL_CLOSED_MS = 30000;   // 30s on FX weekends
+function _isForexMarketOpenNow() {
+  const now = new Date();
+  const day = now.getUTCDay(), hour = now.getUTCHours();
+  if (day === 6) return false;                  // Saturday
+  if (day === 0 && hour < 21) return false;     // Sunday before 21:00 UTC
+  if (day === 5 && hour >= 21) return false;    // Friday after 21:00 UTC
+  return true;
+}
+let _pollTimer = null;
+function _schedulePoll() {
+  if (_pollTimer) clearTimeout(_pollTimer);
+  const wait = _isForexMarketOpenNow() ? FX_POLL_OPEN_MS : FX_POLL_CLOSED_MS;
+  _pollTimer = setTimeout(async () => {
+    try { await fetchAllPrices(); } catch(e) { console.warn('poll err:', e); }
+    _schedulePoll();
+  }, wait);
+}
+// Kick off the loop. The first fetchAllPrices is fired by init(); this
+// schedules subsequent polls.
+_schedulePoll();
 
 // ═══════════════════════════════════════════════
 // APP INIT REVEAL
@@ -9627,9 +9219,8 @@ async function init() {
                      || ALL_ASSETS.find(a => a.id === 'EUR/USD');
   if (_defaultAsset) selectAsset(_defaultAsset);
 
-  // Connect Deriv WebSocket
-  connectDeriv();
-  setTimeout(resubscribeAllDeriv, 3000);
+  // (Deriv WebSocket retired — no connection to open. fetchAllPrices polling
+  // loop drives all live prices.)
 
   // ── Alert form focus tracking ─────────────────────────────────────────────
   const alertFormInputs = [
@@ -9657,9 +9248,6 @@ async function init() {
   // Initial REST fetch
   await fetchAllPrices();
   setStatusPill(true);
-
-  // Re-subscribe Deriv with confirmed symbols now that ASSETS is fully populated
-  resubscribeAllDeriv();
 
   refreshSelectedAssetPanel();
 
@@ -9716,10 +9304,7 @@ document.addEventListener('visibilitychange', () => {
   // App is now visible
   const awayMs = Date.now() - _hiddenAt;
 
-  // Always reconnect WS — connections drop when minimised
-  if (!_conn1.ws || _conn1.ws.readyState > 1) connectDeriv();
-  else resubscribeAllDeriv();
-  if (!_conn2.ws || _conn2.ws.readyState > 1) connectDerivSynthetics();
+  // (No WS to reconnect — fetchAllPrices() below pulls fresh OANDA prices.)
 
   // Fetch fresh prices (always — even after a few seconds away)
   fetchAllPrices().then(() => {
