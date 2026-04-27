@@ -740,29 +740,71 @@ const CS_DERIV_SYM = {
   'NZD/CAD':'frxNZDCAD','CAD/JPY':'frxCADJPY','CAD/CHF':'frxCADCHF','CHF/JPY':'frxCHFJPY',
 };
 
-// Prices fetched specifically for the strength meter — independent of user's watchlist
-// Keyed by pair ID (e.g. 'EUR/USD'): { price, open }
+// ── Timeframe configuration ────────────────────────────────────────────
+// Each timeframe defines:
+//   granularity : OANDA candle granularity string
+//   count       : how many candles to fetch (we compare open of first to
+//                 close of last). 2 = single-window momentum.
+//   restMode    : 'daily-5d' | 'daily-current' | 'unsupported' — how the
+//                 Frankfurter fallback should behave for this TF. Frankfurter
+//                 only publishes daily ECB fixings, so M15/H1/H4 cannot be
+//                 honoured by the fallback — we degrade to a daily window
+//                 and surface a banner so the user knows.
+//   cacheTtlMs  : how long to keep a successful score cached. Short TFs
+//                 refresh quickly; weekly only needs to be reloaded once an
+//                 hour at most.
+const CS_TIMEFRAMES = {
+  'M15': { granularity: 'M15', count: 2, label: '15M', cacheTtlMs:   60000, restMode: 'unsupported' },
+  'H1':  { granularity: 'H1',  count: 2, label: '1H',  cacheTtlMs:   90000, restMode: 'unsupported' },
+  'H4':  { granularity: 'H4',  count: 2, label: '4H',  cacheTtlMs:  300000, restMode: 'unsupported' },
+  'D1':  { granularity: 'D',   count: 2, label: '1D',  cacheTtlMs:  600000, restMode: 'daily-5d'    },
+  'W1':  { granularity: 'W',   count: 2, label: '1W',  cacheTtlMs: 1800000, restMode: 'daily-5d'   },
+};
+const CS_TF_ORDER = ['M15','H1','H4','D1','W1'];
+const CS_DEFAULT_TF = 'H1';
+
+// User's currently-selected strength timeframe. Persisted in localStorage.
+let _csTimeframe = (() => {
+  try {
+    const stored = localStorage.getItem('altradia_cs_tf');
+    return CS_TIMEFRAMES[stored] ? stored : CS_DEFAULT_TF;
+  } catch(e) { return CS_DEFAULT_TF; }
+})();
+
+// Prices fetched specifically for the strength meter — independent of
+// user's watchlist. Keyed by timeframe → { pairId: { price, open } }, so
+// switching timeframe doesn't clobber another window's data.
+//   _csPrices[tf][pairId] = { price, open }
+//   _csPricesFetchedAt[tf] = epoch ms
 let _csPrices = {};
-let _csPricesFetchedAt = 0;
+let _csPricesFetchedAt = {};
+CS_TF_ORDER.forEach(t => { _csPrices[t] = {}; _csPricesFetchedAt[t] = 0; });
+
+// Tracks whether the latest fetch for a timeframe had to degrade to the
+// daily Frankfurter fallback (e.g. OANDA blocked + user picked H1).
+let _csDegradedToDaily = {};
 
 // Note: _derivWsFailCount, _derivWsBlocked, _noteDerivWsFail, _noteDerivWsSuccess
 // are declared above as retired stubs — do not redeclare here.
 
 // REST fallback via Frankfurter API — ECB-backed, free, no key, rarely blocked
 // Used when Deriv WebSocket is unavailable (ISP-blocked, firewall, etc.)
-async function fetchStrengthPricesRest() {
+async function fetchStrengthPricesRest(tf = _csTimeframe) {
   // Frankfurter publishes daily ECB fixings, so yesterday-vs-today can be
   // identical when the latest publish hasn't happened yet (weekends/holidays).
-  // We use a multi-day window (5 trading days back) so the comparison always
-  // has meaningful movement to normalise against.
+  // We use a multi-day window so the comparison always has meaningful
+  // movement to normalise against. The lookback depends on the requested
+  // timeframe: weekly windows want a longer baseline.
   try {
     const today    = new Date();
     const syms     = 'EUR,GBP,JPY,CHF,CAD,AUD,NZD';
     const yyyymmdd = (d) => d.toISOString().slice(0, 10);
 
-    // Try increasing lookbacks until we get rates different from today's.
-    // 5 calendar days back normally covers a business week.
-    const lookbackDates = [5, 7, 10, 14].map(days =>
+    // Lookback windows (calendar days). Daily traders want ~1 trading week
+    // of context; weekly traders need a longer baseline so a single weekend
+    // gap doesn't dominate the signal.
+    const baseLookbacks = (tf === 'W1') ? [14, 21, 30, 45] : [5, 7, 10, 14];
+    const lookbackDates = baseLookbacks.map(days =>
       yyyymmdd(new Date(today.getTime() - days * 86400000))
     );
 
@@ -815,7 +857,8 @@ async function fetchStrengthPricesRest() {
         }
         if (currentPrice && openPrice && isFinite(currentPrice) && isFinite(openPrice)
             && currentPrice !== openPrice) {
-          _csPrices[pairId] = { price: currentPrice, open: openPrice };
+          if (!_csPrices[tf]) _csPrices[tf] = {};
+          _csPrices[tf][pairId] = { price: currentPrice, open: openPrice };
           loaded++;
         }
       } catch(e) { /* skip this pair */ }
@@ -828,40 +871,55 @@ async function fetchStrengthPricesRest() {
   }
 }
 
-async function fetchStrengthPrices() {
+async function fetchStrengthPrices(tf = _csTimeframe) {
+  const cfg = CS_TIMEFRAMES[tf] || CS_TIMEFRAMES[CS_DEFAULT_TF];
   const now = Date.now();
-  // Only honour the cache if we actually have enough data. A failed prior attempt
-  // (leaving _csPrices empty) should not block retries for 60 seconds.
-  if (now - _csPricesFetchedAt < 60000 && Object.keys(_csPrices).length >= 14) return;
+  if (!_csPrices[tf]) _csPrices[tf] = {};
+  if (!(tf in _csPricesFetchedAt)) _csPricesFetchedAt[tf] = 0;
 
-  // Try OANDA H1 candles first (real intraday momentum); fall back to
-  // Frankfurter ECB daily fixings if OANDA is unreachable or rate-limited.
-  await fetchStrengthPricesOanda();
-  if (Object.keys(_csPrices).length < 14) {
-    console.log('[Strength] OANDA only got', Object.keys(_csPrices).length, '— falling back to Frankfurter');
-    await fetchStrengthPricesRest();
+  // Honour per-TF cache: skip refetch if last successful pull is fresh
+  // enough AND we have a useful number of pairs. A previous failed attempt
+  // (empty bucket) should always retry, regardless of cache TTL.
+  const haveEnough = Object.keys(_csPrices[tf]).length >= 14;
+  if (haveEnough && (now - _csPricesFetchedAt[tf]) < cfg.cacheTtlMs) return;
+
+  _csDegradedToDaily[tf] = false;
+
+  // Try OANDA candles first (real momentum at the chosen granularity).
+  await fetchStrengthPricesOanda(tf);
+
+  // Fall back to Frankfurter only if OANDA gave us almost nothing. For
+  // intraday timeframes (M15/H1/H4) Frankfurter cannot honour the request
+  // — it only has daily fixings. We still call it so the UI has *some*
+  // data to display, but mark `degraded` so the renderer can tell the user.
+  if (Object.keys(_csPrices[tf]).length < 14) {
+    console.log(`[Strength ${tf}] OANDA got`, Object.keys(_csPrices[tf]).length, '— falling back to Frankfurter');
+    await fetchStrengthPricesRest(tf);
+    if (cfg.restMode === 'unsupported' && Object.keys(_csPrices[tf]).length > 0) {
+      _csDegradedToDaily[tf] = true;
+    }
   }
-  // Only mark the timestamp on a successful fetch so failed attempts can retry.
-  if (Object.keys(_csPrices).length >= 4) {
-    _csPricesFetchedAt = now;
+
+  if (Object.keys(_csPrices[tf]).length >= 4) {
+    _csPricesFetchedAt[tf] = now;
   }
 }
 
-async function fetchStrengthPricesOanda() {
-  const pairs = Object.keys(CS_DERIV_SYM); // we still use this list of 28 pair IDs
+async function fetchStrengthPricesOanda(tf = _csTimeframe) {
+  const cfg = CS_TIMEFRAMES[tf] || CS_TIMEFRAMES[CS_DEFAULT_TF];
+  const pairs = Object.keys(CS_DERIV_SYM); // 28 pair IDs
   // Map pair ID like 'EUR/USD' to OANDA instrument 'EUR_USD'.
-  // CS_DERIV_SYM contains entries like { 'EUR/USD': 'frxEURUSD' } — we just need
-  // the pair ID; the OANDA symbol is a simple substring transform.
   const toOandaSym = (pairId) => pairId.replace('/', '_');
+  if (!_csPrices[tf]) _csPrices[tf] = {};
 
   const fetchOne = async (pairId) => {
     const oandaSym = toOandaSym(pairId);
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 8000);
     try {
-      // 2x H1 candles: [t-1h, current]. open of [0] vs close of [1] gives us
-      // hourly momentum — same shape Deriv WS returned.
-      const url = `${OANDA_BASE}/instruments/${oandaSym}/candles?granularity=H1&count=2&price=M`;
+      // Fetch `cfg.count` candles at the requested granularity. open of [0]
+      // vs close of [last] gives us window-relative momentum.
+      const url = `${OANDA_BASE}/instruments/${oandaSym}/candles?granularity=${cfg.granularity}&count=${cfg.count}&price=M`;
       const res = await fetch(url, {
         headers: { 'Authorization': `Bearer ${OANDA_KEY}` },
         signal: ctrl.signal,
@@ -874,27 +932,29 @@ async function fetchStrengthPricesOanda() {
       const openPx  = parseFloat(candles[0].mid?.o || '0');
       const closePx = parseFloat(candles[candles.length - 1].mid?.c || '0');
       if (!openPx || !closePx || !isFinite(openPx) || !isFinite(closePx)) return;
-      _csPrices[pairId] = { price: closePx, open: openPx };
+      _csPrices[tf][pairId] = { price: closePx, open: openPx };
     } catch(e) {
       clearTimeout(t);
       // AbortError on timeout is expected; don't spam logs.
     }
   };
 
-  // Fire all 28 in parallel — OANDA permits this and it keeps total wait < 1s.
   await Promise.all(pairs.map(fetchOne));
-  console.log('[Strength] OANDA loaded', Object.keys(_csPrices).length, '/ 28 pairs');
+  console.log(`[Strength ${tf}] OANDA loaded`, Object.keys(_csPrices[tf]).length, '/ 28 pairs');
 }
 
-// Stored previous prices for momentum (filled on first calc, updated each calc)
+// Per-timeframe momentum tracking & score caches. Each map is keyed by tf:
+//   _csPrevScores[tf] = { CUR: prevScore, ... } — for momentum delta arrows
+//   _csScoreCache[tf] = { scores, momentum, divergences, ts, tf }
 let _csPrevScores = {};
-let _csLastCalcMs = 0;
-let _csScoreCache = null;   // { scores, momentum, divergences, ts }
-let _csAiCache    = null;   // { text, ts }
+let _csScoreCache = {};
+let _csAiCache    = null;   // { text, ts } — one AI response cache, regardless of TF
 
-function calcCurrencyStrength() {
+function calcCurrencyStrength(tf = _csTimeframe) {
+  const cfg = CS_TIMEFRAMES[tf] || CS_TIMEFRAMES[CS_DEFAULT_TF];
   const nowMs = Date.now();
-  if (_csScoreCache && (nowMs - _csScoreCache.ts) < 30000) return _csScoreCache; // 30s cache
+  const cached = _csScoreCache[tf];
+  if (cached && (nowMs - cached.ts) < cfg.cacheTtlMs) return cached;
 
   const totals = {};
   const counts = {};
@@ -902,8 +962,10 @@ function calcCurrencyStrength() {
 
   CS_PAIRS.forEach(([base, quote]) => {
     const pairId = base + '/' + quote;
-    // Use dedicated strength prices first; fall back to watchlist priceData
-    const d = _csPrices[pairId] || priceData[CS_PAIR_ID[pairId]];
+    // Use dedicated strength prices first; fall back to watchlist priceData.
+    // _csPrices is keyed by timeframe → pairId → {price, open}.
+    const tfPrices = _csPrices[tf] || {};
+    const d = tfPrices[pairId] || priceData[CS_PAIR_ID[pairId]];
     if (!d?.price || !d?.open || d.price === d.open) return;
     const pctChange = ((d.price - d.open) / d.open) * 100;
     totals[base]  = (totals[base]  || 0) + pctChange;
@@ -940,13 +1002,16 @@ function calcCurrencyStrength() {
     scores[c] = range < 0.0002 ? 50 : Math.round(((raw[c] - minVal) / range) * 100);
   });
 
-  // Momentum: delta vs last calc
+  // Momentum: delta vs last calc on this same timeframe. Each timeframe
+  // tracks its own prev-scores so the delta arrow reflects movement at
+  // that window, not bleed-through from another TF.
+  const prevForTf = _csPrevScores[tf] || {};
   const momentum = {};
   CS_CURRENCIES.forEach(c => {
-    const prev = _csPrevScores[c];
+    const prev = prevForTf[c];
     momentum[c] = prev !== undefined ? scores[c] - prev : 0;
   });
-  _csPrevScores = { ...scores };
+  _csPrevScores[tf] = { ...scores };
 
   // Divergences: only pairs where BOTH currencies are in user's watchlist
   // and divergence >= 20 pts (strong signal)
@@ -967,8 +1032,8 @@ function calcCurrencyStrength() {
   });
   divergences.sort((a, b) => b.divergence - a.divergence);
 
-  _csScoreCache = { scores, momentum, divergences, ts: nowMs };
-  return _csScoreCache;
+  _csScoreCache[tf] = { scores, momentum, divergences, ts: nowMs, tf };
+  return _csScoreCache[tf];
 }
 
 // ── P&L helper: resolve effective pnl_pct for an entry ─────────────────────
@@ -1052,16 +1117,16 @@ function renderStrengthTab() {
     return;
   }
 
-  // Show loading state, fetch 28-pair prices, then calculate
-  // Force a retry if previous attempt loaded too little data
-  if (Object.keys(_csPrices).length < 4) {
-    _csPricesFetchedAt = 0; // bypass 60s cache
+  // Show loading state, fetch 28-pair prices, then calculate.
+  // Force a retry if previous attempt loaded too little data for THIS tf.
+  const tf = _csTimeframe;
+  if (!_csPrices[tf] || Object.keys(_csPrices[tf]).length < 4) {
+    _csPricesFetchedAt[tf] = 0; // bypass cache
   }
   el.innerHTML = `<div class="cs-empty">Loading currency data…</div>`;
-  fetchStrengthPrices().then(() => {
-    const result = calcCurrencyStrength();
-    // Need enough pair data — require at least 4 pairs to show meaningful scores
-    const pairsWithData = Object.keys(_csPrices).length;
+  fetchStrengthPrices(tf).then(() => {
+    const result = calcCurrencyStrength(tf);
+    const pairsWithData = Object.keys(_csPrices[tf] || {}).length;
     if (!result || pairsWithData < 4) {
       el.innerHTML = `<div class="cs-empty">Couldn't load currency data…<br><span class="cs-empty-sub">${pairsWithData}/28 pairs loaded. Tap STRENGTH tab again to retry.</span></div>`;
       return;
@@ -1089,7 +1154,37 @@ function _renderStrengthContent(el, result, tier) {
 
   const updatedAt = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
 
-  let html = `<div class="cs-header"><div class="cs-header-label">CURRENCY STRENGTH</div><div class="cs-header-sub">Updated ${updatedAt} · Based on 28 major pairs</div></div><div class="cs-rows">`;
+  // Build timeframe segmented control. Five buttons in CS_TF_ORDER; the
+  // active one is highlighted via inline style and matches the .active
+  // visual state of other pill controls in the app.
+  const tf       = _csTimeframe;
+  const tfLabel  = CS_TIMEFRAMES[tf]?.label || tf;
+  const degraded = !!_csDegradedToDaily[tf];
+
+  let tfBtns = '';
+  CS_TF_ORDER.forEach(t => {
+    const cfg     = CS_TIMEFRAMES[t];
+    const active  = t === tf;
+    const aBg     = active ? 'rgba(0,212,255,0.10)' : 'transparent';
+    const aBorder = active ? 'rgba(0,212,255,0.25)' : 'transparent';
+    const aColor  = active ? 'var(--accent)' : 'var(--muted)';
+    const aWeight = active ? '700' : '600';
+    tfBtns += `<button onclick="setStrengthTimeframe('${t}')" data-tf="${t}" style="flex:1;padding:6px 8px;border-radius:14px;border:1px solid ${aBorder};background:${aBg};color:${aColor};font-family:var(--mono);font-size:0.62rem;font-weight:${aWeight};letter-spacing:0.08em;cursor:pointer;text-transform:uppercase;-webkit-tap-highlight-color:transparent">${cfg.label}</button>`;
+  });
+
+  let html = `<div class="cs-header"><div class="cs-header-label">CURRENCY STRENGTH</div><div class="cs-header-sub">Updated ${updatedAt} · ${tfLabel} window · 28 major pairs</div></div>`;
+
+  // Timeframe picker row — sits between header and rows, full width
+  html += `<div style="display:flex;gap:4px;padding:10px 16px 12px;border-bottom:1px solid var(--border)">${tfBtns}</div>`;
+
+  // If the active TF couldn't be served by OANDA and we degraded to daily
+  // Frankfurter data, surface a small banner so the user understands why
+  // the rows might not match their chosen window.
+  if (degraded) {
+    html += `<div style="margin:10px 16px 0;padding:8px 11px;background:rgba(255,176,32,0.08);border:1px solid rgba(255,176,32,0.25);border-radius:8px;font-family:var(--mono);font-size:0.6rem;color:#ffb020;line-height:1.5">Live ${tfLabel} data unavailable — showing daily ECB fixings as fallback.</div>`;
+  }
+
+  html += `<div class="cs-rows">`;
 
   sorted.forEach(c => {
     const score = scores[c] ?? 50;
@@ -1225,9 +1320,22 @@ async function fetchStrengthAiInsight() {
 // ── Auto-refresh strength tab when prices update ──────────────────────────
 function _refreshStrengthIfOpen() {
   if (_wlActiveSubTab === 'strength') {
-    _csScoreCache = null; // bust cache so re-calc happens
+    // Bust only the active timeframe's cache. Other TFs may still be valid
+    // (their prices/candles weren't touched by this update path).
+    _csScoreCache[_csTimeframe] = null;
     renderStrengthTab();
   }
+}
+
+// Setter for the user-selected strength timeframe. Called by the segmented
+// control in renderStrengthTab. Persists choice and triggers a re-render.
+function setStrengthTimeframe(tf) {
+  if (!CS_TIMEFRAMES[tf] || tf === _csTimeframe) return;
+  _csTimeframe = tf;
+  try { localStorage.setItem('altradia_cs_tf', tf); } catch(_) {}
+  // Re-render with the new TF. fetchStrengthPrices/calc will kick off a
+  // fresh fetch if the per-TF cache is empty or stale.
+  renderStrengthTab();
 }
 
 // ═══════════════════════════════════════════════
@@ -5877,12 +5985,12 @@ function openExportModal() {
       </div>
       <div id="export-entry-count" style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);margin-bottom:20px;min-height:18px"></div>
 
-      <div style="font-family:var(--mono);font-size:0.56rem;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Download</div>
-      <div style="display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:12px 14px;margin-bottom:20px">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2v9m0 0l-3-3m3 3l3-3M3 14h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      <div style="font-family:var(--mono);font-size:0.56rem;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Delivery</div>
+      <div id="export-delivery-info" style="display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:12px 14px;margin-bottom:20px">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M2 5l7 5 7-5M2 5v8h14V5M2 5l7-3 7 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
         <div class="flex-1">
-          <div style="font-size:0.75rem;font-weight:600;color:var(--text)">Save to device</div>
-          <div class="txt-mono-muted">File will download to your device. Open or share it from there.</div>
+          <div id="export-delivery-title" style="font-size:0.75rem;font-weight:600;color:var(--text)">Email export</div>
+          <div id="export-delivery-sub" class="txt-mono-muted">Telegram blocks direct downloads — we'll email it instead.</div>
         </div>
       </div>
 
@@ -5892,6 +6000,21 @@ function openExportModal() {
     </div>`;
 
   document.body.appendChild(ov);
+
+  // Adjust copy + button label depending on whether we're in Telegram or
+  // a regular browser. In Telegram we email the file; elsewhere we direct-
+  // download via blob URL.
+  try {
+    const inTg     = _isTelegramWebApp();
+    const sendBtn  = document.getElementById('export-send-btn');
+    const dTitle   = document.getElementById('export-delivery-title');
+    const dSub     = document.getElementById('export-delivery-sub');
+    if (sendBtn) sendBtn.textContent = inTg ? 'Email Export' : 'Download Export';
+    if (dTitle)  dTitle.textContent  = inTg ? 'Email export' : 'Save to device';
+    if (dSub)    dSub.textContent    = inTg
+      ? "We'll email the file to an address you choose."
+      : 'File will download to your device. Open or share from there.';
+  } catch(_) {}
 
   const today = new Date().toISOString().slice(0,10);
   const week  = new Date(Date.now() - 7*864e5).toISOString().slice(0,10);
@@ -6010,6 +6133,18 @@ function _journalEntriesToText(entries) {
 
 // Trigger a file download in the browser. Works in Telegram mobile browser,
 // Chrome, Firefox, Safari — any environment with Blob + URL.createObjectURL.
+// True if running inside the Telegram WebApp (Mini App) container.
+// Telegram's iOS/Android webview blocks anchor-tag downloads with the
+// `download` attribute, so we cannot rely on the blob-click trick there.
+function _isTelegramWebApp() {
+  try {
+    return !!(window.Telegram && Telegram.WebApp && Telegram.WebApp.initData);
+  } catch(e) { return false; }
+}
+
+// Browser-side download via blob URL + anchor click. Works on desktop
+// browsers and Telegram desktop, but is unreliable inside Telegram's iOS
+// and Android webviews — those should use the email path instead.
 function _downloadBlob(filename, mimeType, content) {
   try {
     const blob = new Blob([content], { type: mimeType });
@@ -6017,13 +6152,87 @@ function _downloadBlob(filename, mimeType, content) {
     const a    = document.createElement('a');
     a.href     = url;
     a.download = filename;
+    a.rel      = 'noopener';
+    a.target   = '_blank';
     document.body.appendChild(a);
     a.click();
-    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
+    setTimeout(() => {
+      try { document.body.removeChild(a); } catch(_) {}
+      URL.revokeObjectURL(url);
+    }, 250);
     return true;
   } catch (e) {
     console.warn('Download failed:', e);
     return false;
+  }
+}
+
+// Helper: simple email validation. Doesn't have to be perfect — if the
+// email is malformed Resend will reject it and we surface the error.
+function _isValidEmail(s) {
+  return typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+}
+
+// Helper: prompt the user for an email, remembering the last-used value
+// in localStorage so they don't have to retype on subsequent exports.
+async function _getExportEmail() {
+  const cached = localStorage.getItem('altradia_export_email') || '';
+  return new Promise((resolve) => {
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99996;display:flex;align-items:flex-end;justify-content:center';
+    wrap.innerHTML = `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;padding:20px 20px calc(24px + env(safe-area-inset-bottom));width:100%;max-width:480px;box-sizing:border-box">
+        <div style="font-family:var(--mono);font-size:0.62rem;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;margin-bottom:6px">Send export to</div>
+        <div style="font-size:0.9rem;color:var(--text);margin-bottom:14px;line-height:1.5">We'll email your journal as an attachment. Open it on any device with a spreadsheet app or email client.</div>
+        <input id="_export_email_in" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" value="${cached.replace(/"/g,'&quot;')}" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:0.95rem;padding:13px 14px;border-radius:9px;outline:none;box-sizing:border-box;margin-bottom:14px">
+        <div style="display:flex;gap:8px">
+          <button id="_export_email_cancel" style="flex:1;padding:13px;background:transparent;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:0.72rem;font-weight:700;letter-spacing:0.08em;border-radius:10px;cursor:pointer;text-transform:uppercase">Cancel</button>
+          <button id="_export_email_ok" style="flex:2;padding:13px;background:var(--accent);color:#000;font-family:var(--mono);font-size:0.72rem;font-weight:700;letter-spacing:0.08em;border:none;border-radius:10px;cursor:pointer;text-transform:uppercase">Send Email</button>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+    const inp = wrap.querySelector('#_export_email_in');
+    const ok  = wrap.querySelector('#_export_email_ok');
+    const cx  = wrap.querySelector('#_export_email_cancel');
+    setTimeout(() => { try { inp.focus(); } catch(_) {} }, 100);
+    const close = (val) => { try { wrap.remove(); } catch(_) {} resolve(val); };
+    ok.onclick = () => {
+      const v = (inp.value || '').trim();
+      if (!_isValidEmail(v)) {
+        inp.style.borderColor = 'var(--red)';
+        return;
+      }
+      try { localStorage.setItem('altradia_export_email', v); } catch(_) {}
+      close(v);
+    };
+    cx.onclick = () => close(null);
+    inp.onkeydown = (e) => { if (e.key === 'Enter') ok.click(); };
+    wrap.onclick = (e) => { if (e.target === wrap) close(null); };
+  });
+}
+
+// Send the prepared entries to the export-journal edge function. The edge
+// function builds the CSV/PDF on the server and emails it via Resend.
+// Returns { ok, error? }.
+async function _sendExportEmail(email, fmt, entries) {
+  const url = `${SUPABASE_URL}/functions/v1/export-journal`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'apikey': SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ email, fmt, entries }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) {
+      return { ok: false, error: data.error || `Server error ${res.status}` };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) };
   }
 }
 
@@ -6038,8 +6247,25 @@ async function submitExport() {
   }
 
   const btn = document.getElementById('export-send-btn');
-  if (btn) { btn.textContent = 'Generating…'; btn.disabled = true; }
 
+  // Path A: inside Telegram WebApp → email via edge function
+  if (_isTelegramWebApp()) {
+    const email = await _getExportEmail();
+    if (!email) return; // user cancelled
+    if (btn) { btn.textContent = 'Sending…'; btn.disabled = true; }
+    const { ok, error } = await _sendExportEmail(email, fmt, entries);
+    if (ok) {
+      ov?.remove();
+      showToast('Export Sent', `Check ${email} — your journal is on its way.`, 'success');
+    } else {
+      if (btn) { btn.textContent = 'Download Export'; btn.disabled = false; }
+      showToast('Export Failed', error || 'Could not send email. Try again.', 'error');
+    }
+    return;
+  }
+
+  // Path B: regular browser → blob download (existing behavior)
+  if (btn) { btn.textContent = 'Generating…'; btn.disabled = true; }
   try {
     const stamp = new Date().toISOString().slice(0, 10);
     if (fmt === 'csv') {
@@ -6047,8 +6273,6 @@ async function submitExport() {
       const ok  = _downloadBlob(`altradia-journal-${stamp}.csv`, 'text/csv;charset=utf-8', csv);
       if (!ok) throw new Error('Browser blocked the download');
     } else {
-      // "PDF" path — we emit a readable text report. User can print→save-as-PDF
-      // from their phone's share sheet. Avoids bundling a full PDF library client-side.
       const txt = _journalEntriesToText(entries);
       const ok  = _downloadBlob(`altradia-journal-${stamp}.txt`, 'text/plain;charset=utf-8', txt);
       if (!ok) throw new Error('Browser blocked the download');
@@ -8607,6 +8831,14 @@ function initPullToRefresh() {
     el.addEventListener('touchstart', e => {
       // Only begin PTR when scrolled to the very top
       if (el.scrollTop > 2) return;
+      // Skip PTR if the touch began inside the chart. The chart has its
+      // own pinch/pan/scroll behaviour — letting touches there bubble
+      // up into PTR causes accidental refreshes when the user just
+      // wants to interact with the chart.
+      const tgt = e.target;
+      if (tgt && tgt.closest && tgt.closest('#tv-container, #lw-chart, .tv-container')) {
+        return;
+      }
       startY   = e.touches[0].clientY;
       pulling  = true;
       triggered = false;
