@@ -23,6 +23,28 @@ const OANDA_KEY     = 'bc279adfd3ef94ce554a110a9e555d05-7e712cb0ac8809392b3f4bfc
 const OANDA_ACCOUNT = '101-001-38834231-001';
 const OANDA_BASE    = 'https://api-fxpractice.oanda.com/v3';
 
+// Finnhub — used for stock quotes & OHLC (US-listed equities, including
+// ADRs of foreign companies that trade on NYSE/NASDAQ). Free tier provides
+// real-time data at 60 calls/min, which is plenty for our ~38 stocks even
+// at frequent polling intervals.
+const FINNHUB_KEY = 'd7hvr2pr01qu8vfmreq0d7hvr2pr01qu8vfmreqg';
+
+// Map asset id → Finnhub ticker. Most match directly; foreign companies
+// use their US ADR ticker (NVO, SAP, SHEL, SONY, BABA, BIDU, TSM all have
+// US ADRs with real-time data on Finnhub free tier).
+const FINNHUB_STOCK_SYM = {
+  'AAPL':'AAPL','MSFT':'MSFT','NVDA':'NVDA','GOOGL':'GOOGL','AMZN':'AMZN',
+  'META':'META','TSLA':'TSLA','NFLX':'NFLX','AMD':'AMD','INTC':'INTC',
+  'CRM':'CRM','ORCL':'ORCL','PYPL':'PYPL','ADBE':'ADBE','QCOM':'QCOM',
+  'JPM':'JPM','BAC':'BAC','GS':'GS','MS':'MS',
+  'V':'V','MA':'MA','JNJ':'JNJ','PFE':'PFE','MRNA':'MRNA','LLY':'LLY',
+  'WMT':'WMT','XOM':'XOM','CVX':'CVX','KO':'KO','DIS':'DIS','NKE':'NKE',
+  'SPOT':'SPOT','UBER':'UBER','COIN':'COIN','HOOD':'HOOD',
+  // ADRs of foreign companies — all trade real-time on US exchanges
+  'SHEL':'SHEL','SAP':'SAP','NOVO-B':'NVO','BABA':'BABA','BIDU':'BIDU',
+  'TSM':'TSM','SONY':'SONY',
+};
+
 // ═══════════════════════════════════════════════
 // ASSET DEFINITIONS — Cross-referenced from:
 //   OANDA v20 practice instruments
@@ -387,54 +409,54 @@ const ALL_ASSETS = [
   // STOCKS CFD — OANDA primary (US/EU/Asia listed)
   // ════════════════════════════════════════════
   // US Tech
-  { id:'AAPL',  symbol:'AAPL',  name:'Apple Inc.',       cat:'stocks', sources:['oanda'], oandaSym:'AAPL_USD' },
-  { id:'MSFT',  symbol:'MSFT',  name:'Microsoft Corp.',  cat:'stocks', sources:['oanda'], oandaSym:'MSFT_USD' },
-  { id:'NVDA',  symbol:'NVDA',  name:'NVIDIA Corp.',     cat:'stocks', sources:['oanda'], oandaSym:'NVDA_USD' },
-  { id:'GOOGL', symbol:'GOOGL', name:'Alphabet Inc.',    cat:'stocks', sources:['oanda'], oandaSym:'GOOGL_USD' },
-  { id:'AMZN',  symbol:'AMZN',  name:'Amazon.com',       cat:'stocks', sources:['oanda'], oandaSym:'AMZN_USD' },
-  { id:'META',  symbol:'META',  name:'Meta Platforms',   cat:'stocks', sources:['oanda'], oandaSym:'META_USD' },
-  { id:'TSLA',  symbol:'TSLA',  name:'Tesla Inc.',       cat:'stocks', sources:['oanda'], oandaSym:'TSLA_USD' },
-  { id:'NFLX',  symbol:'NFLX',  name:'Netflix Inc.',     cat:'stocks', sources:['oanda'], oandaSym:'NFLX_USD' },
-  { id:'AMD',   symbol:'AMD',   name:'AMD',              cat:'stocks', sources:['oanda'], oandaSym:'AMD_USD'  },
-  { id:'INTC',  symbol:'INTC',  name:'Intel Corp.',      cat:'stocks', sources:['oanda'], oandaSym:'INTC_USD' },
-  { id:'CRM',   symbol:'CRM',   name:'Salesforce',       cat:'stocks', sources:['oanda'], oandaSym:'CRM_USD'  },
-  { id:'ORCL',  symbol:'ORCL',  name:'Oracle Corp.',     cat:'stocks', sources:['oanda'], oandaSym:'ORCL_USD' },
-  { id:'PYPL',  symbol:'PYPL',  name:'PayPal Holdings',  cat:'stocks', sources:['oanda'], oandaSym:'PYPL_USD' },
-  { id:'ADBE',  symbol:'ADBE',  name:'Adobe Inc.',       cat:'stocks', sources:['oanda'], oandaSym:'ADBE_USD' },
-  { id:'QCOM',  symbol:'QCOM',  name:'Qualcomm',         cat:'stocks', sources:['oanda'], oandaSym:'QCOM_USD' },
+  { id:'AAPL',  symbol:'AAPL',  name:'Apple Inc.',       cat:'stocks', sources:['finnhub','oanda'], oandaSym:'AAPL_USD' },
+  { id:'MSFT',  symbol:'MSFT',  name:'Microsoft Corp.',  cat:'stocks', sources:['finnhub','oanda'], oandaSym:'MSFT_USD' },
+  { id:'NVDA',  symbol:'NVDA',  name:'NVIDIA Corp.',     cat:'stocks', sources:['finnhub','oanda'], oandaSym:'NVDA_USD' },
+  { id:'GOOGL', symbol:'GOOGL', name:'Alphabet Inc.',    cat:'stocks', sources:['finnhub','oanda'], oandaSym:'GOOGL_USD' },
+  { id:'AMZN',  symbol:'AMZN',  name:'Amazon.com',       cat:'stocks', sources:['finnhub','oanda'], oandaSym:'AMZN_USD' },
+  { id:'META',  symbol:'META',  name:'Meta Platforms',   cat:'stocks', sources:['finnhub','oanda'], oandaSym:'META_USD' },
+  { id:'TSLA',  symbol:'TSLA',  name:'Tesla Inc.',       cat:'stocks', sources:['finnhub','oanda'], oandaSym:'TSLA_USD' },
+  { id:'NFLX',  symbol:'NFLX',  name:'Netflix Inc.',     cat:'stocks', sources:['finnhub','oanda'], oandaSym:'NFLX_USD' },
+  { id:'AMD',   symbol:'AMD',   name:'AMD',              cat:'stocks', sources:['finnhub','oanda'], oandaSym:'AMD_USD'  },
+  { id:'INTC',  symbol:'INTC',  name:'Intel Corp.',      cat:'stocks', sources:['finnhub','oanda'], oandaSym:'INTC_USD' },
+  { id:'CRM',   symbol:'CRM',   name:'Salesforce',       cat:'stocks', sources:['finnhub','oanda'], oandaSym:'CRM_USD'  },
+  { id:'ORCL',  symbol:'ORCL',  name:'Oracle Corp.',     cat:'stocks', sources:['finnhub','oanda'], oandaSym:'ORCL_USD' },
+  { id:'PYPL',  symbol:'PYPL',  name:'PayPal Holdings',  cat:'stocks', sources:['finnhub','oanda'], oandaSym:'PYPL_USD' },
+  { id:'ADBE',  symbol:'ADBE',  name:'Adobe Inc.',       cat:'stocks', sources:['finnhub','oanda'], oandaSym:'ADBE_USD' },
+  { id:'QCOM',  symbol:'QCOM',  name:'Qualcomm',         cat:'stocks', sources:['finnhub','oanda'], oandaSym:'QCOM_USD' },
   // US Finance
-  { id:'JPM',   symbol:'JPM',   name:'JPMorgan Chase',   cat:'stocks', sources:['oanda'], oandaSym:'JPM_USD'  },
-  { id:'BAC',   symbol:'BAC',   name:'Bank of America',  cat:'stocks', sources:['oanda'], oandaSym:'BAC_USD'  },
-  { id:'GS',    symbol:'GS',    name:'Goldman Sachs',    cat:'stocks', sources:['oanda'], oandaSym:'GS_USD'   },
-  { id:'MS',    symbol:'MS',    name:'Morgan Stanley',   cat:'stocks', sources:['oanda'], oandaSym:'MS_USD'   },
-  { id:'V',     symbol:'V',     name:'Visa Inc.',        cat:'stocks', sources:['oanda'], oandaSym:'V_USD'    },
-  { id:'MA',    symbol:'MA',    name:'Mastercard',       cat:'stocks', sources:['oanda'], oandaSym:'MA_USD'   },
+  { id:'JPM',   symbol:'JPM',   name:'JPMorgan Chase',   cat:'stocks', sources:['finnhub','oanda'], oandaSym:'JPM_USD'  },
+  { id:'BAC',   symbol:'BAC',   name:'Bank of America',  cat:'stocks', sources:['finnhub','oanda'], oandaSym:'BAC_USD'  },
+  { id:'GS',    symbol:'GS',    name:'Goldman Sachs',    cat:'stocks', sources:['finnhub','oanda'], oandaSym:'GS_USD'   },
+  { id:'MS',    symbol:'MS',    name:'Morgan Stanley',   cat:'stocks', sources:['finnhub','oanda'], oandaSym:'MS_USD'   },
+  { id:'V',     symbol:'V',     name:'Visa Inc.',        cat:'stocks', sources:['finnhub','oanda'], oandaSym:'V_USD'    },
+  { id:'MA',    symbol:'MA',    name:'Mastercard',       cat:'stocks', sources:['finnhub','oanda'], oandaSym:'MA_USD'   },
   // US Healthcare
-  { id:'JNJ',   symbol:'JNJ',   name:'Johnson & Johnson',cat:'stocks', sources:['oanda'], oandaSym:'JNJ_USD'  },
-  { id:'PFE',   symbol:'PFE',   name:'Pfizer Inc.',      cat:'stocks', sources:['oanda'], oandaSym:'PFE_USD'  },
-  { id:'MRNA',  symbol:'MRNA',  name:'Moderna Inc.',     cat:'stocks', sources:['oanda'], oandaSym:'MRNA_USD' },
-  { id:'LLY',   symbol:'LLY',   name:'Eli Lilly',        cat:'stocks', sources:['oanda'], oandaSym:'LLY_USD'  },
+  { id:'JNJ',   symbol:'JNJ',   name:'Johnson & Johnson',cat:'stocks', sources:['finnhub','oanda'], oandaSym:'JNJ_USD'  },
+  { id:'PFE',   symbol:'PFE',   name:'Pfizer Inc.',      cat:'stocks', sources:['finnhub','oanda'], oandaSym:'PFE_USD'  },
+  { id:'MRNA',  symbol:'MRNA',  name:'Moderna Inc.',     cat:'stocks', sources:['finnhub','oanda'], oandaSym:'MRNA_USD' },
+  { id:'LLY',   symbol:'LLY',   name:'Eli Lilly',        cat:'stocks', sources:['finnhub','oanda'], oandaSym:'LLY_USD'  },
   // US Consumer/Energy
-  { id:'WMT',   symbol:'WMT',   name:'Walmart Inc.',     cat:'stocks', sources:['oanda'], oandaSym:'WMT_USD'  },
-  { id:'XOM',   symbol:'XOM',   name:'ExxonMobil',       cat:'stocks', sources:['oanda'], oandaSym:'XOM_USD'  },
-  { id:'CVX',   symbol:'CVX',   name:'Chevron Corp.',    cat:'stocks', sources:['oanda'], oandaSym:'CVX_USD'  },
-  { id:'KO',    symbol:'KO',    name:'Coca-Cola',        cat:'stocks', sources:['oanda'], oandaSym:'KO_USD'   },
-  { id:'DIS',   symbol:'DIS',   name:'Walt Disney Co.',  cat:'stocks', sources:['oanda'], oandaSym:'DIS_USD'  },
-  { id:'NKE',   symbol:'NKE',   name:'Nike Inc.',        cat:'stocks', sources:['oanda'], oandaSym:'NKE_USD'  },
+  { id:'WMT',   symbol:'WMT',   name:'Walmart Inc.',     cat:'stocks', sources:['finnhub','oanda'], oandaSym:'WMT_USD'  },
+  { id:'XOM',   symbol:'XOM',   name:'ExxonMobil',       cat:'stocks', sources:['finnhub','oanda'], oandaSym:'XOM_USD'  },
+  { id:'CVX',   symbol:'CVX',   name:'Chevron Corp.',    cat:'stocks', sources:['finnhub','oanda'], oandaSym:'CVX_USD'  },
+  { id:'KO',    symbol:'KO',    name:'Coca-Cola',        cat:'stocks', sources:['finnhub','oanda'], oandaSym:'KO_USD'   },
+  { id:'DIS',   symbol:'DIS',   name:'Walt Disney Co.',  cat:'stocks', sources:['finnhub','oanda'], oandaSym:'DIS_USD'  },
+  { id:'NKE',   symbol:'NKE',   name:'Nike Inc.',        cat:'stocks', sources:['finnhub','oanda'], oandaSym:'NKE_USD'  },
   // European Stocks
-  { id:'SHEL',  symbol:'SHEL',  name:'Shell PLC',        cat:'stocks', sources:['oanda'], oandaSym:'SHEL_USD' },
-  { id:'SAP',   symbol:'SAP',   name:'SAP SE',           cat:'stocks', sources:['oanda'], oandaSym:'SAP_USD'  },
-  { id:'NOVO-B',symbol:'NVO',   name:'Novo Nordisk',     cat:'stocks', sources:['oanda'], oandaSym:'NVO_USD'  },
-  { id:'LVMH',  symbol:'MC.PA', name:'LVMH',             cat:'stocks', sources:['oanda'], oandaSym:'LVMH_EUR' },
+  { id:'SHEL',  symbol:'SHEL',  name:'Shell PLC',        cat:'stocks', sources:['finnhub','oanda'], oandaSym:'SHEL_USD' },
+  { id:'SAP',   symbol:'SAP',   name:'SAP SE',           cat:'stocks', sources:['finnhub','oanda'], oandaSym:'SAP_USD'  },
+  { id:'NOVO-B',symbol:'NVO',   name:'Novo Nordisk',     cat:'stocks', sources:['finnhub','oanda'], oandaSym:'NVO_USD'  },
+  { id:'LVMH',  symbol:'MC.PA', name:'LVMH',             cat:'stocks', sources:['unavailable']                   },
   // Asian/Other
-  { id:'BABA',  symbol:'BABA',  name:'Alibaba Group',    cat:'stocks', sources:['oanda'], oandaSym:'BABA_USD' },
-  { id:'BIDU',  symbol:'BIDU',  name:'Baidu Inc.',       cat:'stocks', sources:['oanda'], oandaSym:'BIDU_USD' },
-  { id:'TSM',   symbol:'TSM',   name:'Taiwan Semiconductor',cat:'stocks', sources:['oanda'], oandaSym:'TSM_USD' },
-  { id:'SONY',  symbol:'SONY',  name:'Sony Group',       cat:'stocks', sources:['oanda'], oandaSym:'SONY_USD' },
-  { id:'SPOT',  symbol:'SPOT',  name:'Spotify Technology',cat:'stocks', sources:['oanda'], oandaSym:'SPOT_USD' },
-  { id:'UBER',  symbol:'UBER',  name:'Uber Technologies',cat:'stocks', sources:['oanda'], oandaSym:'UBER_USD' },
-  { id:'COIN',  symbol:'COIN',  name:'Coinbase Global',  cat:'stocks', sources:['oanda'], oandaSym:'COIN_USD' },
-  { id:'HOOD',  symbol:'HOOD',  name:'Robinhood Markets',cat:'stocks', sources:['oanda'], oandaSym:'HOOD_USD' },
+  { id:'BABA',  symbol:'BABA',  name:'Alibaba Group',    cat:'stocks', sources:['finnhub','oanda'], oandaSym:'BABA_USD' },
+  { id:'BIDU',  symbol:'BIDU',  name:'Baidu Inc.',       cat:'stocks', sources:['finnhub','oanda'], oandaSym:'BIDU_USD' },
+  { id:'TSM',   symbol:'TSM',   name:'Taiwan Semiconductor',cat:'stocks', sources:['finnhub','oanda'], oandaSym:'TSM_USD' },
+  { id:'SONY',  symbol:'SONY',  name:'Sony Group',       cat:'stocks', sources:['finnhub','oanda'], oandaSym:'SONY_USD' },
+  { id:'SPOT',  symbol:'SPOT',  name:'Spotify Technology',cat:'stocks', sources:['finnhub','oanda'], oandaSym:'SPOT_USD' },
+  { id:'UBER',  symbol:'UBER',  name:'Uber Technologies',cat:'stocks', sources:['finnhub','oanda'], oandaSym:'UBER_USD' },
+  { id:'COIN',  symbol:'COIN',  name:'Coinbase Global',  cat:'stocks', sources:['finnhub','oanda'], oandaSym:'COIN_USD' },
+  { id:'HOOD',  symbol:'HOOD',  name:'Robinhood Markets',cat:'stocks', sources:['finnhub','oanda'], oandaSym:'HOOD_USD' },
 ];
 
 // ── Build fast lookup maps ────────────────────
@@ -1293,16 +1315,28 @@ async function fetchAllPrices() {
   // CoinGecko: crypto assets
   const cgAssets = allNeeded.filter(a => a.sources?.includes('coingecko'));
 
-  // OANDA: anything with an oandaSym that's NOT marked unavailable
-  // (forex/metals/indices/commodities/stocks). We exclude 'unavailable'
-  // assets so we don't waste calls on synthetics or USD/NGN-style pairs.
+  // Finnhub: US-listed stocks (real-time on free tier). These take priority
+  // over OANDA for stocks because OANDA's v20 REST API doesn't expose stock
+  // CFDs — they live on MT5 only.
+  const finnhubAssets = allNeeded.filter(a =>
+    a.cat === 'stocks' && FINNHUB_STOCK_SYM[a.id] && a.sources?.[0] !== 'unavailable'
+  );
+  const finnhubIds = new Set(finnhubAssets.map(a => a.id));
+
+  // OANDA: forex/metals/indices/commodities. Excluded: anything 'unavailable',
+  // anything served by CoinGecko (crypto), and anything served by Finnhub
+  // (stocks).
   const oandaAssets = allNeeded.filter(a =>
-    a.oandaSym && a.sources?.[0] !== 'unavailable' && !a.sources?.includes('coingecko')
+    a.oandaSym &&
+    a.sources?.[0] !== 'unavailable' &&
+    !a.sources?.includes('coingecko') &&
+    !finnhubIds.has(a.id)
   );
 
   const promises = [
-    cgAssets.length    ? fetchCryptoPrices(cgAssets)    : Promise.resolve(),
-    oandaAssets.length ? fetchOandaSnapshot(oandaAssets) : Promise.resolve(),
+    cgAssets.length      ? fetchCryptoPrices(cgAssets)        : Promise.resolve(),
+    oandaAssets.length   ? fetchOandaSnapshot(oandaAssets)    : Promise.resolve(),
+    finnhubAssets.length ? fetchFinnhubStockPrices(finnhubAssets) : Promise.resolve(),
   ];
 
   await Promise.all(promises);
@@ -1316,6 +1350,190 @@ async function fetchAllPrices() {
   savePriceCache();
   // Refresh strength tab if open (uses prices we just fetched)
   _refreshStrengthIfOpen();
+}
+
+// ═══════════════════════════════════════════════
+// FINNHUB REST — stock quotes
+// One /quote call per ticker. Finnhub doesn't support batched quotes on the
+// free tier, but it allows ~60 calls/min and parallel fetches are fine.
+// We fire all needed stocks in parallel via Promise.all.
+//
+// Quote response shape: { c: current, d: change, dp: %change, h: high, l: low, o: open, pc: prevClose, t: timestamp }
+//
+// Stocks honour US market hours — the polling layer is forex-aware (2s open,
+// 30s closed) but stocks have their own market hours. We still fetch on the
+// fast cycle so prices update promptly when the market is live; outside
+// hours Finnhub returns the prior session's close, which is fine.
+// ═══════════════════════════════════════════════
+// Throttle for Finnhub stock polling. Free tier is 60 calls/min total,
+// so even at 5 watchlisted stocks polled every 2s we'd hit 150/min.
+// We rate-limit fetchFinnhubStockPrices to once per FINNHUB_STOCK_THROTTLE_MS.
+let _finnhubStockLastFetch = 0;
+function _finnhubStockThrottleMs() {
+  // Fetch every 5s during US stock-market hours, every 60s otherwise.
+  // Outside market hours stock prices don't change, so polling slowly is fine.
+  const now = new Date();
+  const day = now.getUTCDay();
+  if (day === 0 || day === 6) return 60000; // weekend
+  const utcMins = now.getUTCHours() * 60 + now.getUTCMinutes();
+  // US stock market: 13:30–20:00 UTC (09:30–16:00 ET, ignoring DST nuance)
+  if (utcMins >= 870 && utcMins < 1260) return 5000;
+  return 60000;
+}
+
+async function fetchFinnhubStockPrices(assets) {
+  if (!FINNHUB_KEY || !assets.length) return;
+
+  const now = Date.now();
+  const throttleMs = _finnhubStockThrottleMs();
+  if ((now - _finnhubStockLastFetch) < throttleMs) return;
+  _finnhubStockLastFetch = now;
+
+  const fetchOne = async (asset) => {
+    const sym = FINNHUB_STOCK_SYM[asset.id];
+    if (!sym) return;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 6000);
+    try {
+      const res = await fetch(
+        `https://finnhub.io/api/v1/quote?symbol=${sym}&token=${FINNHUB_KEY}`,
+        { signal: ctrl.signal }
+      );
+      clearTimeout(t);
+      if (!res.ok) return;
+      const data = await res.json();
+      const price = parseFloat(data.c);
+      if (!price || !isFinite(price)) return;
+
+      // Use the day's open/high/low from Finnhub directly — it gives us
+      // accurate session-relative figures (priceData.high/low across the
+      // current trading session, not just the polling window like OANDA).
+      const open  = parseFloat(data.o)  || price;
+      const high  = parseFloat(data.h)  || price;
+      const low   = parseFloat(data.l)  || price;
+      const pc    = parseFloat(data.pc) || price;
+      const change = pc ? (((price - pc) / pc) * 100).toFixed(4) : '0.0000';
+
+      const prev = priceData[asset.id];
+      priceData[asset.id] = {
+        price,
+        change,
+        high:      Math.max(prev?.high  ?? high, high),
+        low:       Math.min(prev?.low   ?? low,  low),
+        open,
+        lastClose: pc,
+        vol:       '—', mcap: '—', live: true, src: 'finnhub',
+      };
+      prices[asset.id] = price;
+
+      // Refresh selected-asset panel + chart immediately when this asset
+      // arrives, mirroring the OANDA path.
+      if (selectedAsset && selectedAsset.id === asset.id) {
+        refreshSelectedAssetPanel();
+      }
+      if (selectedAsset && selectedAsset.id === asset.id && lwLivePriceLine && lwSeries) {
+        try {
+          lwSeries.removePriceLine(lwLivePriceLine);
+          lwLivePriceLine = lwSeries.createPriceLine({
+            price,
+            color:            'rgba(0,212,255,0.85)',
+            lineWidth:        1,
+            lineStyle:        0,
+            axisLabelVisible: true,
+            title:            '',
+          });
+        } catch(e) {}
+        if (lwLiveCandle && lwSeries) {
+          try {
+            lwLiveCandle.close = price;
+            lwLiveCandle.high  = Math.max(lwLiveCandle.high, price);
+            lwLiveCandle.low   = Math.min(lwLiveCandle.low,  price);
+            lwSeries.update(lwLiveCandle);
+          } catch(e) {}
+        }
+      }
+
+      // Run frontend-side alert checks for this stock against the new price.
+      const _now = Date.now();
+      const _nowDate = new Date(_now);
+      if (isMarketOpenForAsset(asset.id, _nowDate)) {
+        (alerts || []).forEach(al => {
+          if (al.status !== 'active' || al.assetId !== asset.id) return;
+          if (al.condition === 'setup') checkSetupLevels(al, price);
+          else                          checkSingleAlert(al, price, _now, _nowDate);
+        });
+      }
+    } catch(e) {
+      clearTimeout(t);
+      // AbortError on timeout is fine; don't spam.
+    }
+  };
+
+  // Fire all stocks in parallel. Finnhub free tier is 60/min so even at
+  // 38 stocks polled every 5s we'd be well over budget if done naively —
+  // but in practice users only watchlist a handful of stocks, so we only
+  // fetch what's actually needed (filtered by fetchAllPrices).
+  await Promise.all(assets.map(fetchOne));
+}
+
+// ═══════════════════════════════════════════════
+// FINNHUB OHLC — stock candles
+// Finnhub /stock/candle endpoint supports resolutions: 1, 5, 15, 30, 60, D, W, M
+// We map our chart timeframes to these. Free tier limits historical depth to
+// ~1 year for intraday and ~30 years for daily.
+// ═══════════════════════════════════════════════
+async function fetchFinnhubOHLC(asset, cfg, tf) {
+  const sym = FINNHUB_STOCK_SYM[asset.id];
+  if (!sym) return null;
+
+  // Map our internal granularity (seconds) to Finnhub resolution strings
+  const granToRes = {
+    60:    '1',
+    300:   '5',
+    900:   '15',
+    1800:  '30',
+    3600:  '60',
+    14400: '60',  // Finnhub has no 4H — use 60 and approximate
+    86400: 'D',
+    604800:'W',
+    2592000:'M',
+  };
+  const resolution = granToRes[cfg.granularity] || 'D';
+
+  // Finnhub uses unix-second from/to bounds. Compute a window covering at
+  // least cfg.count candles given the resolution.
+  const now = Math.floor(Date.now() / 1000);
+  const span = (cfg.granularity || 86400) * (cfg.count || 200);
+  // Add slack so we get full coverage even on weekends (markets closed
+  // means fewer candles than calendar time would suggest).
+  const from = now - span * 2;
+
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const url = `https://finnhub.io/api/v1/stock/candle?symbol=${sym}&resolution=${resolution}&from=${from}&to=${now}&token=${FINNHUB_KEY}`;
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.s !== 'ok' || !data.t || !data.t.length) return null;
+
+    // Finnhub returns parallel arrays: t[], o[], h[], l[], c[], v[]
+    const candles = [];
+    for (let i = 0; i < data.t.length; i++) {
+      candles.push({
+        time:   data.t[i],
+        open:   data.o[i],
+        high:   data.h[i],
+        low:    data.l[i],
+        close:  data.c[i],
+      });
+    }
+    return candles;
+  } catch(e) {
+    clearTimeout(t);
+    return null;
+  }
 }
 
 // Format a triggeredAt value (ISO string, timestamp, or locale string) → readable time
@@ -2202,7 +2420,15 @@ async function fetchOHLC(asset, tf) {
     return null;
   }
 
-  // ── Forex / metals / indices / commodities / stocks → OANDA ───────────────
+  // ── Stocks → Finnhub (real-time US/ADR data) ─────────────────────────────
+  // Stocks come from Finnhub because OANDA's v20 REST API doesn't expose
+  // stock CFDs. Finnhub's /stock/candle gives us OHLC with no 15-min delay.
+  if (asset.cat === 'stocks' && FINNHUB_STOCK_SYM[asset.id] && asset.sources?.[0] !== 'unavailable') {
+    const d = await fetchFinnhubOHLC(asset, cfg, tf);
+    if (d && d.length) return d;
+  }
+
+  // ── Forex / metals / indices / commodities → OANDA ────────────────────────
   // OANDA covers everything that has an oandaSym in our catalogue. For assets
   // marked 'unavailable' (synthetics, USD/NGN, etc.) we return null and the
   // chart shows "No chart data available".
