@@ -1590,56 +1590,76 @@ async function fetchFinnhubStockPrices(assets) {
 // We map our chart timeframes to these. Free tier limits historical depth to
 // ~1 year for intraday and ~30 years for daily.
 // ═══════════════════════════════════════════════
+// Yahoo Finance OHLC — replaces the Finnhub stock-candle path which
+// became a paid endpoint in 2024 (returns 403 for free-tier keys).
+//
+// Why Yahoo: free, no API key, full OHLC for every US ticker (and
+// international ADRs), all standard intervals from 1-minute up to monthly.
+// Why proxy via the Worker: query2.finance.yahoo.com sends CORS headers
+// that block direct browser fetches from non-yahoo origins. The Worker
+// is server-side (Cloudflare Workers don't have CORS restrictions) so
+// it can fetch freely and return the data with our own CORS headers.
+//
+// Yahoo ticker mapping reuses FINNHUB_STOCK_SYM since the symbols are
+// identical for US-listed shares & ADRs (AAPL, NVO, BABA, SAP, etc.).
 async function fetchFinnhubOHLC(asset, cfg, tf) {
   const sym = FINNHUB_STOCK_SYM[asset.id];
   if (!sym) return null;
 
-  // Map our internal granularity (seconds) to Finnhub resolution strings
-  const granToRes = {
-    60:    '1',
-    300:   '5',
-    900:   '15',
-    1800:  '30',
-    3600:  '60',
-    14400: '60',  // Finnhub has no 4H — use 60 and approximate
-    86400: 'D',
-    604800:'W',
-    2592000:'M',
+  // Map our internal granularity (seconds) → Yahoo `interval` string.
+  // Yahoo supports: 1m, 2m, 5m, 15m, 30m, 60m (=1h), 90m, 1d, 5d, 1wk, 1mo, 3mo
+  const granToInterval = {
+    60:     '1m',
+    300:    '5m',
+    900:    '15m',
+    1800:   '30m',
+    3600:   '60m',
+    14400:  '60m',   // Yahoo has no 4H — use 60m and let the chart aggregate
+    86400:  '1d',
+    604800: '1wk',
+    2592000:'1mo',
   };
-  const resolution = granToRes[cfg.granularity] || 'D';
+  const interval = granToInterval[cfg.granularity] || '1d';
 
-  // Finnhub uses unix-second from/to bounds. Compute a window covering at
-  // least cfg.count candles given the resolution.
-  const now = Math.floor(Date.now() / 1000);
-  const span = (cfg.granularity || 86400) * (cfg.count || 200);
-  // Add slack so we get full coverage even on weekends (markets closed
-  // means fewer candles than calendar time would suggest).
-  const from = now - span * 2;
+  // Yahoo's `range` parameter — must cover at least cfg.count candles.
+  // Each interval has a max range (e.g. 1m intervals are capped at 7 days).
+  // We pick the smallest workable range so payloads stay small.
+  const granToRange = {
+    60:     '5d',    // 1m only available for last 7 days; 5d is safe
+    300:    '5d',
+    900:    '5d',
+    1800:   '1mo',
+    3600:   '3mo',   // 60m ≈ 1H — 3 months gives ~450 trading hours
+    14400:  '6mo',   // approximated 4H from 60m candles
+    86400:  '1y',
+    604800: '5y',
+    2592000:'max',
+  };
+  const range = granToRange[cfg.granularity] || '1y';
 
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 8000);
+  const t = setTimeout(() => ctrl.abort(), 10000);
   try {
-    const url = `https://finnhub.io/api/v1/stock/candle?symbol=${sym}&resolution=${resolution}&from=${from}&to=${now}&token=${FINNHUB_KEY}`;
+    // Worker route: GET ${WORKER}/yahoo-chart?symbol=AAPL&interval=1d&range=1y
+    const url = `${TELEGRAM_WORKER_URL}/yahoo-chart?symbol=${encodeURIComponent(sym)}&interval=${interval}&range=${range}`;
     const res = await fetch(url, { signal: ctrl.signal });
     clearTimeout(t);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.s !== 'ok' || !data.t || !data.t.length) return null;
-
-    // Finnhub returns parallel arrays: t[], o[], h[], l[], c[], v[]
-    const candles = [];
-    for (let i = 0; i < data.t.length; i++) {
-      candles.push({
-        time:   data.t[i],
-        open:   data.o[i],
-        high:   data.h[i],
-        low:    data.l[i],
-        close:  data.c[i],
-      });
+    if (!res.ok) {
+      console.warn(`[yahoo-ohlc] ${sym} HTTP ${res.status}`);
+      return null;
     }
-    return candles;
+    const data = await res.json();
+    if (!data.ok || !data.candles?.length) {
+      console.warn(`[yahoo-ohlc] ${sym} empty/failed`, data?.error);
+      return null;
+    }
+    // Worker returns already-shaped candles: [{ time, open, high, low, close }]
+    return data.candles;
   } catch(e) {
     clearTimeout(t);
+    if (e?.name !== 'AbortError') {
+      console.warn(`[yahoo-ohlc] ${asset.id} exception:`, e.message);
+    }
     return null;
   }
 }
@@ -5987,10 +6007,10 @@ function openExportModal() {
 
       <div style="font-family:var(--mono);font-size:0.56rem;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;margin-bottom:8px">Delivery</div>
       <div id="export-delivery-info" style="display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:12px 14px;margin-bottom:20px">
-        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M2 5l7 5 7-5M2 5v8h14V5M2 5l7-3 7 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M16 2L9 16l-2-7-7-2L16 2z" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
         <div class="flex-1">
-          <div id="export-delivery-title" style="font-size:0.75rem;font-weight:600;color:var(--text)">Email export</div>
-          <div id="export-delivery-sub" class="txt-mono-muted">Telegram blocks direct downloads — we'll email it instead.</div>
+          <div id="export-delivery-title" style="font-size:0.75rem;font-weight:600;color:var(--text)">Sent to your Telegram chat</div>
+          <div id="export-delivery-sub" class="txt-mono-muted">The bot will deliver your journal file. Tap Save in Telegram to keep it.</div>
         </div>
       </div>
 
@@ -6002,17 +6022,17 @@ function openExportModal() {
   document.body.appendChild(ov);
 
   // Adjust copy + button label depending on whether we're in Telegram or
-  // a regular browser. In Telegram we email the file; elsewhere we direct-
-  // download via blob URL.
+  // a regular browser. In Telegram, we send via the bot (sendDocument);
+  // elsewhere, we direct-download via blob URL.
   try {
     const inTg     = _isTelegramWebApp();
     const sendBtn  = document.getElementById('export-send-btn');
     const dTitle   = document.getElementById('export-delivery-title');
     const dSub     = document.getElementById('export-delivery-sub');
-    if (sendBtn) sendBtn.textContent = inTg ? 'Email Export' : 'Download Export';
-    if (dTitle)  dTitle.textContent  = inTg ? 'Email export' : 'Save to device';
+    if (sendBtn) sendBtn.textContent = inTg ? 'Send to Telegram' : 'Download Export';
+    if (dTitle)  dTitle.textContent  = inTg ? 'Sent to your Telegram chat' : 'Save to device';
     if (dSub)    dSub.textContent    = inTg
-      ? "We'll email the file to an address you choose."
+      ? 'The bot will deliver your journal file. Tap Save in Telegram to keep it.'
       : 'File will download to your device. Open or share from there.';
   } catch(_) {}
 
@@ -6167,64 +6187,34 @@ function _downloadBlob(filename, mimeType, content) {
   }
 }
 
-// Helper: simple email validation. Doesn't have to be perfect — if the
-// email is malformed Resend will reject it and we surface the error.
-function _isValidEmail(s) {
-  return typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+// Resolve the user's Telegram chat_id. Prefer the persisted value (set
+// when the user enabled Telegram notifications), fall back to the live
+// initDataUnsafe value from the WebApp SDK if available.
+function _resolveTelegramChatId() {
+  if (telegramChatId) return String(telegramChatId);
+  try {
+    const id = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+    if (id) return String(id);
+  } catch(_) {}
+  return null;
 }
 
-// Helper: prompt the user for an email, remembering the last-used value
-// in localStorage so they don't have to retype on subsequent exports.
-async function _getExportEmail() {
-  const cached = localStorage.getItem('altradia_export_email') || '';
-  return new Promise((resolve) => {
-    const wrap = document.createElement('div');
-    wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99996;display:flex;align-items:flex-end;justify-content:center';
-    wrap.innerHTML = `
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;padding:20px 20px calc(24px + env(safe-area-inset-bottom));width:100%;max-width:480px;box-sizing:border-box">
-        <div style="font-family:var(--mono);font-size:0.62rem;letter-spacing:0.12em;color:var(--muted);text-transform:uppercase;margin-bottom:6px">Send export to</div>
-        <div style="font-size:0.9rem;color:var(--text);margin-bottom:14px;line-height:1.5">We'll email your journal as an attachment. Open it on any device with a spreadsheet app or email client.</div>
-        <input id="_export_email_in" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com" value="${cached.replace(/"/g,'&quot;')}" style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:0.95rem;padding:13px 14px;border-radius:9px;outline:none;box-sizing:border-box;margin-bottom:14px">
-        <div style="display:flex;gap:8px">
-          <button id="_export_email_cancel" style="flex:1;padding:13px;background:transparent;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:0.72rem;font-weight:700;letter-spacing:0.08em;border-radius:10px;cursor:pointer;text-transform:uppercase">Cancel</button>
-          <button id="_export_email_ok" style="flex:2;padding:13px;background:var(--accent);color:#000;font-family:var(--mono);font-size:0.72rem;font-weight:700;letter-spacing:0.08em;border:none;border-radius:10px;cursor:pointer;text-transform:uppercase">Send Email</button>
-        </div>
-      </div>`;
-    document.body.appendChild(wrap);
-    const inp = wrap.querySelector('#_export_email_in');
-    const ok  = wrap.querySelector('#_export_email_ok');
-    const cx  = wrap.querySelector('#_export_email_cancel');
-    setTimeout(() => { try { inp.focus(); } catch(_) {} }, 100);
-    const close = (val) => { try { wrap.remove(); } catch(_) {} resolve(val); };
-    ok.onclick = () => {
-      const v = (inp.value || '').trim();
-      if (!_isValidEmail(v)) {
-        inp.style.borderColor = 'var(--red)';
-        return;
-      }
-      try { localStorage.setItem('altradia_export_email', v); } catch(_) {}
-      close(v);
-    };
-    cx.onclick = () => close(null);
-    inp.onkeydown = (e) => { if (e.key === 'Enter') ok.click(); };
-    wrap.onclick = (e) => { if (e.target === wrap) close(null); };
-  });
-}
-
-// Send the prepared entries to the export-journal edge function. The edge
-// function builds the CSV/PDF on the server and emails it via Resend.
-// Returns { ok, error? }.
-async function _sendExportEmail(email, fmt, entries) {
-  const url = `${SUPABASE_URL}/functions/v1/export-journal`;
+// Send the prepared entries to the Cloudflare Worker's /export endpoint.
+// The Worker uses the Telegram Bot API's sendDocument method to deliver
+// the file as a chat message from @tradewatchalert_bot — the user gets
+// a normal Telegram document they can save, share, or open.
+//
+// Returns { ok, error? }. This is the recommended path for Telegram Mini
+// Apps: the in-app blob/anchor download trick doesn't work reliably on
+// Telegram's iOS/Android webviews, but bot-delivered documents work
+// everywhere because they're handled by the native Telegram client.
+async function _sendExportTelegram(chatId, fmt, entries) {
+  const url = `${TELEGRAM_WORKER_URL}/export`;
   try {
     const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-        'apikey': SUPABASE_ANON_KEY,
-      },
-      body: JSON.stringify({ email, fmt, entries }),
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ chat_id: chatId, fmt, entries }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.ok === false) {
@@ -6248,23 +6238,45 @@ async function submitExport() {
 
   const btn = document.getElementById('export-send-btn');
 
-  // Path A: inside Telegram WebApp → email via edge function
+  // ── Path A: inside Telegram WebApp → bot-delivered file via sendDocument
+  // The Worker's /export endpoint uses the Telegram Bot API's sendDocument
+  // method, which sends the CSV/HTML to the user's chat with the bot. The
+  // file appears as a normal Telegram document with a Save button — works
+  // on iOS, Android, and Desktop without any special setup, no email, no
+  // domain, no Storage bucket.
   if (_isTelegramWebApp()) {
-    const email = await _getExportEmail();
-    if (!email) return; // user cancelled
+    const chatId = _resolveTelegramChatId();
+    if (!chatId) {
+      showToast(
+        'Connect Telegram',
+        'Open the app via @tradewatchalert_bot at least once so we can deliver the file.',
+        'error'
+      );
+      return;
+    }
     if (btn) { btn.textContent = 'Sending…'; btn.disabled = true; }
-    const { ok, error } = await _sendExportEmail(email, fmt, entries);
+    const { ok, error } = await _sendExportTelegram(chatId, fmt, entries);
     if (ok) {
       ov?.remove();
-      showToast('Export Sent', `Check ${email} — your journal is on its way.`, 'success');
+      showToast(
+        'Export Sent',
+        `Your journal was sent to your chat with @tradewatchalert_bot.`,
+        'success'
+      );
+      // Close the Mini App after a short delay so the user lands back on
+      // the bot chat where the file just arrived. They can re-open
+      // altradia from the menu button.
+      setTimeout(() => {
+        try { window.Telegram?.WebApp?.close?.(); } catch(_) {}
+      }, 1200);
     } else {
-      if (btn) { btn.textContent = 'Download Export'; btn.disabled = false; }
-      showToast('Export Failed', error || 'Could not send email. Try again.', 'error');
+      if (btn) { btn.textContent = 'Send to Telegram'; btn.disabled = false; }
+      showToast('Export Failed', error || 'Could not send file. Try again.', 'error');
     }
     return;
   }
 
-  // Path B: regular browser → blob download (existing behavior)
+  // ── Path B: regular browser → blob download (desktop preview / dev)
   if (btn) { btn.textContent = 'Generating…'; btn.disabled = true; }
   try {
     const stamp = new Date().toISOString().slice(0, 10);
