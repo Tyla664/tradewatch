@@ -221,15 +221,7 @@
       </svg>
     </button>
 
-    <!-- Floating Export button — visible only on Journal tab for Pro/Elite users.
-         Click handler wired by app.js (_wireJournalFab) so it can run a tier
-         check before opening the export modal. -->
-    <button class="jnl-fab" id="jnl-fab" type="button" aria-label="Export journal">
-      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-        <path d="M7 1.5v8M7 9.5L4 6.5M7 9.5L10 6.5M2 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-      </svg>
-      <span>Export</span>
-    </button>
+    <!-- (#jnl-fab moved to top-level body — see end of file) -->
 
   </div>
 
@@ -1906,6 +1898,17 @@
 </div>
 
 
+
+<!-- Floating Export button — visible only on Journal tab for Pro/Elite users.
+     Lives at top-level body so .panel's display:none can never hide it.
+     Click handler wired by app.js (_wireJournalFab) so it can run a tier
+     check before opening the export modal. -->
+<button class="jnl-fab" id="jnl-fab" type="button" aria-label="Export journal">
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+    <path d="M7 1.5v8M7 9.5L4 6.5M7 9.5L10 6.5M2 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </svg>
+  <span>Export</span>
+</button>
 
 <!-- ══════════════════════════════════════════════════════════════════
      ONBOARDING TUTORIAL OVERLAY
