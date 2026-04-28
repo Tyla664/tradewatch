@@ -1112,7 +1112,7 @@ function renderStrengthTab() {
         </div>
         <div class="cs-gate-title">Currency Strength</div>
         <div class="cs-gate-desc">See which currencies are strong or weak right now. Available on Pro and Elite.</div>
-        <button onclick="closeMenuPanel?.();openMenuPage('subscription')" class="cs-gate-btn">UPGRADE TO PRO</button>
+        <button onclick="openMenuPage('subscription')" class="cs-gate-btn">UPGRADE TO PRO</button>
       </div>`;
     return;
   }
@@ -7183,7 +7183,10 @@ async function refreshUserTier() {
 // PROFILE PAGE
 // ═══════════════════════════════════════════════
 function openProfile() {
-  closeMenuPanel();
+  // Leave the menu panel mounted underneath — the .menu-page slides over it
+  // and reveals it again on close. Closing both at once causes a visible
+  // glitch as the two transitions race; this approach mirrors the smooth
+  // close flow used by about / terms / privacy / etc.
   openMenuPage('profile');
   renderProfilePage(getUserTier());
 }
@@ -7444,7 +7447,8 @@ async function _fetchAIInsight(stats, mode) {
 }
 
 function openAnalytics() {
-  closeMenuPanel();
+  // See openProfile — keep the menu panel mounted so the close animation
+  // is a single clean slide, not two competing transitions.
   openMenuPage('analytics');
   renderAnalyticsMenuBody(getUserTier());
 }
