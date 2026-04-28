@@ -1664,6 +1664,11 @@ async function fetchFinnhubOHLC(asset, cfg, tf) {
   }
 }
 
+// Trigger first-launch onboarding. The check inside maybeShowOnboarding
+// quickly returns if the user has already seen it, so calling this on
+// every app start is safe.
+try { maybeShowOnboarding(); } catch(e) { console.warn('onboarding init err:', e); }
+
 // Format a triggeredAt value (ISO string, timestamp, or locale string) → readable time
 function formatTriggeredAt(val) {
   if (!val || val === 'null') return '—';
@@ -2230,6 +2235,10 @@ function mobileTab(tab, pushState = true) {
     document.getElementById('mnav-alerts').classList.add('active');
     renderAlerts();
   }
+
+  // Journal-only floating Export button. We call this after the panel
+  // visibility has been toggled above so the helper sees the correct state.
+  try { updateJournalFabVisibility(); } catch(_) {}
 }
 
 // ── BACK NAVIGATION (Android back button + swipe back) ──
@@ -3685,52 +3694,39 @@ function checkSetupLevels(alert, currentPrice) {
   // This prevents a "false trigger" where entry + TP fire in the same tick.
 
   if (prev === 'watching') {
-    // Two-phase entry detection — works for ALL setup types:
+    // First-touch entry detection driven by priceAtCreation (pac):
     //
-    // The key insight is priceAtCreation (pac) tells us which side price is on
-    // when the alert is set. Entry fires when price CROSSES to the other side,
-    // then RETURNS back to the entry level (the retest/tap).
+    //   pac > entry  → trader is anticipating a DOWNWARD retest of entry.
+    //                  Fires the first tick where current <= entry.
+    //                  Covers: LONG retest from above (resistance flipped to
+    //                  support), SHORT breakout-retest from above.
     //
-    // pac < entry → price starts BELOW entry:
-    //   Phase 1: price rises to >= entry (breakout above, or sweep)
-    //   Phase 2: entry fires when price comes back DOWN to <= entry (retest tap)
-    //   Covers: LONG breakout-retest, SHORT ICT sweep
+    //   pac < entry  → trader is anticipating an UPWARD retest of entry.
+    //                  Fires the first tick where current >= entry.
+    //                  Covers: LONG breakout-retest from below, SHORT retest
+    //                  from below (support flipped to resistance).
     //
-    // pac > entry → price starts ABOVE entry:
-    //   Phase 1: price falls to <= entry (breakout below, or dip)
-    //   Phase 2: entry fires when price bounces back UP to >= entry (retest tap)
-    //   Covers: SHORT breakout-retest, LONG ICT dip
+    //   pac == entry (or no pac, e.g. legacy alerts) → fall back to the
+    //                  direction-based touch:
+    //                  LONG fires on current >= entry, SHORT on current <= entry.
     //
-    // No pac (old alerts): fall back to direction-based logic
-    //   LONG: phase1 = price <= entry, fires when price >= entry
-    //   SHORT: phase1 = price >= entry, fires when price <= entry
-
+    // The 90-second cooldown on lastTriggeredAt prevents jitter near entry
+    // from generating repeat fires within a single polling window.
     const pac = j.priceAtCreation ? parseFloat(j.priceAtCreation) : null;
 
-    let setupSideReached, rawEntryHit;
-    if (pac !== null && pac < entry) {
-      // Price started BELOW entry → must visit ABOVE first, then retest back down
-      setupSideReached = currentPrice >= entry;
-      rawEntryHit      = currentPrice <= entry;
-    } else if (pac !== null && pac > entry) {
-      // Price started ABOVE entry → must visit BELOW first, then retest back up
-      setupSideReached = currentPrice <= entry;
-      rawEntryHit      = currentPrice >= entry;
+    let entryHit;
+    if (pac !== null && pac > entry) {
+      // Pullback from above — price has to come DOWN to entry to fire.
+      entryHit = currentPrice <= entry;
+    } else if (pac !== null && pac < entry) {
+      // Pullback from below — price has to come UP to entry to fire.
+      entryHit = currentPrice >= entry;
     } else {
-      // No priceAtCreation — fall back to direction-based logic (old alerts)
-      setupSideReached = isLong ? currentPrice <= entry : currentPrice >= entry;
-      rawEntryHit      = isLong ? currentPrice >= entry : currentPrice <= entry;
+      // pac unknown or exactly at entry — use direction.
+      entryHit = isLong ? currentPrice >= entry : currentPrice <= entry;
     }
 
-    // Phase 1: mark that price has visited the setup side (opposite of pac)
     let noteDirty = false;
-    if (!j.priceVisitedSetupSide && setupSideReached) {
-      j.priceVisitedSetupSide = true;
-      noteDirty = true;
-    }
-
-    const setupVisited = j.priceVisitedSetupSide || false;
-    const entryHit = rawEntryHit && setupVisited;
 
     if (entryHit) {
       const now = Date.now();
@@ -3742,7 +3738,6 @@ function checkSetupLevels(alert, currentPrice) {
       if (j.entryFiredMs && (now - j.entryFiredMs) < 90000) return;
 
       j.tradeStatus = 'entry_hit';
-      j.priceVisitedSetupSide = true;
       j.entryFiredMs = now;
       // Mark proxWarned flags so frontend doesn't spam SL/TP approaching
       // immediately after entry fires (Edge Function may have already transitioned)
@@ -3760,11 +3755,9 @@ function checkSetupLevels(alert, currentPrice) {
       return;
     }
 
-    // If we updated the priceVisitedSetupSide flag, persist it quietly
-    if (noteDirty) {
-      alert.note = JSON.stringify(j);
-      updateAlert(alert.id, { note: alert.note });
-    }
+    // Nothing to persist — entry hasn't fired and there's no longer any
+    // intermediate "phase 1" flag to track.
+    void noteDirty;
     return; // still watching
   }
 
@@ -5954,6 +5947,122 @@ async function renderJournal() {
 }
 
 
+
+// ══════════════════════════════════════════════════════════════════════════
+// ONBOARDING TUTORIAL (runtime logic — markup lives in index.html)
+// 4-screen swipe carousel shown once on first launch. The flag
+// `altradia_onboarding_seen` in localStorage prevents re-showing. Users
+// can replay any time from Help & FAQs.
+// ══════════════════════════════════════════════════════════════════════════
+function showOnboarding() {
+  const ov = document.getElementById('onboarding-overlay');
+  if (!ov) return;                                  // markup missing
+  if (ov.classList.contains('open')) return;        // already mounted
+
+  const track = ov.querySelector('#ob-track');
+  const dots  = ov.querySelectorAll('.ob-dot');
+  const cta   = ov.querySelector('#ob-cta');
+  const skip  = ov.querySelector('#ob-skip');
+  const wrap  = ov.querySelector('#ob-track-wrap');
+  if (!track || !cta || !skip || !wrap) return;
+
+  let idx = 0;
+  const last = dots.length - 1;
+
+  const render = () => {
+    track.style.transform = `translateX(-${idx * 100}%)`;
+    dots.forEach((d, i) => d.classList.toggle('active', i === idx));
+    cta.textContent = (idx === last) ? 'Get Started' : 'Next';
+    skip.style.visibility = (idx === last) ? 'hidden' : 'visible';
+  };
+
+  const finish = () => {
+    try { localStorage.setItem('altradia_onboarding_seen', '1'); } catch(_) {}
+    ov.classList.remove('open');
+    setTimeout(() => { ov.style.display = 'none'; }, 240);
+  };
+
+  cta.onclick  = () => { if (idx < last) { idx++; render(); } else { finish(); } };
+  skip.onclick = finish;
+
+  // Touch swipe — drag tracks finger, release snaps to nearest slide.
+  let dragStartX = 0, dragDx = 0, dragging = false;
+  const onStart = (e) => {
+    if (!e.touches?.[0]) return;
+    dragStartX = e.touches[0].clientX;
+    dragDx = 0; dragging = true;
+    track.style.transition = 'none';
+  };
+  const onMove = (e) => {
+    if (!dragging || !e.touches?.[0]) return;
+    dragDx = e.touches[0].clientX - dragStartX;
+    const w = wrap.clientWidth || 1;
+    track.style.transform = `translateX(${-idx * 100 + (dragDx / w) * 100}%)`;
+  };
+  const onEnd = () => {
+    if (!dragging) return;
+    dragging = false;
+    track.style.transition = '';
+    if (dragDx <= -50 && idx < last)      idx++;
+    else if (dragDx >= 50 && idx > 0)     idx--;
+    render();
+  };
+  // Re-bind every show in case markup was replaced (idempotent thanks to
+  // the dragging guard).
+  wrap.ontouchstart = onStart;
+  wrap.ontouchmove  = onMove;
+  wrap.ontouchend   = onEnd;
+
+  // Reset to slide 0 every time we mount, then animate in.
+  idx = 0;
+  ov.style.display = 'flex';
+  // Force reflow so the open-class transition runs.
+  void ov.offsetWidth;
+  ov.classList.add('open');
+  render();
+}
+
+function maybeShowOnboarding() {
+  try {
+    if (localStorage.getItem('altradia_onboarding_seen') === '1') return;
+  } catch(_) { return; }
+  setTimeout(() => { try { showOnboarding(); } catch(e) { console.warn('onboarding:', e); } }, 600);
+}
+
+function replayOnboarding() {
+  try { closeMenuPage('help'); } catch(_) {}
+  try { closeMenuPanel?.(); } catch(_) {}
+  setTimeout(() => showOnboarding(), 320);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JOURNAL EXPORT FAB (runtime logic — markup + styles in index.html / styles.css)
+// Visible only when (a) journal tab is active AND (b) user tier ≠ 'free'.
+// The button itself lives in index.html as #jnl-fab; this just toggles
+// its `.visible` class and routes the click.
+// ══════════════════════════════════════════════════════════════════════════
+function _wireJournalFab() {
+  const fab = document.getElementById('jnl-fab');
+  if (!fab || fab._wired) return;
+  fab._wired = true;
+  fab.addEventListener('click', () => {
+    if (getUserTier() === 'free') {
+      showToast('Pro feature', 'Journal export is available on Pro and Elite plans.', 'error');
+      return;
+    }
+    openExportModal();
+  });
+}
+
+function updateJournalFabVisibility() {
+  const fab = document.getElementById('jnl-fab');
+  if (!fab) return;
+  _wireJournalFab();
+  const journalActive = !!document.getElementById('panel-journal')
+                          ?.classList.contains('mobile-active');
+  fab.classList.toggle('visible', journalActive && getUserTier() !== 'free');
+}
+
 function openExportModal() {
   const existing = document.getElementById('export-modal-overlay');
   if (existing) existing.remove();
@@ -7493,14 +7602,6 @@ function renderAnalyticsMenuBody(tier) {
             <div class="analytics-insight-text ai-loading-shimmer" id="ai-insight-text">Analysing your trading patterns…</div>
           </div>`
       }
-    </div>
-
-    <div class="analytics-section">
-      <div class="analytics-section-title">Export Options</div>
-      <button onclick="openExportModal()" style="width:100%;padding:11px;background:var(--surface);border:1px solid var(--border);border-radius:9px;color:var(--text);font-family:var(--mono);font-size:0.65rem;letter-spacing:0.06em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="2" y="1.5" width="10" height="11" rx="1.5" stroke="currentColor" stroke-width="1.3" fill="none"/><line x1="4.5" y1="5" x2="9.5" y2="5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="4.5" y1="7.5" x2="9.5" y2="7.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="4.5" y1="10" x2="7" y2="10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
-        Export Journal
-      </button>
     </div>
 
     <div id="analytics-elite-placeholder">
