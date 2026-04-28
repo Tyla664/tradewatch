@@ -3667,6 +3667,105 @@ function checkSetupProximity(alert, j, currentPrice, prev) {
 }
 
 // ── Check setup alert levels against live price ────────────────────────────
+// ── Atomic setup-state-transition fire (frontend) ──────────────────────────
+// Mirrors the Edge Function's conditional-update lock (alert-monitor.ts).
+// Both writers race for the same row using a 5-second `last_triggered_at`
+// window; PostgREST returns the affected rows so we know whether we won.
+//
+// Win  → update in-memory state, send Telegram, render UI.
+// Lose → silently skip Telegram (someone else already sent it). The local
+//        in-memory tradeStatus is still bumped so the next tick doesn't
+//        re-enter the watching/etc branch and try again.
+async function _fireSetupTransitionAtomic(alert, j, nextStatus, currentPrice) {
+  if (!alert?.id || typeof SUPABASE_URL !== 'string' || !SUPABASE_ANON_KEY) return;
+  const nowMs   = Date.now();
+  const nowIso  = new Date(nowMs).toISOString();
+
+  // Per-transition cooldown: prevent firing the same transition twice within
+  // 30 seconds (covers double-tick races in a single tab). We do NOT gate
+  // on lastTriggeredAt here — that would block legitimate same-trade
+  // transitions like entry_hit → sl_hit when price moves quickly.
+  if (j[`lastFired_${nextStatus}`] && (nowMs - parseInt(j[`lastFired_${nextStatus}`])) < 30000) return;
+
+  // Mutate the in-memory note synchronously so the next checkSetupLevels
+  // tick reads the new tradeStatus and skips the watching/etc branch.
+  // This works regardless of whether the network call succeeds.
+  j.tradeStatus = nextStatus;
+  j[`lastFired_${nextStatus}`] = nowMs;
+  if (nextStatus === 'entry_hit') j.entryFiredMs = nowMs;
+  alert.note = JSON.stringify(j);
+
+  // 5-second lock window — wide enough to bridge cross-writer write→read
+  // latency, short enough not to block legitimate rapid transitions.
+  const cutoff = new Date(nowMs - 5000).toISOString();
+  const url    = `${SUPABASE_URL}/rest/v1/alerts?id=eq.${encodeURIComponent(alert.id)}` +
+                 `&or=(last_triggered_at.is.null,last_triggered_at.lt.${encodeURIComponent(cutoff)})`;
+
+  let won = false;
+  try {
+    const res = await fetch(url, {
+      method:  'PATCH',
+      headers: {
+        'apikey':         SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type':   'application/json',
+        'Prefer':         'return=representation',
+      },
+      body: JSON.stringify({
+        note:              alert.note,
+        last_triggered_at: nowIso,
+      }),
+    });
+    if (res.ok) {
+      const rows = await res.json();
+      won = Array.isArray(rows) && rows.length > 0;
+    }
+  } catch (e) {
+    console.warn('[setup-lock] PATCH failed', alert.symbol, nextStatus, e?.message || e);
+  }
+
+  alert.lastTriggeredAt = nowMs;
+  renderAlerts();
+
+  if (!won) {
+    console.log(`[setup-lock] ${alert.symbol} ${nextStatus} — already fired by another writer`);
+    return;
+  }
+
+  // Lock won → toast + sound + Telegram.
+  const toastTitle = nextStatus === 'entry_hit' ? `ENTRY HIT — ${alert.symbol}`
+                  : nextStatus === 'running'   ? `TRADE RUNNING — ${alert.symbol}`
+                  : nextStatus === 'sl_hit'    ? `STOP LOSS HIT — ${alert.symbol}`
+                  : nextStatus === 'full_tp'   ? `FULL TP HIT — ${alert.symbol}`
+                  : nextStatus === 'tp1_hit'   ? `TP1 HIT — ${alert.symbol}`
+                  : nextStatus === 'tp2_hit'   ? `TP2 HIT — ${alert.symbol}`
+                  :                              `${nextStatus.toUpperCase()} — ${alert.symbol}`;
+  const toastBody = nextStatus === 'entry_hit' ? 'Price reached your entry. Your trade may now be active.'
+                  : nextStatus === 'running'   ? 'Trade is live. Monitoring SL and TP levels.'
+                  : nextStatus === 'tp1_hit'   ? 'First take profit reached! Consider securing partial profits.'
+                  : nextStatus === 'tp2_hit'   ? 'Second target hit! Protect remaining position.'
+                  : nextStatus === 'full_tp'   ? 'All targets reached! Tap LOG TRADE to record this win.'
+                  : nextStatus === 'sl_hit'    ? 'Price hit your stop loss. Tap LOG TRADE to record the trade.'
+                  :                              'Setup transition fired. Check the alert card for details.';
+  const isFinal = ['full_tp','sl_hit'].includes(nextStatus);
+  showToast(toastTitle, toastBody, isFinal ? 'alert' : 'info');
+
+  if (isFinal) {
+    try { playAlertSound(selectedAlertSound); } catch(_) {}
+    try { checkSlStreak(nextStatus); } catch(_) {}
+  }
+
+  // Telegram delivery: setup-related transitions follow the `queued` pref
+  // (entry_hit / running). Final transitions and TP hits are higher priority
+  // and fire whenever Telegram is enabled.
+  const tgGate = (nextStatus === 'entry_hit' || nextStatus === 'running')
+                   ? !!tgNotifPrefs.queued
+                   : true;
+  if (telegramEnabled && telegramChatId && tgGate) {
+    sendTelegram(tgSetupLevelMessage(alert.symbol, nextStatus, currentPrice, alert.assetId, j));
+  }
+}
+
 function checkSetupLevels(alert, currentPrice) {
   if (!currentPrice) return;
   let j;
@@ -3729,29 +3828,12 @@ function checkSetupLevels(alert, currentPrice) {
     let noteDirty = false;
 
     if (entryHit) {
-      const now = Date.now();
-      // Shared cooldown: check lastTriggeredAt (set by BOTH frontend and Edge Function)
-      // This prevents duplicate fires when both sources try to fire at the same time
-      const lastFired = alert.lastTriggeredAt || 0;
-      if ((now - lastFired) < 90000) return; // 90s shared cooldown
-      // Also check the in-memory flag for same-session re-fires
-      if (j.entryFiredMs && (now - j.entryFiredMs) < 90000) return;
-
-      j.tradeStatus = 'entry_hit';
-      j.entryFiredMs = now;
-      // Mark proxWarned flags so frontend doesn't spam SL/TP approaching
-      // immediately after entry fires (Edge Function may have already transitioned)
-      // Only mark if SL/TP are NOT currently being approached
+      // Atomic conditional-update fire — see _fireSetupTransitionAtomic.
+      // Race the Edge Function (and any other tab) for this transition.
+      // The conditional UPDATE only succeeds if no one wrote within the
+      // last 5 seconds; loser silently skips the Telegram.
       delete j.proxWarnedEntry;
-      alert.note = JSON.stringify(j);
-      // Update both note and last_triggered_at so Edge Function sees we already fired
-      updateAlert(alert.id, { note: alert.note, last_triggered_at: new Date().toISOString() });
-      alert.lastTriggeredAt = now; // update in-memory too
-      renderAlerts();
-      showToast(`ENTRY HIT — ${alert.symbol}`, 'Price reached your entry. Your trade may now be active.', 'info');
-      if (telegramEnabled && telegramChatId && tgNotifPrefs.queued) {
-        sendTelegram(tgSetupLevelMessage(alert.symbol, 'entry_hit', currentPrice, alert.assetId, j));
-      }
+      _fireSetupTransitionAtomic(alert, j, 'entry_hit', currentPrice);
       return;
     }
 
@@ -3827,55 +3909,20 @@ function checkSetupLevels(alert, currentPrice) {
   // No state change — nothing to do
   if (next === prev) return;
 
-  // Shared cooldown: use lastTriggeredAt DB column (shared with Edge Function)
-  // Plus per-transition in-note flag as secondary guard
-  const _now = Date.now();
-  const _lastShared = alert.lastTriggeredAt || 0;
-  const _lastKey = `lastFired_${next}`;
-  if ((_now - _lastShared) < 60000) return; // 60s shared cooldown
-  if (j[_lastKey] && (_now - j[_lastKey]) < 60000) return; // per-transition guard
-
-  // ── Apply state change ────────────────────────────────────────────────────
-  j.tradeStatus = next;
-  j[_lastKey] = _now;
-  // Reset proximity flags so the new phase gets fresh warnings
-  // Only reset SL/TP flags on TP transitions (not on running — SL might still be close)
+  // Reset proximity flags so the new phase gets fresh warnings.
+  // Mutated in-memory before the atomic fire so the value lands in DB
+  // when the lock-winner's note is written.
   if (['sl_hit','full_tp','tp1_hit','tp2_hit'].includes(next)) {
     delete j.proxWarnedSL;
     delete j.proxWarnedTP1;
     delete j.proxWarnedTP2;
   }
   delete j.proxWarnedEntry;
-  alert.note = JSON.stringify(j);
 
-  // Persist note + last_triggered_at (shared cooldown signal for Edge Function)
-  updateAlert(alert.id, { note: alert.note, last_triggered_at: new Date().toISOString() });
-  alert.lastTriggeredAt = _now; // update in-memory too
-
-  // Render updated card
-  renderAlerts();
-
-  // Toast notification
-  const isFinal = ['full_tp','sl_hit'].includes(next);
-  const msgs = {
-    entry_hit: [`ENTRY HIT — ${alert.symbol}`, 'Price reached your entry. Your trade may now be active.'],
-    running:   [`TRADE RUNNING — ${alert.symbol}`, 'Trade is live. Monitoring SL and TP levels.'],
-    tp1_hit:   [`TP1 HIT — ${alert.symbol}`, 'First take profit reached! Consider securing partial profits.'],
-    tp2_hit:   [`TP2 HIT — ${alert.symbol}`, 'Second target hit! Protect remaining position.'],
-    full_tp:   [`FULL TP HIT — ${alert.symbol}`, 'All targets reached! Tap LOG TRADE to record this win.'],
-    sl_hit:    [`STOP LOSS HIT — ${alert.symbol}`, 'Price hit your stop loss. Tap LOG TRADE to record the trade.'],
-  };
-  const [title, body] = msgs[next] || [`${alert.symbol} update`, ''];
-  showToast(title, body + (isFinal ? '' : ''), isFinal ? 'alert' : 'info');
-  if (isFinal) playAlertSound(selectedAlertSound);
-
-  // SL streak discipline check
-  if (isFinal) checkSlStreak(next);
-
-  // Telegram level notification
-  if (telegramEnabled && telegramChatId) {
-    sendTelegram(tgSetupLevelMessage(alert.symbol, next, currentPrice, alert.assetId, j));
-  }
+  // Atomic conditional-update fire — see _fireSetupTransitionAtomic.
+  // Handles cooldown, lock contention with the Edge Function, toast,
+  // sound, SL-streak check, and Telegram delivery.
+  _fireSetupTransitionAtomic(alert, j, next, currentPrice);
 }
 
 // ── Check a single non-setup alert against a given price ─────────────────────
