@@ -17,6 +17,96 @@
 // Deriv path is restored or another broker is integrated.
 // ═══════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════════════════════════
+// Global frontend error logger
+// ══════════════════════════════════════════════════════════════════════════
+// Catches uncaught exceptions and unhandled promise rejections, then writes
+// a row to public.frontend_errors. Helps triage tester reports — when a
+// user says "the app is broken" we can look up their user_id in this table
+// and see exactly what failed.
+//
+// SUPABASE_URL and SUPABASE_ANON_KEY come from db.js, which is loaded
+// before this file. If for any reason they're missing, we degrade silently
+// (no logger > broken logger).
+(function installFrontendErrorLogger() {
+  const MAX_LOGS_PER_SESSION = 20;
+  const seen = new Map();   // dedupe key → count
+  let logsSent = 0;
+
+  function logError(payload) {
+    if (typeof SUPABASE_URL !== 'string' || !SUPABASE_ANON_KEY) return;
+    if (logsSent >= MAX_LOGS_PER_SESSION) return;
+
+    const key = `${payload.message}|${payload.lineno}|${payload.colno}`;
+    const prev = seen.get(key) || 0;
+    seen.set(key, prev + 1);
+    // First occurrence: send. Subsequent: increment counter, no network.
+    if (prev > 0) return;
+    logsSent++;
+
+    // Best-effort context — reads globals if defined, falls back to nulls.
+    const userId      = (typeof currentUserId      !== 'undefined') ? currentUserId      : null;
+    const telegramId  = (typeof currentTelegramId  !== 'undefined') ? currentTelegramId  : null;
+    const tier        = (typeof currentUserTier    !== 'undefined') ? currentUserTier    : null;
+
+    const row = {
+      user_id:        userId,
+      telegram_id:    telegramId ? String(telegramId) : null,
+      tier:           tier,
+      message:        String(payload.message || '').slice(0, 1000),
+      source:         String(payload.source  || '').slice(0, 500),
+      lineno:         payload.lineno || null,
+      colno:          payload.colno  || null,
+      stack:          String(payload.stack   || '').slice(0, 4000),
+      kind:           payload.kind || 'error',
+      page_url:       location.href.slice(0, 500),
+      user_agent:     navigator.userAgent.slice(0, 300),
+      occurred_at:    new Date().toISOString(),
+    };
+
+    // Fire-and-forget. No await, no .then chain — we don't want a logger
+    // failure to surface in the caller. keepalive=true lets the request
+    // survive page navigation, which matters because some errors fire
+    // mid-unload.
+    try {
+      fetch(`${SUPABASE_URL}/rest/v1/frontend_errors`, {
+        method:    'POST',
+        keepalive: true,
+        headers: {
+          'Content-Type':  'application/json',
+          'apikey':         SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          'Prefer':         'return=minimal',
+        },
+        body: JSON.stringify(row),
+      }).catch(() => {});
+    } catch (_) { /* swallow */ }
+  }
+
+  window.addEventListener('error', (e) => {
+    logError({
+      message: e.message || (e.error && e.error.message),
+      source:  e.filename,
+      lineno:  e.lineno,
+      colno:   e.colno,
+      stack:   e.error && e.error.stack,
+      kind:    'error',
+    });
+  });
+
+  window.addEventListener('unhandledrejection', (e) => {
+    const reason = e.reason || {};
+    logError({
+      message: reason.message || String(reason),
+      source:  '',
+      lineno:  null,
+      colno:   null,
+      stack:   reason.stack || '',
+      kind:    'unhandledrejection',
+    });
+  });
+})();
+
 // ── Broker credentials ────────────────────────
 // SUPABASE_URL and SUPABASE_ANON_KEY are defined in db.js — do not redeclare here
 const OANDA_KEY     = 'bc279adfd3ef94ce554a110a9e555d05-7e712cb0ac8809392b3f4bfca9768b8b';
