@@ -1786,7 +1786,7 @@ function formatPrice(p, id) {
   return '$' + p.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
 
-// altradia — Watchlist & Hotlist
+// altradia — Watchlist
 // renderWatchlist, selectAsset, navigation
 
 // ═══════════════════════════════════════════════
@@ -2891,7 +2891,7 @@ async function createAlert() {
   if (document.getElementById('alert-condition').value === 'setup') return createSetupAlert();
   if (editingAlertId) return saveEditedAlert();
 
-  if (!selectedAsset) return showToast('No Asset', 'Tap any asset from the Hot List or Watchlist first.', 'error');
+  if (!selectedAsset) return showToast('No Asset', 'Select an asset from your Watchlist or use the search bar first.', 'error');
 
   const assetId    = selectedAsset.id;
   const condition  = document.getElementById('alert-condition').value;
