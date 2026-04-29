@@ -9818,7 +9818,27 @@ async function init() {
   // Push initial history state so Android back button is interceptable from the start
   window.history.replaceState({ twTab: 'chart' }, '', '');
 
-  await getOrCreateUser(currentTelegramId);
+  // Auth bootstrap. Soft failure — if mint-jwt isn't reachable yet
+  // (Edge Function not deployed, env vars missing, network problem),
+  // we still proceed to revealApp() so the user sees the app shell
+  // and an actionable toast rather than a stuck spinner forever.
+  let _bootAuthOk = true;
+  try {
+    const uid = await getOrCreateUser(currentTelegramId);
+    if (!uid) _bootAuthOk = false;
+  } catch (e) {
+    console.error('[boot] getOrCreateUser threw:', e);
+    _bootAuthOk = false;
+  }
+  if (!_bootAuthOk) {
+    const reason = (typeof lastAuthError !== 'undefined' && lastAuthError) || 'unknown';
+    setTimeout(() => {
+      try { showToast('Sign-in failed', `Auth error: ${reason}. Pull to refresh to retry.`, 'error'); }
+      catch (_) {}
+    }, 1500);
+    // Reveal the app shell so the user can at least see what's there.
+    try { revealApp(); } catch (_) {}
+  }
 
   const prefs = await loadPreferencesFromDB();
   // ── Detect Telegram context robustly ──────────────────────────────────────
