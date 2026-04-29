@@ -95,31 +95,51 @@ async function _mintJwt() {
 
 // Public helper. Concurrent callers share a single in-flight mint; once
 // the token is fresh, subsequent calls return immediately.
+//
+// Failure semantics: returns null rather than throwing. This means callers
+// must check the result before assuming a JWT is available — but it also
+// means a single auth failure never cascades through every awaited db
+// call and brick the whole boot. We surface the last error on
+// `lastAuthError` so app.js can show a toast.
+let lastAuthError = null;
 async function ensureAuth() {
   const nowSec = Math.floor(Date.now() / 1000);
   if (_altradiaJwt && _jwtExpiresAt > nowSec + 30) return _altradiaJwt;
   if (_authPromise) return _authPromise;
   _authPromise = (async () => {
-    try { return await _mintJwt(); }
-    finally { _authPromise = null; }
+    try {
+      lastAuthError = null;
+      return await _mintJwt();
+    } catch (e) {
+      lastAuthError = e?.message || String(e);
+      console.error('[auth] ensureAuth failed:', lastAuthError);
+      return null;
+    } finally {
+      _authPromise = null;
+    }
   })();
   return _authPromise;
 }
 
-// Force re-mint (used on 401 retries).
+// Force re-mint (used on 401 retries). Returns null on failure rather
+// than throwing — the caller decides whether to proceed without auth.
 async function _forceReauth() {
   _altradiaJwt    = null;
   _jwtExpiresAt   = 0;
   return ensureAuth();
 }
 
-// Build headers for a request with the current JWT.
+// Build headers for a request with the current JWT. If auth failed
+// (token is null), we degrade to the anon key so the request at least
+// reaches the server — RLS will then reject any user-scoped read/write
+// with a 401, and the caller can surface that gracefully instead of
+// hanging indefinitely.
 async function _authHeaders(extra = {}) {
   const tok = await ensureAuth();
   return {
     'Content-Type':  'application/json',
     'apikey':         SUPABASE_ANON_KEY,
-    'Authorization': `Bearer ${tok}`,
+    'Authorization': `Bearer ${tok || SUPABASE_ANON_KEY}`,
     ...extra,
   };
 }
