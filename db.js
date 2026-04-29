@@ -1,18 +1,143 @@
 // ═══════════════════════════════════════════════
-// db.js — TradeWatch Supabase Database Layer
+// db.js — altradia Supabase Database Layer
+//
+// Authenticates each user with a real Supabase JWT (HS256, signed by the
+// `mint-jwt` Edge Function after Telegram init_data verification). The
+// publishable anon key is still sent as the `apikey` header — PostgREST
+// requires it for routing — but the `Authorization: Bearer <jwt>` header
+// carries the user's identity, which RLS policies use to scope row access.
+//
+// Token lifecycle:
+//   - On boot, ensureAuth() calls /functions/v1/mint-jwt with init_data
+//     and stashes the returned JWT.
+//   - Every db.* call uses the JWT.
+//   - On a 401 response, the wrapper re-mints once and retries — handles
+//     expiry transparently without leaking auth errors to callers.
 // ═══════════════════════════════════════════════
 
 const SUPABASE_URL = 'https://etugovdinpbqiygsbemc.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0dWdvdmRpbnBicWl5Z3NiZW1jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMyMzA3NTEsImV4cCI6MjA4ODgwNjc1MX0.4gDZXjYlRsco96Ocuw_qexsgTIhElfr59HqFIaT_06Y';
 
-// ── Supabase client (lightweight, no npm needed) ──
-const db = {
-  headers: {
-    'Content-Type': 'application/json',
-    'apikey': SUPABASE_ANON_KEY,
-    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-  },
+// ── User identity (set by ensureAuth) ──────────────────────────────────
+let currentUserId       = null;       // UUID returned by mint-jwt
+let currentTelegramId   = null;       // Telegram user.id, set after auth
+let _altradiaJwt        = null;       // active access token
+let _jwtExpiresAt       = 0;          // unix-seconds expiry
+let _authPromise        = null;       // dedupes concurrent ensureAuth() calls
 
+// Detect Telegram user ID for the dev fallback path. The real auth still
+// goes through mint-jwt — this just feeds the local console with a value
+// for debugging; it does not influence what user_id the server picks.
+function _getTelegramHints() {
+  try {
+    const tg = window.Telegram?.WebApp;
+    if (tg?.initDataUnsafe?.user?.id) {
+      tg.ready();
+      tg.expand();
+      return {
+        initData:   tg.initData || '',
+        telegramId: String(tg.initDataUnsafe.user.id),
+      };
+    }
+  } catch (e) { /* not in Telegram */ }
+  return { initData: '', telegramId: '' };
+}
+
+// Mint a fresh JWT via the Edge Function. Falls back to dev mode in a
+// regular browser ONLY if the Edge Function is configured with
+// ALTRADIA_DEV_MODE=1 in its secrets.
+async function _mintJwt() {
+  const hints = _getTelegramHints();
+
+  let body;
+  if (hints.initData) {
+    body = { init_data: hints.initData };
+  } else {
+    // Browser dev fallback: needs the Edge Function in dev mode AND a
+    // persistent fake telegram id stored locally so repeated reloads keep
+    // the same user.
+    let devId = localStorage.getItem('altradia_dev_telegram_id');
+    if (!devId) {
+      devId = '99' + Math.floor(Math.random() * 1e8).toString();
+      localStorage.setItem('altradia_dev_telegram_id', devId);
+    }
+    body = { dev: 1, telegram_id: devId };
+  }
+
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/mint-jwt`, {
+    method:  'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      // The Edge Function itself also needs an apikey header for the
+      // Supabase gateway; the bearer is the anon key here because we're
+      // literally trying to obtain user auth.
+      'apikey':         SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`mint-jwt failed: HTTP ${res.status} ${text}`);
+  }
+  const data = await res.json();
+  if (!data.ok || !data.token) throw new Error(`mint-jwt rejected: ${data.error || 'unknown'}`);
+
+  _altradiaJwt      = data.token;
+  _jwtExpiresAt     = data.expires_at;
+  currentUserId     = data.user_id;
+  currentTelegramId = data.telegram_id;
+  console.log('[auth] minted JWT for user', currentUserId, 'expires in',
+    Math.round((data.expires_at - Date.now() / 1000) / 60) + 'm');
+  return _altradiaJwt;
+}
+
+// Public helper. Concurrent callers share a single in-flight mint; once
+// the token is fresh, subsequent calls return immediately.
+async function ensureAuth() {
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (_altradiaJwt && _jwtExpiresAt > nowSec + 30) return _altradiaJwt;
+  if (_authPromise) return _authPromise;
+  _authPromise = (async () => {
+    try { return await _mintJwt(); }
+    finally { _authPromise = null; }
+  })();
+  return _authPromise;
+}
+
+// Force re-mint (used on 401 retries).
+async function _forceReauth() {
+  _altradiaJwt    = null;
+  _jwtExpiresAt   = 0;
+  return ensureAuth();
+}
+
+// Build headers for a request with the current JWT.
+async function _authHeaders(extra = {}) {
+  const tok = await ensureAuth();
+  return {
+    'Content-Type':  'application/json',
+    'apikey':         SUPABASE_ANON_KEY,
+    'Authorization': `Bearer ${tok}`,
+    ...extra,
+  };
+}
+
+// Auto-retry-on-401 wrapper. PostgREST returns 401 if the JWT is invalid
+// or expired; we re-mint once and retry transparently.
+async function _authedFetch(url, init = {}) {
+  let res = await fetch(url, { ...init, headers: { ...(await _authHeaders()), ...(init.headers || {}) } });
+  if (res.status === 401) {
+    console.warn('[auth] 401 — re-minting JWT and retrying');
+    await _forceReauth();
+    res = await fetch(url, { ...init, headers: { ...(await _authHeaders()), ...(init.headers || {}) } });
+  }
+  return res;
+}
+
+// ── Supabase REST helper (lightweight, no npm needed) ──────────────────
+const db = {
   async query(table, options = {}) {
     let url = `${SUPABASE_URL}/rest/v1/${table}`;
     const params = new URLSearchParams();
@@ -21,29 +146,26 @@ const db = {
     if (options.order)   params.set('order', options.order);
     if (options.limit)   params.set('limit', options.limit);
     if (params.toString()) url += '?' + params.toString();
-
-    const res = await fetch(url, { headers: this.headers });
+    const res = await _authedFetch(url);
     if (!res.ok) throw new Error(await res.text());
     return res.json();
   },
 
   async insert(table, data) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
-      method: 'POST',
-      headers: { ...this.headers, 'Prefer': 'return=representation' },
-      body: JSON.stringify(data),
+    const res = await _authedFetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      method:  'POST',
+      headers: { 'Prefer': 'return=representation' },
+      body:    JSON.stringify(data),
     });
     if (!res.ok) throw new Error(await res.text());
     return res.json();
   },
 
   async upsert(table, data, onConflict) {
-    const url = `${SUPABASE_URL}/rest/v1/${table}`;
-    const res = await fetch(url, {
-      method: 'POST',
+    const res = await _authedFetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+      method:  'POST',
       headers: {
-        ...this.headers,
-        'Prefer': `resolution=merge-duplicates,return=representation`,
+        'Prefer': 'resolution=merge-duplicates,return=representation',
         ...(onConflict ? { 'on-conflict': onConflict } : {}),
       },
       body: JSON.stringify(data),
@@ -57,10 +179,10 @@ const db = {
     const params = new URLSearchParams();
     Object.entries(filter).forEach(([k, v]) => params.set(k, v));
     url += '?' + params.toString();
-    const res = await fetch(url, {
-      method: 'PATCH',
-      headers: { ...this.headers, 'Prefer': 'return=representation' },
-      body: JSON.stringify(data),
+    const res = await _authedFetch(url, {
+      method:  'PATCH',
+      headers: { 'Prefer': 'return=representation' },
+      body:    JSON.stringify(data),
     });
     if (!res.ok) throw new Error(await res.text());
     return res.json();
@@ -71,62 +193,22 @@ const db = {
     const params = new URLSearchParams();
     Object.entries(filter).forEach(([k, v]) => params.set(k, v));
     url += '?' + params.toString();
-    const res = await fetch(url, {
-      method: 'DELETE',
-      headers: this.headers,
-    });
+    const res = await _authedFetch(url, { method: 'DELETE' });
     if (!res.ok) throw new Error(await res.text());
     return true;
   },
 };
 
 // ═══════════════════════════════════════════════
-// USER — get or create user by telegram_id
-// Detects Telegram user ID from WebApp SDK,
-// falls back to persistent guest ID for browser testing
+// USER bootstrap — kept as a name-compat shim
 // ═══════════════════════════════════════════════
-let currentUserId = null;
-
-// Detect Telegram user ID
-function detectTelegramId() {
+// The legacy getOrCreateUser() created the row via direct SQL. Now mint-jwt
+// owns user creation server-side, and ensureAuth() returns the user_id as a
+// side effect. This shim exists so existing callers in app.js (e.g.
+// `await getOrCreateUser(currentTelegramId)`) keep working without edits.
+async function getOrCreateUser(_telegramId) {
   try {
-    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-    if (tgUser?.id) {
-      window.Telegram.WebApp.ready(); // signal app is ready
-      window.Telegram.WebApp.expand(); // expand to full screen
-      return String(tgUser.id);
-    }
-  } catch(e) {}
-  // Fallback — persistent guest ID for browser/dev testing
-  let guestId = localStorage.getItem('tw_user_id');
-  if (!guestId) {
-    guestId = 'guest_' + Math.random().toString(36).slice(2);
-    localStorage.setItem('tw_user_id', guestId);
-  }
-  return guestId;
-}
-
-let currentTelegramId = detectTelegramId();
-
-async function getOrCreateUser(telegramId) {
-  try {
-    console.log('DB: getOrCreateUser telegramId=', telegramId);
-    const rows = await db.query('users', {
-      select: 'id',
-      filter: { 'telegram_id': `eq.${telegramId}` },
-      limit: 1,
-    });
-
-    if (rows.length > 0) {
-      currentUserId = rows[0].id;
-      console.log('DB: found user', currentUserId);
-      return currentUserId;
-    }
-
-    // Create new user
-    const created = await db.insert('users', { telegram_id: telegramId });
-    currentUserId = created[0].id;
-    console.log('DB: created user', currentUserId);
+    await ensureAuth();
     return currentUserId;
   } catch (e) {
     console.error('DB: getOrCreateUser FAILED', e.message || e);
@@ -138,6 +220,7 @@ async function getOrCreateUser(telegramId) {
 // PREFERENCES
 // ═══════════════════════════════════════════════
 async function loadPreferencesFromDB() {
+  if (!currentUserId) await ensureAuth();
   if (!currentUserId) return null;
   try {
     const rows = await db.query('preferences', {
@@ -153,12 +236,10 @@ async function loadPreferencesFromDB() {
 }
 
 async function savePreferencesDB(prefs) {
+  if (!currentUserId) await ensureAuth();
   if (!currentUserId) return;
   try {
-    await db.upsert('preferences', {
-      user_id: currentUserId,
-      ...prefs,
-    }, 'user_id');
+    await db.upsert('preferences', { user_id: currentUserId, ...prefs }, 'user_id');
   } catch (e) {
     console.warn('DB: savePreferences failed', e);
   }
@@ -168,14 +249,14 @@ async function savePreferencesDB(prefs) {
 // WATCHLIST
 // ═══════════════════════════════════════════════
 async function loadWatchlist() {
+  if (!currentUserId) await ensureAuth();
   if (!currentUserId) return null;
   try {
-    const rows = await db.query('watchlist', {
+    return await db.query('watchlist', {
       select: 'asset_id,symbol,name,category',
       filter: { 'user_id': `eq.${currentUserId}` },
       order: 'created_at.asc',
     });
-    return rows;
   } catch (e) {
     console.warn('DB: loadWatchlist failed', e);
     return null;
@@ -183,10 +264,8 @@ async function loadWatchlist() {
 }
 
 async function addToWatchlist(asset, category) {
-  if (!currentUserId) {
-    console.warn('DB: addToWatchlist — no currentUserId, skipping');
-    return;
-  }
+  if (!currentUserId) await ensureAuth();
+  if (!currentUserId) { console.warn('DB: addToWatchlist — no currentUserId'); return; }
   try {
     const result = await db.upsert('watchlist', {
       user_id:  currentUserId,
@@ -202,10 +281,11 @@ async function addToWatchlist(asset, category) {
 }
 
 async function removeFromWatchlist(assetId) {
+  if (!currentUserId) await ensureAuth();
   if (!currentUserId) return;
   try {
     await db.delete('watchlist', {
-      'user_id': `eq.${currentUserId}`,
+      'user_id':  `eq.${currentUserId}`,
       'asset_id': `eq.${assetId}`,
     });
   } catch (e) {
@@ -214,6 +294,7 @@ async function removeFromWatchlist(assetId) {
 }
 
 async function syncWatchlistToDB(assets) {
+  if (!currentUserId) await ensureAuth();
   if (!currentUserId) return;
   for (const [category, assetList] of Object.entries(assets)) {
     for (const asset of assetList) {
@@ -226,6 +307,7 @@ async function syncWatchlistToDB(assets) {
 // ALERTS
 // ═══════════════════════════════════════════════
 async function loadAlertsFromDB() {
+  if (!currentUserId) await ensureAuth();
   if (!currentUserId) return null;
   try {
     const rows = await db.query('alerts', {
@@ -233,7 +315,6 @@ async function loadAlertsFromDB() {
       filter: { 'user_id': `eq.${currentUserId}` },
       order: 'created_at.asc',
     });
-    // Map DB rows to app format
     return rows.map(r => ({
       id: r.id,
       assetId: r.asset_id,
@@ -254,8 +335,6 @@ async function loadAlertsFromDB() {
       triggeredPrice: r.triggered_price ? parseFloat(r.triggered_price) : null,
       triggeredDirection: r.triggered_direction,
       lastTriggeredAt: r.last_triggered_at ? new Date(r.last_triggered_at).getTime() : 0,
-      // Restore in-memory zone state — if last_triggered_at is set on a repeating zone,
-      // it has already entered the zone at least once
       zoneTriggeredOnce: r.condition === 'zone' && parseInt(r.repeat_interval) > 0 && !!r.last_triggered_at,
     }));
   } catch (e) {
@@ -265,6 +344,7 @@ async function loadAlertsFromDB() {
 }
 
 async function saveAlert(alert) {
+  if (!currentUserId) await ensureAuth();
   if (!currentUserId) return alert;
   try {
     const rows = await db.insert('alerts', {
@@ -290,10 +370,11 @@ async function saveAlert(alert) {
 }
 
 async function updateAlert(alertId, data) {
+  if (!currentUserId) await ensureAuth();
   if (!currentUserId) return;
   try {
     await db.update('alerts', data, {
-      'id': `eq.${alertId}`,
+      'id':      `eq.${alertId}`,
       'user_id': `eq.${currentUserId}`,
     });
   } catch (e) {
@@ -302,10 +383,11 @@ async function updateAlert(alertId, data) {
 }
 
 async function deleteAlertFromDB(alertId) {
+  if (!currentUserId) await ensureAuth();
   if (!currentUserId) return;
   try {
     await db.delete('alerts', {
-      'id': `eq.${alertId}`,
+      'id':      `eq.${alertId}`,
       'user_id': `eq.${currentUserId}`,
     });
   } catch (e) {
@@ -317,6 +399,7 @@ async function deleteAlertFromDB(alertId) {
 // ALERT HISTORY
 // ═══════════════════════════════════════════════
 async function loadAlertHistoryFromDB() {
+  if (!currentUserId) await ensureAuth();
   if (!currentUserId) return null;
   try {
     const rows = await db.query('alert_history', {
@@ -341,17 +424,18 @@ async function loadAlertHistoryFromDB() {
 }
 
 async function saveAlertToHistory(alert) {
+  if (!currentUserId) await ensureAuth();
   if (!currentUserId) return;
   try {
     await db.insert('alert_history', {
-      user_id: currentUserId,
-      asset_id: alert.assetId,
-      symbol: alert.symbol,
-      condition: alert.condition,
-      target_price: alert.targetPrice,
-      triggered_price: alert.triggeredPrice,
-      triggered_at: Date.now(),
-      note: alert.note || '',
+      user_id:          currentUserId,
+      asset_id:         alert.assetId,
+      symbol:           alert.symbol,
+      condition:        alert.condition,
+      target_price:     alert.targetPrice,
+      triggered_price:  alert.triggeredPrice,
+      triggered_at:     Date.now(),
+      note:             alert.note || '',
     });
   } catch (e) {
     console.warn('DB: saveAlertToHistory failed', e);
@@ -359,63 +443,11 @@ async function saveAlertToHistory(alert) {
 }
 
 async function clearAlertHistoryFromDB() {
+  if (!currentUserId) await ensureAuth();
   if (!currentUserId) return;
   try {
-    await db.delete('alert_history', {
-      'user_id': `eq.${currentUserId}`,
-    });
+    await db.delete('alert_history', { 'user_id': `eq.${currentUserId}` });
   } catch (e) {
     console.warn('DB: clearAlertHistory failed', e);
-  }
-}
-
-// ═══════════════════════════════════════════════
-// ASSET CLICK TRACKING — powers dynamic Hot List
-// ═══════════════════════════════════════════════
-
-async function trackAssetClick(assetId, category) {
-  try {
-    await fetch(`${SUPABASE_URL}/rest/v1/rpc/increment_asset_click`, {
-      method: 'POST',
-      headers: { ...db.headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        p_asset_id:  assetId,
-        p_category:  category,
-        p_user_id:   currentUserId || null,
-      }),
-    });
-  } catch (e) {
-    // Non-critical — silently fail
-  }
-}
-
-async function loadHotListRankings() {
-  try {
-    // Use combined ranking RPC if we have a user — personalised + global
-    // Fall back to global-only if no user yet
-    const endpoint = currentUserId
-      ? `${SUPABASE_URL}/rest/v1/rpc/get_hot_list_rankings`
-      : `${SUPABASE_URL}/rest/v1/asset_clicks?select=asset_id,category,click_count&order=click_count.desc`;
-
-    const res = await fetch(endpoint, {
-      method: currentUserId ? 'POST' : 'GET',
-      headers: { ...db.headers, 'Content-Type': 'application/json' },
-      ...(currentUserId ? { body: JSON.stringify({ p_user_id: currentUserId }) } : {}),
-    });
-
-    if (!res.ok) return null;
-    const rows = await res.json();
-    if (!rows || rows.length === 0) return null;
-
-    // Group by category in score order (already sorted by RPC/query)
-    const ranked = {};
-    rows.forEach(r => {
-      if (!ranked[r.category]) ranked[r.category] = [];
-      ranked[r.category].push(r.asset_id);
-    });
-    return ranked;
-  } catch (e) {
-    console.warn('DB: loadHotListRankings failed', e);
-    return null;
   }
 }
