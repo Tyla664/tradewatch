@@ -2485,6 +2485,11 @@ function ensureLWChart() {
     borderDownColor: '#ef5350',
     wickUpColor:     '#26a69a',
     wickDownColor:   '#ef5350',
+    // Suppress the built-in last-value price line — we render our own
+    // lwLivePriceLine that tracks the live OANDA tick. Without this the
+    // chart shows two horizontal markers at near-identical prices.
+    lastValueVisible:  false,
+    priceLineVisible:  false,
   });
 
   // Resize observer — keeps chart sized to its container
@@ -2884,7 +2889,22 @@ function loadTVChart(asset)   { loadLWChart(asset); }
 // ── Toggle zone vs single price UI ───────────────
 // onConditionChange: see setup alert section below
 
+// Reentry guard — see _creatingSetupAlert.
+let _creatingRegularAlert = false;
 async function createAlert() {
+  if (_creatingRegularAlert) {
+    console.log('[createAlert] reentry blocked');
+    return;
+  }
+  _creatingRegularAlert = true;
+  try {
+    return await _createAlertInner();
+  } finally {
+    _creatingRegularAlert = false;
+  }
+}
+
+async function _createAlertInner() {
   userTypingInForm = false;
   // Route setup to its own handler FIRST — even when editing
   // (setup edits go through createSetupAlert which handles editingAlertId)
@@ -2973,6 +2993,18 @@ async function createAlert() {
       ? (currentPrice > zoneHigh ? true : currentPrice < zoneLow ? false : null)
       : null,
   };
+
+  // For tap alerts: if price is ALREADY inside the tolerance window at
+  // creation, treat the alert as having already tapped. The engine will
+  // then wait for price to leave and re-enter the window before firing.
+  // Without this, a tap alert created at 116.911 ±0.2% with price already
+  // at 116.822 (0.076% away) fires the same minute it's created — exactly
+  // what was reported in image 2.
+  if (isTap && currentPrice > 0) {
+    const tolFrac = (tapTolerance || 0.2) / 100;
+    const insideAtCreation = Math.abs(currentPrice - targetPrice) / targetPrice <= tolFrac;
+    if (insideAtCreation) newAlert.tapTriggeredOnce = true;
+  }
 
   alerts.push(newAlert);
 
@@ -3793,11 +3825,9 @@ async function _fireSetupTransitionAtomic(alert, j, nextStatus, currentPrice) {
 
   let won = false;
   try {
-    const res = await fetch(url, {
+    const res = await _authedFetch(url, {
       method:  'PATCH',
       headers: {
-        'apikey':         SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
         'Content-Type':   'application/json',
         'Prefer':         'return=representation',
       },
@@ -4215,7 +4245,18 @@ function updateSetupPricePlaceholders(dir) {
     if (!el.dataset.userEdited && !editingAlertId && val) {
       // Round to appropriate decimal places for the asset
       const decimals = (assetId.includes('/') && !assetId.startsWith('XAU') && !assetId.startsWith('XAG')) ? 5 : 2;
-      el.value = parseFloat(val).toFixed(decimals);
+      // Only pre-fill REQUIRED fields. TP2 and TP3 are explicitly optional —
+      // for those, the suggested value lives only in the placeholder so the
+      // user has to opt in by typing. Otherwise users who don't want TP2/TP3
+      // submit silently with auto-filled values they never agreed to.
+      const isOptional = (id === 'setup-tp2' || id === 'setup-tp3');
+      if (!isOptional) {
+        el.value = parseFloat(val).toFixed(decimals);
+      } else {
+        // Make the placeholder show the formatted suggestion so the user
+        // sees what we'd recommend without it being committed to the value.
+        el.placeholder = parseFloat(val).toFixed(decimals);
+      }
     }
   });
 }
@@ -4301,7 +4342,24 @@ function autoCalcTP1FromRR() {
   }
 }
 
+// Reentry guard — set true while a setup-alert creation is in flight,
+// reset in a finally block. Multiple rapid taps on Set Alert during
+// perceived lag would otherwise each push an independent alert.
+let _creatingSetupAlert = false;
 async function createSetupAlert() {
+  if (_creatingSetupAlert) {
+    console.log('[createSetupAlert] reentry blocked');
+    return;
+  }
+  _creatingSetupAlert = true;
+  try {
+    return await _createSetupAlertInner();
+  } finally {
+    _creatingSetupAlert = false;
+  }
+}
+
+async function _createSetupAlertInner() {
   if (!selectedAsset) return showToast('No Asset', 'Select an asset first.', 'error');
 
   const entry     = parseFloat(document.getElementById('setup-entry').value);
@@ -4462,6 +4520,37 @@ async function createSetupAlert() {
     // trade journal entry when the user logs the completed trade.
     setupScreenshot: setupScreenshotUrl,
   };
+
+  // Duplicate check — prevent the impatient-tap race that produced 44
+  // identical GBP/JPY setup alerts in the field. We compare against the
+  // local alerts array by assetId + entry + sl + tp1, only matching alerts
+  // that aren't terminal (not full_tp / sl_hit / cancelled).
+  const isTerminalTradeStatus = (a) => {
+    try {
+      const j = JSON.parse(a.note || '{}');
+      return ['full_tp','sl_hit','cancelled','manual_exit'].includes(j.tradeStatus);
+    } catch (_) { return false; }
+  };
+  const dupSetup = alerts.find(a =>
+    a.condition === 'setup' &&
+    a.assetId   === selectedAsset.id &&
+    !isTerminalTradeStatus(a) &&
+    Math.abs(a.targetPrice - entry) < 1e-9 &&
+    (() => {
+      try {
+        const j = JSON.parse(a.note || '{}');
+        return Math.abs((parseFloat(j.sl) || 0) - sl) < 1e-9
+            && Math.abs((parseFloat(j.tp1) || 0) - (tp1 || 0)) < 1e-9;
+      } catch(_) { return false; }
+    })()
+  );
+  if (dupSetup) {
+    return showToast(
+      'Duplicate Setup',
+      `You already have an active ${selectedAsset.symbol} setup at ${formatPrice(entry, selectedAsset.id)} with the same SL and TP1.`,
+      'error',
+    );
+  }
 
   const newAlert = {
     id:           'temp_' + alertIdCounter++,
@@ -5216,11 +5305,11 @@ let jnlExistingAfterUrl  = null;
 
 // ── DB helpers ─────────────────────────────────────────────────────────────
 async function loadJournalFromDB() {
+  if (!currentUserId) await ensureAuth();
   if (!currentUserId) return [];
   try {
-    const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/trade_journal?user_id=eq.${currentUserId}&order=trade_date.desc`,
-      { headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` } }
+    const res = await _authedFetch(
+      `${SUPABASE_URL}/rest/v1/trade_journal?user_id=eq.${currentUserId}&order=trade_date.desc`
     );
     if (!res.ok) return [];
     return await res.json();
@@ -5229,11 +5318,9 @@ async function loadJournalFromDB() {
 
 async function saveJournalToDB(entry) {
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/trade_journal`, {
+    const res = await _authedFetch(`${SUPABASE_URL}/rest/v1/trade_journal`, {
       method:  'POST',
       headers: {
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
         'Content-Type':  'application/json',
         'Prefer':        'return=representation',
       },
@@ -5246,9 +5333,8 @@ async function saveJournalToDB(entry) {
 
 async function deleteJournalEntryFromDB(id) {
   try {
-    await fetch(`${SUPABASE_URL}/rest/v1/trade_journal?id=eq.${id}`, {
+    await _authedFetch(`${SUPABASE_URL}/rest/v1/trade_journal?id=eq.${id}`, {
       method: 'DELETE',
-      headers: { 'apikey': SUPABASE_ANON_KEY, 'Authorization': `Bearer ${SUPABASE_ANON_KEY}` },
     });
   } catch(e) {}
 }
@@ -5283,13 +5369,11 @@ async function uploadScreenshot(file, slot) {
     file = await compressImage(file, 1200, 0.82) || file;
     const ext      = file.name.split('.').pop() || 'jpg';
     const path     = `${currentUserId}/${Date.now()}_${slot}.${ext}`;
-    const res      = await fetch(
+    const res      = await _authedFetch(
       `${SUPABASE_URL}/storage/v1/object/trade-screenshots/${path}`,
       {
         method: 'POST',
         headers: {
-          'apikey':        SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
           'Content-Type':  file.type || 'image/jpeg',
         },
         body: file,
